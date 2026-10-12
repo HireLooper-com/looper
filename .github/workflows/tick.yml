@@ -1,0 +1,22 @@
+# Runs the Looper scheduler every 15 minutes. Vercel Hobby only allows a daily cron (vercel.json),
+# so this calls /api/cron/tick from GitHub instead. Set the LOOPER_URL variable and the CRON_SECRET
+# secret in this repo's Settings > Secrets and variables > Actions; until then it does nothing.
+name: Tick
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Call the scheduler
+        env:
+          URL: ${{ vars.LOOPER_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then echo "Set LOOPER_URL and CRON_SECRET to turn this on."; exit 0; fi
+          curl -fsS -m 300 -H "authorization: Bearer $SECRET" "${URL%/}/api/cron/tick"
