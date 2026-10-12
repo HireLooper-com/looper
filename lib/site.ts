@@ -1,7 +1,7 @@
 import { unmetered } from "./billing";
 
 // Public contact address, used on the privacy and terms pages.
-export const CONTACT = "hello@hirelooper.com";
+export const CONTACT = "team@hirelooper.com";
 
 // Base URL in emails. On-prem installs set LOOPER_URL to their own host; a self-hosted Vercel deploy
 // without it uses the project's production domain.

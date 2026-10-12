@@ -93,7 +93,7 @@ npm run build
 - Not allowed: selling Looper, or a service built on it that competes with hirelooper.com
 - Each version becomes Apache 2.0 two years after its release
 
-Want to resell or white-label it? Write to hello@hirelooper.com.
+Want to resell or white-label it? Write to team@hirelooper.com.
 
 ## Contributing
 
