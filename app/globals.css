@@ -1,0 +1,3 @@
+/* App styles live in app/app.css on .ax. */
+:root { color-scheme: dark; }
+body { margin:0; background:#000; -webkit-font-smoothing: antialiased; }

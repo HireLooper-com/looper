@@ -1,0 +1,45 @@
+# Looper on your own servers: Postgres, the app and the 15 minute scheduler.
+# Copy .env.example to .env next to this file, fill it in, then: docker compose up -d
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: looper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: looper
+    volumes:
+      - looper-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U looper"]
+      interval: 10s
+      retries: 10
+
+  app:
+    build:
+      context: ../..
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://looper:${POSTGRES_PASSWORD}@db:5432/looper
+      DATABASE_DRIVER: pg
+      LOOPER_EDITION: enterprise
+    ports:
+      - "${LOOPER_PORT:-3000}:3000"
+
+  # Same job as Vercel Cron on hirelooper.com: one idempotent tick every 15 minutes.
+  scheduler:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    depends_on:
+      - app
+    env_file: .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'while true; do curl -fsS -m 290 -H "authorization: Bearer $$CRON_SECRET" http://app:3000/api/cron/tick > /dev/null || echo "tick failed"; sleep 900; done'
+
+volumes:
+  looper-db:
