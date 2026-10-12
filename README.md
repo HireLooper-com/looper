@@ -31,7 +31,7 @@ Then:
 1. Open your new URL, sign up, and paste an Anthropic, OpenAI or xAI key in Settings.
 2. Turn on the scheduler, which runs loopers every 15 minutes:
    - **Vercel Pro**: in `vercel.json`, change the schedule to `*/15 * * * *` and push.
-   - **Vercel Hobby** (daily crons only): in your new GitHub repo, open Settings → Secrets and variables → Actions. Add the variable `LOOPER_URL` with your app URL and the secret `CRON_SECRET` with the same value as in Vercel. `.github/workflows/tick.yml` then calls the scheduler every 15 minutes.
+   - **Vercel Hobby** (daily crons only): in your new GitHub repo, copy `deploy/github/tick.yml` to `.github/workflows/tick.yml` (Add file → Create new file, paste it). Then open Settings → Secrets and variables → Actions, add the variable `LOOPER_URL` with your app URL and the secret `CRON_SECRET` with the same value as in Vercel. The workflow then calls the scheduler every 15 minutes. It ships outside `.github/workflows` because GitHub refuses workflow files from the Deploy button.
 3. Optional: add `COMPOSIO_API_KEY` in Vercel → Settings → Environment Variables to connect 57 tools.
 
 ## Run it with Docker

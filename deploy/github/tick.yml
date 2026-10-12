@@ -1,6 +1,8 @@
 # Runs the Looper scheduler every 15 minutes. Vercel Hobby only allows a daily cron (vercel.json),
-# so this calls /api/cron/tick from GitHub instead. Set the LOOPER_URL variable and the CRON_SECRET
-# secret in this repo's Settings > Secrets and variables > Actions; until then it does nothing.
+# so this calls /api/cron/tick from GitHub instead. Copy this file to .github/workflows/tick.yml in your repo,
+# then set the LOOPER_URL variable and the CRON_SECRET secret in Settings > Secrets and variables > Actions.
+# It lives outside .github/workflows so the Deploy to Vercel button can copy the repo: GitHub refuses
+# workflow files from apps without the workflows permission.
 name: Tick
 
 on:
