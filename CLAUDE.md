@@ -13,7 +13,7 @@ Web app (`/app`, `/login`, `/signup`):
 - `lib/auth.ts` email codes (6 digits, 10 minutes, 5 tries, `login_codes` table), session cookie, `isPaid` billing gate
 - `lib/mail.ts` Loops transactional email over fetch (`LOOPS_API_KEY`, `LOOPS_TEMPLATE_ID`), one generic template with `subject`, `heading`, `body`; without a key, mail prints to the server log
 - `lib/llm.ts` founder's own key: Anthropic SDK, OpenAI and xAI over fetch; `chat`, `json`, `withTools`
-- `lib/composio.ts` Composio REST v3.1: link accounts, list tools, execute; `TOOLKITS` lists the 57 toolkits; the app only offers those with an enabled auth config in the Composio project (`enabledToolkits`, cached 5 minutes); one Composio user per workspace
+- `lib/composio.ts` Composio REST v3.1: link accounts, list tools, execute; `TOOLKITS` lists the 58 toolkits; the app only offers those with an enabled auth config in the Composio project (`enabledToolkits`, cached 5 minutes); one Composio user per workspace
 - `lib/engine.ts` routine runs into cards, card execution, metric reads, attribution, `fireLooper`. A fired looper keeps its row with `fired_at` set; any query that runs, lists or emails loopers filters `fired_at is null`
 - `lib/reflection.ts` reflection chat, rule diff, accept (new `routine_versions` from next Monday)
 - `lib/talk.ts` chat with a looper any day (`talk` table, right panel of the looper page, `app/app/l/[id]/chat.tsx`): answers with read tools, proposes changes through `propose_*` tools; `apply` runs one after a person presses Apply. Pure helpers in `lib/talk-turns.ts`. Looper replies in both chats render the model's small markdown (paragraphs, lists, bold, italic, code) through `lib/rich.ts` and `app/app/l/[id]/rich.tsx`, never as HTML; tested in `test/rich.test.ts`

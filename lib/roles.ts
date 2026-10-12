@@ -166,6 +166,7 @@ export const ROLES: Role[] = [
     work: [
       { name: "A post", detail: "Drafted for LinkedIn or X, published after you approve it", action: "tool", tool: "linkedin" },
       { name: "A reply to a comment", detail: "Drafted under your recent posts, sent after you approve it", action: "tool", tool: "linkedin" },
+      { name: "A post in your Buffer queue", detail: "Drafted for any channel connected to Buffer, queued after you approve it", action: "tool", tool: "buffer" },
     ],
     metrics: [
       { name: "LinkedIn followers", source: "linkedin", unit: "", direction: "up", hint: "Followers of the company page that matches the website; if there is none, of the connected profile." },
@@ -183,6 +184,7 @@ export const ROLES: Role[] = [
       "- find the 3 best posts of the last 28 days by impressions and draft a follow-up in the same format",
       "- reply drafts to comments on the last 7 days of posts",
       "- one repurposing routine: a long post into a carousel or a thread",
+      "- when Buffer is connected, queue approved posts there instead of posting directly, so they go out in the founder's own time slots",
       "Publishing is always a card the founder approves first.",
     ].join("\n"),
   },

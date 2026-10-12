@@ -16,6 +16,7 @@ export const TOOLKITS: Record<string, string> = {
   facebook: "Facebook",
   youtube: "YouTube",
   reddit: "Reddit",
+  buffer: "Buffer",
   webflow: "Webflow",
   wordpress: "WordPress",
   mailchimp: "Mailchimp",
