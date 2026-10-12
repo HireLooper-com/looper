@@ -241,6 +241,8 @@ const SCHEMA = [
   `alter table cards add column if not exists acted_by int references users(id) on delete set null`,
   `alter table routine_versions add column if not exists created_by int references users(id) on delete set null`,
   `alter table users add column if not exists stripe_subscription_id text`,
+  // Stripe billing interval of the subscription: month, or year at 50% off.
+  `alter table users add column if not exists billing text not null default 'month'`,
   // Email: cards to approve, failed runs, reflection open (notify); Monday progress report (weekly).
   `alter table users add column if not exists notify boolean not null default true`,
   `alter table users add column if not exists weekly boolean not null default true`,

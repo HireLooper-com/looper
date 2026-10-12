@@ -471,6 +471,9 @@
 .ax .xb-ask textarea { font-family: inherit; font-size:14px; }
 .ax .xb-prov { grid-template-columns: repeat(3, minmax(0,1fr)); max-height:none; }
 .ax .xb-prov .xk-c { padding: 12px 14px; }
+.ax .xb-bill { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 480px; overflow: visible; max-height: none; }
+.ax .xb-bill .xk-c span { white-space: normal; }
+.ax .xset-act > .xb-bill { flex-basis: 100%; margin-bottom: 4px; }
 .ax .xo-drafts { max-width: 640px; margin: 36px auto 0; }
 .ax .xo-drafts h2 { font-size:14px; font-weight:600; margin: 0 0 8px; }
 .ax .xo-draft { display:flex; align-items:center; gap:12px; padding: 10px 4px; border-bottom:1px solid var(--line); color: var(--fg); text-decoration:none; }

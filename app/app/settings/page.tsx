@@ -408,7 +408,9 @@ export default async function Settings({ searchParams }: { searchParams: Promise
                 <h3>Plan</h3>
                 <p className="xset-plan">
                   <b>{isTeamPlan(u.plan) ? "A-team" : "Pro"}</b>
-                  <span className="dim">{isTeamPlan(u.plan) ? "$1,000/mo" : "$100/mo"}</span>
+                  <span className="dim">
+                    {isTeamPlan(u.plan) ? (u.billing === "year" ? "$500/mo, billed yearly" : "$1,000/mo") : u.billing === "year" ? "$50/mo, billed yearly" : "$100/mo"}
+                  </span>
                 </p>
                 <p className="dim">{u.subscription_status === "trialing" ? "Free trial" : isPaid(u) ? "Active" : "Not started"}</p>
                 <div className="xset-act">

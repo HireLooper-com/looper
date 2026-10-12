@@ -18,6 +18,7 @@ export type User = {
   notify: boolean;
   weekly: boolean;
   stripe_subscription_id: string | null;
+  billing: string;
 };
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -75,7 +76,7 @@ export async function currentUser(): Promise<User | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   const [u] = await sql<User>`
-    select u.id, u.email, u.tz, u.plan, u.subscription_status, u.stripe_customer_id, u.website, u.notify, u.weekly, u.stripe_subscription_id
+    select u.id, u.email, u.tz, u.plan, u.subscription_status, u.stripe_customer_id, u.website, u.notify, u.weekly, u.stripe_subscription_id, u.billing
     from sessions s join users u on u.id = s.user_id
     where s.token_hash = ${sha(token)} and s.expires_at > now()`;
   return u ?? null;
