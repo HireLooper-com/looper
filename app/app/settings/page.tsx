@@ -24,6 +24,9 @@ import {
 } from "../../actions";
 import { Form, Submit } from "../../ui";
 import { ToolIcon } from "../bits";
+import { unmetered } from "@/lib/billing";
+import { instanceSecret } from "@/lib/crypto";
+import { tickSetup } from "@/lib/tick-workflow";
 
 const ENDPOINTS_EXAMPLE = `[
   { "name": "list_orders", "method": "GET", "path": "/orders",
@@ -49,6 +52,8 @@ export default async function Settings({ searchParams }: { searchParams: Promise
   const pending = await sql<{ email: string }>`select email from invites where workspace_id = ${ws.id} order by created_at`;
   const connectors = await connectorsOf(ws.id);
   const [router] = await sql<{ key_hint: string }>`select key_hint from engine_keys where user_id = ${u.id} and engine = ${OPENROUTER}`;
+  // Self-hosted on Vercel: the scheduler needs a GitHub workflow to run every 15 minutes.
+  const tick = unmetered() ? tickSetup() : null;
   const canAddWs = owned === 0 || (isTeamPlan(u.plan) && isPaid(u));
 
   const all = Object.entries(TOOLKITS).filter(([slug]) => !on || on.has(slug) || status.has(slug));
@@ -337,6 +342,31 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           )}
         </div>
       </section>
+
+      {tick && (
+        <section className="xset-s" id="scheduler">
+          <div className="xset-h">
+            <h2>Scheduler</h2>
+            <p className="dim">Vercel Hobby runs loopers once a day. A GitHub workflow in {tick.repo} runs them every 15 minutes.</p>
+          </div>
+          <div className="xset-b">
+            <div className="xset-c">
+              <ol className="xset-steps">
+                <li>
+                  <a href={tick.workflow} target="_blank" rel="noreferrer">Add the tick workflow</a> to {tick.repo} and press Commit changes.
+                </li>
+                <li>
+                  <a href={tick.secret} target="_blank" rel="noreferrer">Add an Actions secret</a> named <span className="mono">CRON_SECRET</span> with this value:
+                  <input className="mono" readOnly value={instanceSecret("CRON_SECRET") || ""} aria-label="CRON_SECRET" />
+                </li>
+                <li>
+                  <a href={tick.runs} target="_blank" rel="noreferrer">Check the runs</a>: a green run every 15 minutes.
+                </li>
+              </ol>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="xset-s" id="account">
         <div className="xset-h">

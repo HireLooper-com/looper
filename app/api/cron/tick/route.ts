@@ -1,11 +1,13 @@
+import { instanceSecret } from "@/lib/crypto";
 import { tick } from "@/lib/scheduler";
 
 export const maxDuration = 300;
 
 // Vercel Cron sends `Authorization: Bearer $CRON_SECRET` every 15 minutes (vercel.json, needs Vercel Pro);
-// the enterprise scheduler container sends the same header. The log goes to the function logs too.
+// the enterprise scheduler container and the GitHub tick workflow send the same header. A self-hosted
+// install without CRON_SECRET uses the derived one shown in Settings. The log goes to the function logs too.
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
+  const secret = instanceSecret("CRON_SECRET");
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }

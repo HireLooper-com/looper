@@ -1,9 +1,21 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { billingOff } from "./billing";
+
+// ENCRYPTION_KEY or CRON_SECRET from the environment. Self-hosted installs (billingOff) may leave both out,
+// so the Deploy to Vercel button asks for fewer values: each is then derived from DATABASE_URL, which carries
+// the database password. Resetting that password means pasting model keys again and updating the GitHub tick.
+export function instanceSecret(name: "ENCRYPTION_KEY" | "CRON_SECRET") {
+  const v = process.env[name];
+  if (v) return v;
+  const db = process.env.DATABASE_URL;
+  if (!db || !billingOff()) return null;
+  return createHash("sha256").update(`looper:${name}:${db}`).digest("hex");
+}
 
 // AES-256-GCM for model API keys at rest. ENCRYPTION_KEY is any long random
 // string; it is hashed to 32 bytes so its format does not matter.
 function key() {
-  const k = process.env.ENCRYPTION_KEY;
+  const k = instanceSecret("ENCRYPTION_KEY");
   if (!k || k.length < 16) throw new Error("ENCRYPTION_KEY must be set (16+ chars)");
   return createHash("sha256").update(k).digest();
 }

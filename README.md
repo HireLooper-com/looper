@@ -6,7 +6,7 @@ AI hires that each own one business metric. A looper reads your tools every day,
 
 This is the self-hosted Looper, the same app that runs [hirelooper.com](https://hirelooper.com). Free for your own use, see [License](#license).
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FHireLooper-com%2Flooper&project-name=looper&repository-name=looper&env=ENCRYPTION_KEY%2CCRON_SECRET%2CSMTP_URL%2CSMTP_FROM%2CLOOPER_ALLOWED_EMAILS&envDescription=Two+random+strings%2C+your+mail+server%2C+and+who+may+sign+up.&envLink=https%3A%2F%2Fgithub.com%2FHireLooper-com%2Flooper%23deploy-to-vercel&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FHireLooper-com%2Flooper&project-name=looper&repository-name=looper&env=LOOPS_API_KEY%2CLOOPS_TEMPLATE_ID%2CCOMPOSIO_API_KEY%2CLOOPER_ALLOWED_EMAILS&envDescription=Keys+from+Loops+and+Composio%2C+and+who+may+sign+up.&envLink=https%3A%2F%2Fgithub.com%2FHireLooper-com%2Flooper%23deploy-to-vercel&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D)
 
 ## What a looper does
 
@@ -25,23 +25,31 @@ This is the self-hosted Looper, the same app that runs [hirelooper.com](https://
 
 ## Deploy to Vercel
 
-Click the button above. In about 3 minutes you get a copy of this repo in your GitHub, a Neon Postgres database and a running app. Vercel asks for 5 values:
+About 15 minutes, most of it in two sign-ups. Have these open in tabs before you press the button.
+
+**1. Loops, for sign-in emails.** Sign up at [loops.so](https://loops.so).
+- Settings → Domain: verify the domain your emails come from.
+- Transactional → New: one email with 3 data variables, `subject`, `heading` and `body`. Put `subject` in the subject line, `heading` and `body` in the email. Publish it and copy its ID. Looper sends every email (sign-in codes, digests, the Monday report) through this one template.
+- Settings → API: create a key.
+
+**2. Composio, for your tools.** Sign up at [composio.dev](https://composio.dev).
+- Auth Configs: add 3 tools to start, with Composio managed auth. For example GitHub, Google Search Console and Gmail. You can add any of the 57 later; Looper only offers the ones you added.
+- Settings → API Keys: copy the project key.
+
+**3. Press the button.** Vercel copies this repo to your GitHub, adds a Neon Postgres database and asks for 4 values:
 
 | Variable | What to put |
 |---|---|
-| `ENCRYPTION_KEY` | Output of `openssl rand -hex 32`. Encrypts model keys; never change it later |
-| `CRON_SECRET` | Another `openssl rand -hex 32` |
-| `SMTP_URL` | Your mail server for sign-in codes. With [Resend](https://resend.com): `smtps://resend:re_YOURKEY@smtp.resend.com:465` |
-| `SMTP_FROM` | `Looper <looper@yourdomain.com>`, on a domain your mail provider has verified |
-| `LOOPER_ALLOWED_EMAILS` | Who may sign up: `you@yourcompany.com`, or `@yourcompany.com` for your whole team |
+| `LOOPS_API_KEY` | The Loops API key |
+| `LOOPS_TEMPLATE_ID` | The ID of the Loops transactional email |
+| `COMPOSIO_API_KEY` | The Composio project key |
+| `LOOPER_ALLOWED_EMAILS` | Who may sign up: `you@yourcompany.com`, or `@yourcompany.com` for your whole team. Your app URL is public, so set this |
 
-Then:
+**4. After the deploy:**
+1. Open your new URL, sign up with the code from your inbox, and paste an Anthropic, OpenAI or xAI key.
+2. In Settings → Scheduler, follow the 3 links. They add a GitHub workflow that runs loopers every 15 minutes; Vercel Hobby alone runs them once a day. On Vercel Pro you can instead set the schedule in `vercel.json` to `*/15 * * * *`.
 
-1. Open your new URL, sign up, and paste an Anthropic, OpenAI or xAI key in Settings.
-2. Turn on the scheduler, which runs loopers every 15 minutes:
-   - **Vercel Pro**: in `vercel.json`, change the schedule to `*/15 * * * *` and push.
-   - **Vercel Hobby** (daily crons only): in your new GitHub repo, copy `deploy/github/tick.yml` to `.github/workflows/tick.yml` (Add file → Create new file, paste it). Then open Settings → Secrets and variables → Actions, add the variable `LOOPER_URL` with your app URL and the secret `CRON_SECRET` with the same value as in Vercel. The workflow then calls the scheduler every 15 minutes. It ships outside `.github/workflows` because GitHub refuses workflow files from the Deploy button.
-3. Optional: add `COMPOSIO_API_KEY` in Vercel → Settings → Environment Variables to connect 57 tools.
+The encryption key for model keys and the scheduler secret are derived from your database URL, so there is nothing to generate. To set your own, add `ENCRYPTION_KEY` and `CRON_SECRET` in Vercel before you paste a model key. If you reset the Neon password, paste your model key again and update the `CRON_SECRET` Actions secret from Settings → Scheduler.
 
 <img src="docs/readme/self-host.jpg" alt="Deploy to Vercel with 5 values, or run it with Docker" width="100%">
 
@@ -67,7 +75,7 @@ cp .env.example .env.local   # set DATABASE_URL, ENCRYPTION_KEY, CRON_SECRET
 npm run dev
 ```
 
-Tables are created on the first request. Without `LOOPS_API_KEY` or `SMTP_URL`, sign-in codes print to the dev server log. The scheduler is one endpoint: call `/api/cron/tick` with `authorization: Bearer $CRON_SECRET` every 15 minutes.
+Tables are created on the first request. Without `LOOPS_API_KEY` or `SMTP_URL`, sign-in codes print to the dev server log; in production one of them is required. The scheduler is one endpoint: call `/api/cron/tick` with `authorization: Bearer $CRON_SECRET` every 15 minutes.
 
 ```
 npm test
