@@ -149,6 +149,8 @@ export type Role = {
   work: WorkUnit[];
   // Routines see every page on the site, read from its sitemap, and a new page whose URL words match one is held back.
   sitePages?: boolean;
+  // Signal kinds every routine also sees besides its input, to match one item against another (a bank transaction to its invoice).
+  evidence?: string[];
 };
 
 export const ROLES: Role[] = [
@@ -646,10 +648,214 @@ export const ROLES: Role[] = [
     ].join("\n"),
   },
   {
-    id: "accounting",
-    name: "Accounting",
+    id: "vat_nl",
+    name: "VAT reporting, NL",
     live: true,
     group: "Operations",
+    avatar: "accounting",
+    colors: ["#5AB471", "#74DDC8"],
+    tools: ["googledrive", "gmail", "stripe"],
+    example: "Unbooked 64, target 0",
+    work: [
+      {
+        name: "One bank transaction",
+        detail: "Matched to its invoice or Stripe payout, given a box of the Dutch VAT return and filed in Google Drive after you approve it",
+        action: "tool",
+        tool: "googledrive",
+        skills: ["book-transactions", "chase-invoices", "ask-statements", "draft-return"],
+      },
+      { name: "The quarterly VAT return", detail: "Totals per box, 1a to 5b, from the booked transactions, for you or your accountant to file", action: "manual", tool: "", skills: ["draft-return"] },
+    ],
+    // Read from Drive, where the statements and the booking files both live: what is left to book this quarter.
+    metrics: [
+      {
+        name: "Unbooked bank transactions, this quarter",
+        source: "googledrive",
+        unit: "",
+        direction: "down",
+        hint: [
+          "In the Google Drive folder with the bank statement exports: transactions dated in the current calendar quarter,",
+          "minus those with a booking file in the 'VAT bookings/<year>-Q<n>' subfolder (file names start with the transaction's date and amount).",
+        ].join(" "),
+      },
+      { name: "A metric I enter myself", source: "manual", unit: "", direction: "down", hint: "" },
+    ],
+    subject: { kind: "transaction", key: "date, amount and counterparty, like 2026-10-03 -49.00 Google Ireland" },
+    setup: [
+      {
+        id: "folder",
+        name: "Where the bank statements are",
+        tool: "googledrive",
+        ask: [
+          "Find the Google Drive folder with the bank statement exports.",
+          "Answer in short lines: folder: name and id; bank: the bank and the last 4 digits of the IBAN; format: CSV, MT940, CAMT.053 or PDF,",
+          "and for CSV the columns for date, amount, counterparty and description; covers: the first and last transaction date in the files;",
+          "bookings: the id of the 'VAT bookings' subfolder, or none yet.",
+        ].join(" "),
+      },
+      {
+        id: "business",
+        name: "What is sold, to whom, where",
+        tool: "",
+        ask: [
+          "From the website: answer in short lines: sells: services, software or goods; customers: businesses, consumers or both;",
+          "countries: where customers are (Netherlands, the EU, outside the EU); vat id: the NL VAT number if the site prints it, else unknown;",
+          "period: quarterly; oss: yes if it sells to consumers in other EU countries, else no.",
+        ].join(" "),
+      },
+    ],
+    signals: [
+      {
+        kind: "transaction",
+        tool: "googledrive",
+        key: "date, amount and counterparty, like 2026-10-03 -49.00 Google Ireland",
+        read: [
+          "The bank statement exports in the folder from setup: transactions dated in the current calendar quarter and the one before, unbooked first, at most 100.",
+          "Per transaction: date, amount (negative when money left), counterparty, description,",
+          "and booked: yes when the 'VAT bookings/<year>-Q<n>' subfolder has a file whose name starts with its date and amount, else no.",
+        ].join(" "),
+        columns: [
+          { key: "date", label: "Date", type: "text" },
+          { key: "amount", label: "Amount", type: "num" },
+          { key: "counterparty", label: "Counterparty", type: "text" },
+          { key: "description", label: "Description", type: "text" },
+          { key: "booked", label: "Booked", type: "text" },
+        ],
+      },
+      {
+        kind: "invoice",
+        tool: "gmail",
+        key: "seller and invoice number, like Google Ireland 5512093",
+        read: [
+          "Emails from the last 120 days with an invoice or receipt, attached or in the body, received or sent.",
+          "Per invoice: date, seller, total, VAT amount and rate as printed (0 and 'reverse charge' when it says so), currency, the seller's VAT number if printed, and a link to the email.",
+        ].join(" "),
+        columns: [
+          { key: "date", label: "Date", type: "text" },
+          { key: "seller", label: "Seller", type: "text" },
+          { key: "total", label: "Total", type: "num" },
+          { key: "vat", label: "VAT", type: "num" },
+          { key: "rate", label: "Rate", type: "text" },
+          { key: "vat_id", label: "VAT number", type: "text" },
+          { key: "url", label: "Email", type: "url" },
+        ],
+      },
+      {
+        kind: "payout",
+        tool: "stripe",
+        key: "the Stripe payout id, like po_1Q2w3E",
+        read: [
+          "Payouts from the last 120 days. Per payout: arrival date, amount as it lands in the bank, the gross of the charges in it, refunds and Stripe fees,",
+          "and the gross split by customer: Netherlands, EU businesses with a VAT ID (from the customer's tax IDs), other EU customers, outside the EU (from the billing address or card country).",
+        ].join(" "),
+        columns: [
+          { key: "arrival", label: "Arrival", type: "text" },
+          { key: "amount", label: "Amount", type: "num" },
+          { key: "gross", label: "Gross", type: "num" },
+          { key: "fees", label: "Fees", type: "num" },
+          { key: "nl", label: "NL", type: "num" },
+          { key: "eu_b2b", label: "EU, VAT ID", type: "num" },
+          { key: "eu_b2c", label: "EU, other", type: "num" },
+          { key: "non_eu", label: "Outside EU", type: "num" },
+        ],
+      },
+    ],
+    evidence: ["invoice", "payout"],
+    actions: ["tool", "manual"],
+    // A transaction is booked once: the lock outlasts the quarter.
+    limits: { cooldownDays: 120, perWeek: {}, alwaysAsk: ["tool"] },
+    routines: [
+      {
+        slug: "book-transactions",
+        name: "Book bank transactions for VAT",
+        tool: "googledrive",
+        days: [0, 1, 2, 3, 4],
+        hour: 8,
+        input: "transaction",
+        action: "tool",
+        check: { days: [], read: "" },
+        rules: [
+          "pick: transactions with booked no, oldest first",
+          "match: money in to the Stripe payout with the same amount, arriving within 3 days; money out to the invoice from the counterparty with the same total, dated up to 30 days before",
+          "box: 1a 21% and 1b 9% on Dutch sales; 1e services to businesses outside the EU; 3b services to EU businesses with a VAT ID, also on the ICP return;",
+          "  4a services bought from outside the EU and 4b from EU sellers that charge no VAT (Google Ireland, Meta Ireland): 21% due, deducted again in 5b;",
+          "  5b the Dutch VAT printed on an invoice you paid; a Stripe payout splits its gross over 1a, 3b and 1e, and EU consumer sales go in 1a while they stay under 10,000 euro a year, else OSS",
+          "no VAT: transfers between own accounts, payments to or from the Belastingdienst, salaries, loans, bank fees; booked with the reason",
+          "max: 5 cards, one per transaction",
+          "change: one text file in 'VAT bookings/<year>-Q<n>' (create the folders when missing), named '<date> <amount> <counterparty>.txt',",
+          "  with the box and amount per line, the VAT and rate, and the invoice or payout it matched with its link",
+          "no match: leave it for chase-invoices; never guess a VAT amount the invoice does not print, never book a transaction twice",
+          "detail: the transaction, what it matched, the box and the VAT, in 3 lines",
+        ].join("\n"),
+      },
+      {
+        slug: "chase-invoices",
+        name: "List transactions with no invoice",
+        tool: "gmail",
+        days: [3],
+        hour: 9,
+        input: "transaction",
+        action: "manual",
+        check: { days: [], read: "" },
+        rules: [
+          "pick: money out with booked no, 7+ days old, no invoice in the ledger or Gmail from the counterparty with that total",
+          "skip: the no VAT kinds from book-transactions",
+          "rank: amount, largest first",
+          "max: 5 cards, one per transaction",
+          "detail: the transaction, the searches you ran in Gmail, and where the seller usually puts invoices (account billing page, portal, email address)",
+        ].join("\n"),
+      },
+      {
+        slug: "ask-statements",
+        name: "Ask for the latest bank statement",
+        tool: "googledrive",
+        days: [0],
+        hour: 9,
+        input: "transaction",
+        action: "manual",
+        check: { days: [], read: "" },
+        rules: [
+          "pick: when the newest transaction in the ledger is more than 10 days old, or the ledger is empty",
+          "max: 1 card",
+          "subject: statement <year>-<month> of the month that is missing",
+          "detail: export the statement from the bank in setup, the dates it should cover, the format the folder already uses, and the folder to put it in",
+        ].join("\n"),
+      },
+      {
+        slug: "draft-return",
+        name: "Draft the quarterly VAT return",
+        tool: "googledrive",
+        days: [0],
+        hour: 10,
+        input: "transaction",
+        action: "manual",
+        check: { days: [], read: "" },
+        rules: [
+          "when: only in the first 4 weeks after a quarter ends (January, April, July, October); otherwise no card",
+          "read: every booking file in 'VAT bookings/<year>-Q<n>' of the quarter that ended",
+          "max: 1 card",
+          "subject: return <year>-Q<n>",
+          "detail: the amount and VAT per box (1a, 1b, 1e, 2a, 3b, 4a, 4b, 5b), the total to pay or reclaim, the ICP lines per EU customer VAT ID,",
+          "  the transactions still unbooked with their amounts, and the due date: the last day of the month after the quarter",
+          "never: file the return; you or your accountant files it in Mijn Belastingdienst Zakelijk",
+        ].join("\n"),
+      },
+    ],
+    guide: [
+      "Routines for Dutch VAT reporting. Good ones:",
+      "- every weekday, book 5 bank transactions: match each to its invoice in Gmail or its Stripe payout, pick the box of the VAT return, file the booking in Drive",
+      "- weekly, list the transactions with no invoice, largest first, with where to download each one",
+      "- weekly, ask for the bank statement when the newest transaction is over 10 days old",
+      "- after each quarter, draft the return: amount and VAT per box, ICP lines and the due date",
+      "Gmail and Stripe are read only. Booking files are cards the founder approves; the return is filed by a person.",
+    ].join("\n"),
+  },
+  {
+    id: "accounting",
+    name: "Accounting",
+    // Off the org chart since the VAT looper took its place; kept so loopers hired before still read their spec.
+    live: false,
+    group: null,
     avatar: "accounting",
     colors: ["#5AB471", "#74DDC8"],
     tools: ["quickbooks", "xero", "freshbooks", "stripe"],

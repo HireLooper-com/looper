@@ -33,6 +33,7 @@ test("every role spec is consistent: inputs are signals, actions are allowed, ch
       if (p.action) assert.ok(ACTION_KINDS.includes(p.action), `${r.id}/${p.slug} action ${p.action}`);
       if (p.action === "github_pr") assert.ok(r.actions?.includes("github_pr"), `${r.id} must allow github_pr`);
     }
+    for (const k of r.evidence ?? []) assert.ok(kinds.has(k), `${r.id} matches against ${k}, which is not a signal`);
     for (const d of r.check?.days ?? []) assert.ok(d >= 0);
     if (r.limits?.writePaths) assert.doesNotThrow(() => new RegExp(r.limits!.writePaths!));
   }
@@ -271,4 +272,19 @@ test("a new page that repeats one on the site is caught by its topic words", () 
   assert.equal(existingPage("content/blog/calendly-alternatives.mdx", pages), null);
   // One topic word is too little to call it a repeat.
   assert.equal(existingPage("content/pricing-2026.mdx", pages), null);
+});
+
+test("the VAT looper books one bank transaction at a time and only reads Gmail and Stripe", () => {
+  const vat = ROLES.find((r) => r.id === "vat_nl")!;
+  assert.equal(vat.group, "Operations");
+  assert.equal(vat.subject?.kind, "transaction");
+  assert.deepEqual(vat.tools, ["googledrive", "gmail", "stripe"]);
+  assert.deepEqual(vat.evidence, ["invoice", "payout"]);
+  assert.ok(vat.routines.every((p) => p.input === "transaction"));
+  // Only Drive is written to, and only after approval.
+  assert.ok(vat.routines.filter((p) => p.action === "tool").every((p) => p.tool === "googledrive"));
+  assert.deepEqual(vat.limits?.alwaysAsk, ["tool"]);
+  const old = ROLES.find((r) => r.id === "accounting")!;
+  assert.equal(old.live, false);
+  assert.equal(old.group, null);
 });

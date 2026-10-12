@@ -309,6 +309,14 @@ export async function planCards(looper: Looper, r: RoutineRow, rules: { version:
   const learned = await notes.live(wsId, looper.id, 20);
   const rows: PlanRows = given ?? (r.input ? await ledger.list(wsId, looper.id, r.input, 60) : []);
   const signal = role?.signals?.find((x) => x.kind === r.input);
+  // Other ledger kinds the role matches its input against, like invoices and payouts for a bank transaction.
+  const evidence = given
+    ? []
+    : await Promise.all(
+        (role?.evidence ?? [])
+          .filter((k) => k !== r.input)
+          .map(async (kind) => ({ kind, signal: role?.signals?.find((x) => x.kind === kind), rows: await ledger.list(wsId, looper.id, kind, 60) })),
+      );
 
   // Tools: read tools for context and action tools for cards. A pull request routine reads the repository
   // instead, plus the toolkit its input signal comes from, so it sees the item behind a ledger row.
@@ -358,6 +366,12 @@ export async function planCards(looper: Looper, r: RoutineRow, rules: { version:
             .map((x) => `- ${x.key} [${x.status}] ${JSON.stringify(x.data).slice(0, 400)}`)
             .join("\n")}`
         : `The ledger has no ${r.input} rows yet. They are read once a day; propose nothing that needs them.`),
+    ...evidence
+      .filter((e) => e.rows.length)
+      .map(
+        (e) =>
+          `Ledger, ${e.kind}${e.signal ? ` (one row per ${e.signal.key})` : ""}, to match against:\n${e.rows.map((x) => `- ${x.key} ${JSON.stringify(x.data).slice(0, 400)}`).join("\n")}`,
+      ),
     "Past cards and what happened:",
     ...history.map((c) =>
       c.status === "rejected"
