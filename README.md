@@ -1,5 +1,7 @@
 # Looper
 
+<img src="docs/readme/cover.jpg" alt="Looper: AI hires that each own one business metric, self-hosted on the company's own model key" width="100%">
+
 AI hires that each own one business metric. A looper reads your tools every day, proposes work as cards on a board, and runs a card once you approve it. Every second Friday it opens a reflection chat about what worked.
 
 This is the self-hosted Looper, the same app that runs [hirelooper.com](https://hirelooper.com). Free for your own use, see [License](#license).
@@ -13,6 +15,13 @@ This is the self-hosted Looper, the same app that runs [hirelooper.com](https://
 - Works in your tools through [Composio](https://composio.dev) (57 toolkits) or custom HTTP connectors
 - Runs on your own model key: Anthropic, OpenAI or xAI
 - Opens pull requests on GitHub for SEO pages and bug fixes, within file and line limits you set
+
+<p>
+  <img src="docs/readme/board.jpg" alt="Board: proposed cards wait for a person to approve or reject them" width="49%">
+  <img src="docs/readme/metric.jpg" alt="Metric: Google Ads ROAS 3.1x of 3.5x, 2 done cards attributed" width="49%">
+  <img src="docs/readme/calendar.jpg" alt="Calendar: weekly routines, each asks first until it is set to run alone" width="49%">
+  <img src="docs/readme/reflection.jpg" alt="Reflection: a rejected pattern becomes a new routine rule from Monday" width="49%">
+</p>
 
 ## Deploy to Vercel
 
@@ -33,6 +42,8 @@ Then:
    - **Vercel Pro**: in `vercel.json`, change the schedule to `*/15 * * * *` and push.
    - **Vercel Hobby** (daily crons only): in your new GitHub repo, copy `deploy/github/tick.yml` to `.github/workflows/tick.yml` (Add file → Create new file, paste it). Then open Settings → Secrets and variables → Actions, add the variable `LOOPER_URL` with your app URL and the secret `CRON_SECRET` with the same value as in Vercel. The workflow then calls the scheduler every 15 minutes. It ships outside `.github/workflows` because GitHub refuses workflow files from the Deploy button.
 3. Optional: add `COMPOSIO_API_KEY` in Vercel → Settings → Environment Variables to connect 57 tools.
+
+<img src="docs/readme/self-host.jpg" alt="Deploy to Vercel with 5 values, or run it with Docker" width="100%">
 
 ## Run it with Docker
 
