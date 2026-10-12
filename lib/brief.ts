@@ -76,3 +76,31 @@ export function pushHistory(prev: SetupEntry | undefined) {
   if (!prev || prev.status !== "done" || !prev.text) return old;
   return [{ text: prev.text, at: prev.at, ...(prev.by ? { by: prev.by } : {}) }, ...old].slice(0, HISTORY_MAX);
 }
+
+const REPO_NAME = /\b([\w.-]+\/[\w.-]+)\b/;
+
+/** The `owner/name` on a `repo:` line of setup notes, or "". */
+export function repoOf(text: string) {
+  const f = parseNotes(text ?? "").find((x) => x.key.toLowerCase() === "repo");
+  return f?.text.replace(/`/g, "").match(REPO_NAME)?.[1].replace(/\.git$/, "") ?? "";
+}
+
+/**
+ * The one repository a looper may open pull requests in: the one a person picked, else the `repo:`
+ * line of its notes from hire, which a person can read and correct on the Brief tab. "" means none yet.
+ */
+export function repoFor(l: { repo?: string | null; setup?: Record<string, SetupEntry> | null }) {
+  if (l.repo) return l.repo;
+  const st = l.setup?.repo;
+  return st?.status === "done" ? repoOf(st.text) : "";
+}
+
+/** Notes with their `repo:` line set to `repo`: replaced where there is one, first line where not. */
+export function withRepo(text: string, repo: string) {
+  const lines = text.split("\n");
+  const i = lines.findIndex((l) => /^\s*(?:[-*]\s+)?repo:/i.test(l));
+  if (i < 0) return [`repo: ${repo}`, ...lines].join("\n").trim();
+  if (repoOf(lines[i]) === repo) return text;
+  lines[i] = `repo: ${repo}`;
+  return lines.join("\n");
+}

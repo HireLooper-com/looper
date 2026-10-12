@@ -497,24 +497,35 @@
 .ax .xt-top > b { font-size:15px; font-weight:500; min-width:0; }
 .ax .xt-go { flex:none; }
 .ax .xt-go .err { font-size:13px; max-width: 260px; }
-.ax .xt-res { margin-top: 8px; }
-.ax .xt-head { display:flex; align-items:center; gap:8px; margin:0; font-size:14px; color: var(--dim); }
-.ax .xt-head.no { color: var(--bad); }
-.ax .xt-head.yes { color: var(--fg); }
-.ax .xt-head > b, .ax .xt-st li > b { flex:none; width:18px; height:18px; border-radius:50%; display:grid; place-items:center; font-size:11px; background: var(--surf2); color: var(--dim); }
-.ax .xt-head.yes > b, .ax .xt-st li.yes > b { background: var(--acctint); color: var(--fg); }
-.ax .xt-head.no > b, .ax .xt-st li.no > b { background: color-mix(in srgb, var(--bad) 20%, transparent); color: var(--bad); }
-.ax .xt-cards { display:flex; flex-direction:column; gap:6px; margin-top: 10px; }
-.ax .xt-card { border:1px solid var(--cardline); border-radius:10px; background: var(--card); padding: 10px 12px; }
-.ax .xt-card summary { cursor:pointer; font-size:14px; color: var(--fg); }
-.ax .xt-card small { display:block; color: var(--dim); font-size:12.5px; margin-top: 8px; }
-.ax .xt-card p { white-space: pre-line; font-size:13px; color: var(--dim); margin: 6px 0 0; overflow-wrap:anywhere; }
-.ax .xt-how { margin-top: 8px; }
-.ax .xt-how summary, .ax .xb-rules summary, .ax .xb-more summary, .ax .xb-ask summary { cursor:pointer; font-size:13px; color: var(--dim); width:max-content; }
-.ax .xt-st { list-style:none; margin: 8px 0 0; padding:0; display:flex; flex-direction:column; gap:6px; }
-.ax .xt-st li { display:flex; gap:10px; font-size:13px; color: var(--dim); line-height:1.45; }
-.ax .xt-st em { font-style:normal; color: var(--fg); margin-right: 4px; }
-.ax .xt-st span { white-space: pre-line; min-width:0; overflow-wrap:anywhere; }
+.ax .xb-rules summary, .ax .xb-more summary, .ax .xb-ask summary { cursor:pointer; font-size:13px; color: var(--dim); width:max-content; }
+.ax .xt-why { font-size:13px; }
+.ax .xt-chat { margin: 10px 0 0; gap:8px; }
+.ax .xt-run:has(.xt-typing) .xt-res { display:none; }
+.ax .xt-msg { max-width: 100%; white-space: normal; font-size:14px; }
+.ax .xt-chat .who2 { display:flex; align-items:center; gap:6px; }
+.ax .xt-typing { color: var(--dim); font-size:14px; }
+.ax .xt-checks { list-style:none; margin: 2px 0 10px; padding:0; display:flex; flex-wrap:wrap; gap:6px; }
+.ax .xt-checks li { display:inline-flex; align-items:center; gap:6px; padding: 3px 10px 3px 4px; border-radius:999px; background: var(--surf2); color: var(--dim); font-size:12.5px; }
+.ax .xt-checks li > b { flex:none; width:16px; height:16px; border-radius:50%; display:grid; place-items:center; font-size:10px; background: var(--bg); color: var(--dim); }
+.ax .xt-checks li.yes > b { background: var(--acctint); color: var(--fg); }
+.ax .xt-checks li.no { color: var(--bad); }
+.ax .xt-msg .err { margin: 0; }
+.ax .xt-end { margin: 10px 0 0; color: var(--dim); }
+.ax .xt-end.yes { color: var(--fg); }
+.ax .xt-card { border:1px solid var(--cardline); border-radius:12px; background: var(--card); padding: 10px 14px; margin-left: 16px; }
+.ax .xt-card summary { cursor:pointer; display:flex; flex-direction:column; gap:2px; list-style:none; }
+.ax .xt-card summary::-webkit-details-marker { display:none; }
+.ax .xt-card summary small { color: var(--dim); font-size:11.5px; }
+.ax .xt-card summary b { font-weight:500; font-size:14px; color: var(--fg); }
+.ax .xt-card summary .dim { font-size:12.5px; }
+.ax .xt-card .rich { margin-top: 10px; padding-top: 10px; border-top:1px solid var(--line); font-size:13px; color: var(--dim); overflow-wrap:anywhere; }
+.ax .xt-held { color: var(--dim); font-size:13px; }
+.ax .xt-repo { flex:1; min-width:0; }
+.ax .xt-repo-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.ax .xt-repo select { width:auto; max-width: 100%; }
+.ax .xt-repo small { display:block; margin-top: 6px; color: var(--dim); font-size:12.5px; }
+.ax .xt-repo .note, .ax .xt-repo .err { font-size:13px; margin: 6px 0 0; }
+.ax .xt-ok { font-size:13px; color: var(--fg); }
 .ax .xb-rules { margin-top: 10px; }
 .ax .xb-rules textarea, .ax .xb-ask textarea { margin-top: 8px; }
 .ax .xb-more, .ax .xb-ask { margin-top: 14px; }

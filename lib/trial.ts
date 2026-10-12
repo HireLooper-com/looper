@@ -47,6 +47,7 @@ function draftLooper(d: LooperDraft, w: Workspace): Looper {
     setup: {},
     signals_at: {},
     work: d.data.work ? workLine(d.data.work) : "",
+    repo: d.data.repo ?? "",
     fired_at: null,
   };
 }
@@ -97,11 +98,9 @@ export async function trySkill(d: LooperDraft, w: Workspace, s: Skill): Promise<
 
   // 1. Where it acts.
   if (s.action === "github_pr") {
-    stages.push(
-      (await isConnected(w.id, "github"))
-        ? { name: "Tool", ok: "yes", text: "GitHub connected." }
-        : { name: "Tool", ok: "warn", text: "GitHub not connected, so cards are manual." },
-    );
+    if (!(await isConnected(w.id, "github"))) stages.push({ name: "Tool", ok: "warn", text: "GitHub not connected, so cards are by hand." });
+    else if (!d.data.repo) return { at: now(), stages: [{ name: "Repo", ok: "no", text: "Pick the repository above first. Pull requests go there and nowhere else." }], cards: [] };
+    else stages.push({ name: "Repo", ok: "yes", text: `Reads ${d.data.repo} only.` });
   } else if (s.action === "manual" || !s.tool) {
     stages.push({ name: "Tool", ok: "yes", text: "Cards are manual." });
   } else {
@@ -152,7 +151,7 @@ export async function trySkill(d: LooperDraft, w: Workspace, s: Skill): Promise<
       );
     stages.push(
       out.readCount
-        ? { name: "Research", ok: "yes", text: out.findings.trim().slice(0, 600) || "Nothing to report." }
+        ? { name: "Research", ok: "yes", text: out.findings.trim().slice(0, 4000) || "Nothing to report." }
         : { name: "Research", ok: "warn", text: "Planned from the rules only." },
     );
     stages.push(

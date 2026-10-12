@@ -17,6 +17,7 @@ export type DraftData = {
   note?: string; // why the model could not suggest units of work
   trials?: { metric?: Trial; skills?: Record<string, Trial> }; // test runs before hire, skills keyed by trialKey
   stack?: Stack; // the founder's own tool per kind, in place of the role's defaults
+  repo?: string; // owner/name its pull requests go to, picked on the Try it step; becomes loopers.repo at hire
 };
 
 /** Kind to toolkit: the help desk, CRM or inbox this founder runs, like { helpdesk: "crisp" }. */
@@ -131,4 +132,24 @@ export function cleanSkill(s: Partial<Skill>, fallback: Skill): Skill | null {
   const days = [...new Set((s.days ?? []).map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))].sort();
   const hour = Math.min(18, Math.max(6, Math.round(Number(s.hour ?? fallback.hour)) || fallback.hour));
   return { ...fallback, name, rules, days: days.length ? days : fallback.days, hour };
+}
+
+/** True when a skill opens pull requests, so the looper needs a repository picked before it tries or hires. */
+export const shipsPRs = (skills: Pick<Skill, "action">[] | undefined) => (skills ?? []).some((s) => s.action === "github_pr");
+
+/**
+ * The repository that most likely builds the website: its homepage is the site, or its name is the
+ * site's name. "" when nothing matches, so the founder picks; Looper never picks for them.
+ */
+export function guessRepo(repos: { repo: string; homepage: string }[], website: string) {
+  const host = (u: string) => u.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "");
+  const site = host(website);
+  if (!site) return "";
+  const stem = site.split(".")[0];
+  const byHome = repos.find((r) => r.homepage && host(r.homepage) === site);
+  const byName = repos.find((r) => {
+    const n = r.repo.split("/")[1].toLowerCase().replace(/\.git$/, "");
+    return n === site || n === stem || n === `${stem}-web` || n === `${stem}-site` || n === `${stem}.com`;
+  });
+  return (byHome ?? byName)?.repo ?? "";
 }

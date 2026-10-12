@@ -380,6 +380,8 @@ const SCHEMA = [
   `alter table loopers add column if not exists metric_failed_at timestamptz`,
   `alter table loopers add column if not exists metric_tried_at timestamptz`,
   `alter table loopers add column if not exists metric_error text`,
+  // The one repository a looper opens pull requests in, picked by a person in the builder or on the Brief tab.
+  `alter table loopers add column if not exists repo text not null default ''`,
 ];
 
 export async function ensureSchema() {

@@ -3,11 +3,13 @@ import type { Workspace } from "@/lib/workspace";
 import { KINDS, kindOf, type Role } from "@/lib/roles";
 import { enabledToolkits, TOOLKITS } from "@/lib/composio";
 import { connectorsOf, PREFIX } from "@/lib/connectors";
-import { altsOf, connectableNames, connectedSet, toolkitNames } from "@/lib/tools";
+import { altsOf, connectableNames, connectedSet, githubFor, toolkitNames } from "@/lib/tools";
+import { repos as githubRepos } from "@/lib/publish";
 import { routineFrom } from "@/lib/spec";
-import { kindIn, nextStep, presetTools, stackFor, STEPS, trialKey, workOptions, type LooperDraft, type Trial } from "@/lib/draft";
+import { guessRepo, kindIn, nextStep, presetTools, shipsPRs, stackFor, STEPS, trialKey, workOptions, type LooperDraft, type Trial } from "@/lib/draft";
 import { Avatar, ToolIcon } from "../bits";
-import { HireFoot, MetricStep, SkillsStep, SourceStep, ToolsStep, TryButton, WorkStep, type Source, type Swap } from "./steps";
+import { Rich } from "../l/[id]/rich";
+import { HireFoot, MetricStep, RepoPick, SkillsStep, SourceStep, ToolsStep, TryRun, WorkStep, type Source, type Swap } from "./steps";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -26,43 +28,58 @@ function judgedLine(r: Role, slug: string | undefined, tool: string) {
 
 const MARK = { yes: "✓", warn: "!", no: "×" } as const;
 
-/** A test run in one line: the problem that stopped it, or what it made. The stages wait behind a click. */
-function TrialView({ t }: { t: Trial }) {
+/**
+ * A test run as the looper's message, the way it will talk in the chat after hire: what it checked as
+ * a row of marks, what it found in its own words, then the cards it would put up for approval.
+ */
+function TrialView({ t, who, avatar }: { t: Trial; who: string; avatar: React.ReactNode }) {
   const stop = t.stages.find((x) => x.ok === "no");
+  const research = t.stages.find((x) => x.name === "Research");
+  const result = t.stages.find((x) => x.name === "Cards" || x.name === "Reading");
+  const held = t.stages.find((x) => x.name === "Held back");
+  const checks = t.stages.filter((x) => x !== research && x !== result && x !== held && x !== stop);
   const made = t.cards.filter((c) => !c.held);
-  const last = t.stages.at(-1);
-  const head = stop ? stop.text : made.length ? `${made.length} card${made.length > 1 ? "s" : ""}` : (last?.text ?? "Done");
   return (
-    <div className="xt-res">
-      <p className={`xt-head ${stop ? "no" : made.length || last?.ok === "yes" ? "yes" : "warn"}`}>
-        <b aria-hidden="true">{MARK[stop ? "no" : made.length || last?.ok === "yes" ? "yes" : "warn"]}</b>
-        {head}
-      </p>
-      {made.length > 0 && (
-        <div className="xt-cards">
-          {made.map((c, i) => (
-            <details key={i} className="xt-card">
-              <summary>{c.title}</summary>
-              <small>{c.how}</small>
-              <p>{c.detail}</p>
-            </details>
-          ))}
+    <div className="chat xt-chat xt-res">
+      <div className="msg xt-msg">
+        <div className="who2">
+          {avatar}
+          {who} · test run
         </div>
-      )}
-      {t.stages.length > 1 && (
-        <details className="xt-how">
-          <summary>How it ran</summary>
-          <ol className="xt-st">
-            {t.stages.map((x) => (
+        {checks.length > 0 && (
+          <ul className="xt-checks">
+            {checks.map((x) => (
               <li key={x.name} className={x.ok}>
                 <b aria-hidden="true">{MARK[x.ok]}</b>
-                <span>
-                  <em>{x.name}</em> {x.text}
-                </span>
+                {x.text}
               </li>
             ))}
-          </ol>
+          </ul>
+        )}
+        {stop ? (
+          <p className="err">{stop.text}</p>
+        ) : (
+          <>
+            {research && (research.ok === "yes" ? <Rich text={research.text} /> : <p className="dim">{research.text}</p>)}
+            {result && <p className={`xt-end ${made.length || result.ok === "yes" ? "yes" : ""}`}>{made.length ? `${made.length} card${made.length > 1 ? "s" : ""} for you to approve:` : result.text}</p>}
+          </>
+        )}
+      </div>
+      {made.map((c, i) => (
+        <details key={i} className="xt-card">
+          <summary>
+            <small>Would ask you to approve</small>
+            <b>{c.title}</b>
+            <span className="dim">{c.how}</span>
+          </summary>
+          <Rich text={c.detail} />
         </details>
+      ))}
+      {held && (
+        <div className="msg xt-msg xt-held">
+          <div className="who2">Held back by the rules</div>
+          <Rich text={held.text} />
+        </div>
       )}
     </div>
   );
@@ -185,6 +202,22 @@ export default async function Builder({ ws, role: r, d, step }: { ws: Workspace;
     const src = m.source === "manual" ? "you enter it" : m.source === "geo" ? "AI answers" : name(m.source);
     const readable = m.source !== "manual" && m.source !== "geo";
     const trials = data.trials ?? {};
+    // A looper that opens pull requests needs its repository confirmed before it tries or hires.
+    const prs = shipsPRs(skills) && connected.has("github");
+    let repoList: { repo: string; homepage: string }[] = [];
+    let repoErr = "";
+    if (prs)
+      try {
+        repoList = await githubRepos(await githubFor(ws));
+      } catch (e) {
+        repoErr = (e as Error).message;
+      }
+    const who = custom ? data.name || "Your looper" : `${r.name.replace(/ manager$/, "")} looper`;
+    const avatar = <Avatar roleId={r.id} size={18} />;
+    const doing = (x: (typeof skills)[number]) => {
+      const reads = [x.action === "github_pr" ? data.repo || "the repository" : x.tool && name(x.tool), r.sitePages && "your sitemap"].filter(Boolean);
+      return `Reading ${reads.length ? reads.join(" and ") : "the rules"}, then drafting cards. Up to 3 minutes`;
+    };
     body = (
       <>
         <section className="xset-c xt-sum">
@@ -206,6 +239,21 @@ export default async function Builder({ ws, role: r, d, step }: { ws: Workspace;
                 ))}
               </span>
             </p>
+          )}
+          {prs && (
+            <div className="xt-line">
+              <span>Repo</span>
+              {repoErr ? (
+                <p className="err">GitHub did not list repositories: {repoErr}</p>
+              ) : (
+                <RepoPick
+                  draft={d.id}
+                  repos={[...new Set([...(data.repo ? [data.repo] : []), ...repoList.map((x) => x.repo)])]}
+                  saved={data.repo ?? ""}
+                  guess={guessRepo(repoList, ws.website)}
+                />
+              )}
+            </div>
           )}
           <table className="xt-week">
             <caption className="sr">The week</caption>
@@ -239,26 +287,25 @@ export default async function Builder({ ws, role: r, d, step }: { ws: Workspace;
         <div className="xt-list">
           {readable && (
             <div className="xt-run">
-              <div className="xt-top">
-                <b>Read the metric</b>
-                <TryButton draft={d.id} value="metric" again={Boolean(trials.metric)}>
-                  Try
-                </TryButton>
-              </div>
-              {trials.metric && <TrialView t={trials.metric} />}
+              <TryRun draft={d.id} value="metric" title="Read the metric" again={Boolean(trials.metric)} who={who} avatar={avatar} doing={`Reading ${src}`} />
+              {trials.metric && <TrialView t={trials.metric} who={who} avatar={avatar} />}
             </div>
           )}
           {skills.map((x, i) => {
             const t = trials.skills?.[trialKey(x)];
             return (
               <div className="xt-run" key={i}>
-                <div className="xt-top">
-                  <b>{x.name}</b>
-                  <TryButton draft={d.id} value={`skill:${i}`} again={Boolean(t)}>
-                    Try
-                  </TryButton>
-                </div>
-                {t && <TrialView t={t} />}
+                <TryRun
+                  draft={d.id}
+                  value={`skill:${i}`}
+                  title={x.name}
+                  again={Boolean(t)}
+                  who={who}
+                  avatar={avatar}
+                  doing={doing(x)}
+                  blocked={prs && x.action === "github_pr" && !data.repo ? "Confirm the repo above first" : undefined}
+                />
+                {t && <TrialView t={t} who={who} avatar={avatar} />}
               </div>
             );
           })}

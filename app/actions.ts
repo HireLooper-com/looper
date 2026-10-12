@@ -12,9 +12,10 @@ import { modelFor, ping, PROVIDERS, type Provider } from "@/lib/llm";
 import { ENGINES, OPENROUTER, pingOpenRouter } from "@/lib/geo";
 import { linkAccount, listAccounts, TOOLKITS } from "@/lib/composio";
 import { isCustom, parseEndpoints, PREFIX } from "@/lib/connectors";
-import { connectableNames, connectedSet, fills, isConnected, withToolError } from "@/lib/tools";
+import { connectableNames, connectedSet, fills, githubFor, isConnected, withToolError } from "@/lib/tools";
+import { repos } from "@/lib/publish";
 import { role as findRole, KINDS, kindOf, type MetricPreset, type WorkUnit } from "@/lib/roles";
-import { edited } from "@/lib/brief";
+import { edited, repoOf } from "@/lib/brief";
 import { executeCard, fireLooper, markDone, readMetric, recordMetric, reopenSource, revertCard, runRoutine, type Card, type Looper } from "@/lib/engine";
 import * as R from "@/lib/reflection";
 import * as Talk from "@/lib/talk";
@@ -26,6 +27,7 @@ import {
   ownWork,
   presetTools,
   saveDraft,
+  shipsPRs,
   stackFor,
   suggestTools,
   suggestWork,
@@ -457,6 +459,9 @@ export async function draftSkills(_: FormState, f: FormData): Promise<FormState>
   if (act === "next") redirect(`/app/new/${d.id}?s=5`);
   if (act !== "hire") return { ok: "Saved." };
   if (!data.metric || !data.work || !data.skills?.length) return { error: "Every step needs an answer first." };
+  // A looper that opens pull requests never guesses where: the founder names the repository first.
+  if (shipsPRs(data.skills) && !data.repo && (await isConnected(w.id, "github")))
+    return { error: "Pick the repository its pull requests go to, at the top of this step." };
   const m = data.metric;
   const looperName = r.id === "custom" ? data.name || "My looper" : `${r.name.replace(/ manager$/, "")} looper`;
   const tools = [...new Set([m.source, ...(data.tools ?? [])])].filter((t) => TOOLKITS[t] || isCustom(t)).slice(0, 5);
@@ -464,15 +469,36 @@ export async function draftSkills(_: FormState, f: FormData): Promise<FormState>
   // No target: the looper always works to improve the metric.
   const [l] = await sql<{ id: number }>`
     insert into loopers (user_id, workspace_id, role, name, metric_name, metric_source, metric_hint, unit, direction, target, target_date,
-                         website, tools, work, plan_status)
+                         website, tools, work, repo, plan_status)
     values (${w.owner_id}, ${w.id}, ${r.id}, ${looperName}, ${m.name}, ${m.source}, ${m.hint}, ${m.unit}, ${m.direction}, ${null}, ${date},
-            ${w.website}, ${tools}, ${workLine(data.work)}, 'waiting')
+            ${w.website}, ${tools}, ${workLine(data.work)}, ${data.repo ?? ""}, 'waiting')
     returning id`;
   await insertSkills(l.id, r.id, data.skills, "hire");
   await sql`delete from drafts where id = ${d.id}`;
   // The brief, buyer questions and setup steps come from the model in the background.
   after(() => planLooper(l.id));
   redirect(`/app/l/${l.id}`);
+}
+
+/** Step 5: the repository a pull request looper ships to. Only one the connected GitHub account can push to. */
+export async function draftRepo(_: FormState, f: FormData): Promise<FormState> {
+  const { u, w, d } = await draftOf(f);
+  const repo = str(f, "repo");
+  if (!repo) return { error: "Pick a repository." };
+  let list: { repo: string }[];
+  try {
+    list = await repos(await githubFor(w));
+  } catch (e) {
+    return { error: `GitHub did not answer: ${(e as Error).message}`.slice(0, 300) };
+  }
+  if (!list.some((x) => x.repo === repo)) return { error: `GitHub does not let this account push to ${repo}.` };
+  const fresh = (await loadDraft(d.id, u.id)) ?? d;
+  // Test runs of pull request skills read the old repository; drop them.
+  const pr = new Set((fresh.data.skills ?? []).filter((s) => s.action === "github_pr").map(trialKey));
+  const skills = Object.fromEntries(Object.entries(fresh.data.trials?.skills ?? {}).filter(([k]) => !pr.has(k)));
+  await saveDraft(d.id, { ...fresh.data, repo, trials: { ...fresh.data.trials, skills } });
+  revalidatePath(`/app/new/${d.id}`);
+  return { ok: `Pull requests go to ${repo}.` };
 }
 
 /** Step 5: test the metric read (`do=metric`) or one skill (`do=skill:<i>`) before hire. Saves the result on the draft only. */
@@ -546,6 +572,8 @@ export async function editSetup(_: FormState, f: FormData): Promise<FormState> {
   if (text === l.setup?.[step]?.text) return { ok: "No changes." };
   const entry = edited(l.setup?.[step], text, u.email);
   await sql`update loopers set setup = setup || ${JSON.stringify({ [step]: entry })}::jsonb where id = ${l.id}`;
+  // The repo line a person writes is the repository pull requests go to, from the next card on.
+  if (step === "repo") await sql`update loopers set repo = ${repoOf(text)} where id = ${l.id}`;
   revalidatePath(`/app/l/${l.id}`);
   return { ok: "Saved. Every card from now on follows it." };
 }

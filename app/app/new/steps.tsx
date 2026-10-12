@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import type { MetricPreset, WorkUnit } from "@/lib/roles";
 import type { Skill } from "@/lib/plan";
-import { draftMetric, draftSkills, draftTools, draftTry, draftWork } from "../../actions";
+import { draftMetric, draftRepo, draftSkills, draftTools, draftTry, draftWork } from "../../actions";
 import { Form } from "../../ui";
 
 export type Source = { slug: string; name: string; connected: boolean };
@@ -401,13 +401,103 @@ export function SkillsStep({
 }
 
 /** Step 5: one test run, of the metric read (`metric`) or a skill (`skill:<i>`). Runs on the owner's key; saves nothing but the result. */
-export function TryButton({ draft, value, children, again }: { draft: number; value: string; children: ReactNode; again: boolean }) {
+/** While a test run works, the looper "types" under it and says what it is reading. The old result hides meanwhile. */
+function Typing({ who, avatar, doing }: { who: string; avatar: ReactNode; doing: string }) {
+  const { pending } = useFormStatus();
+  if (!pending) return null;
   return (
-    <Form action={draftTry} className="xt-go">
+    <div className="chat xt-chat" aria-live="polite">
+      <div className="msg typing xt-typing">
+        <div className="who2">
+          {avatar}
+          {who}
+        </div>
+        {doing}
+        <span className="dots3" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** One row of Try it: what runs, its button, and the looper typing while it runs. `blocked` says why it cannot run yet. */
+export function TryRun({
+  draft,
+  value,
+  title,
+  again,
+  who,
+  avatar,
+  doing,
+  blocked,
+}: {
+  draft: number;
+  value: string;
+  title: string;
+  again: boolean;
+  who: string;
+  avatar: ReactNode;
+  doing: string;
+  blocked?: string;
+}) {
+  return (
+    <Form action={draftTry}>
       <input type="hidden" name="draft" value={draft} />
-      <Do value={value} className={again ? "btn2 sm" : "btn sm"} busy={value === "metric" ? "Reading" : "Running, up to 3 min"}>
-        {again ? "Try again" : children}
-      </Do>
+      <div className="xt-top">
+        <b>{title}</b>
+        {blocked ? (
+          <span className="dim2 xt-why">{blocked}</span>
+        ) : (
+          <Do value={value} className={again ? "btn2 sm" : "btn sm"} busy={value === "metric" ? "Reading" : "Running"}>
+            {again ? "Try again" : "Try"}
+          </Do>
+        )}
+      </div>
+      <Typing who={who} avatar={avatar} doing={doing} />
+    </Form>
+  );
+}
+
+/**
+ * Step 5, for a looper that opens pull requests: the founder confirms the one repository they go to.
+ * Looper suggests the repo whose homepage or name matches the website and never picks without a click.
+ */
+export function RepoPick({ draft, repos, saved, guess }: { draft: number; repos: string[]; saved: string; guess: string }) {
+  const [v, setV] = useState(saved || guess);
+  const sure = Boolean(saved) && v === saved;
+  return (
+    <Form action={draftRepo} className="xt-repo">
+      <input type="hidden" name="draft" value={draft} />
+      <div className="xt-repo-row">
+        <label htmlFor="xt-repo" className="sr">
+          Repository for pull requests
+        </label>
+        <select id="xt-repo" name="repo" value={v} onChange={(e) => setV(e.target.value)}>
+          {!v && <option value="">Pick a repository</option>}
+          {repos.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        {sure ? (
+          <span className="xt-ok">✓ Confirmed</span>
+        ) : (
+          <Do value="repo" className="btn sm" busy="Checking">
+            {saved ? "Use this one" : "Confirm"}
+          </Do>
+        )}
+      </div>
+      <small>
+        {sure
+          ? `Every pull request goes to ${saved}. It reads no other repository.`
+          : !saved && v && v === guess
+            ? `Suggested: its homepage or name matches your website. Confirm it, and every pull request goes there and nowhere else.`
+            : "Every pull request goes to the repository you confirm here, and nowhere else."}
+      </small>
     </Form>
   );
 }

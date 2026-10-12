@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { edited, HISTORY_MAX, parseNotes, pathItems, pushHistory } from "../lib/brief.ts";
+import { edited, HISTORY_MAX, parseNotes, pathItems, pushHistory, repoFor, repoOf, withRepo } from "../lib/brief.ts";
 
 const NOTES = `repo: pavelk2/bookva (TimeTuna was called Bookva.ai before)
 
@@ -47,4 +47,19 @@ test("an edit keeps the old text in history, newest first, capped", () => {
   assert.equal(e.history?.length, HISTORY_MAX);
   assert.equal(e.history?.[0].text, "v10");
   assert.deepEqual(pushHistory({ status: "failed", text: "boom", at }), []);
+});
+
+test("the repo a looper ships to: picked first, then the repo line of its notes", () => {
+  assert.equal(repoOf(NOTES), "pavelk2/bookva");
+  assert.equal(repoOf("repo: `acme/site.git`"), "acme/site");
+  assert.equal(repoOf("posts: content/blog"), "");
+  const done = { status: "done" as const, text: NOTES, at: "2026-01-01T00:00:00Z" };
+  assert.equal(repoFor({ repo: "acme/web", setup: { repo: done } }), "acme/web");
+  assert.equal(repoFor({ repo: "", setup: { repo: done } }), "pavelk2/bookva");
+  assert.equal(repoFor({ repo: "", setup: { repo: { ...done, status: "failed" } } }), "");
+  assert.equal(repoFor({ repo: null, setup: null }), "");
+  assert.equal(repoOf(withRepo(NOTES, "acme/web")), "acme/web");
+  assert.match(withRepo(NOTES, "acme/web"), /^repo: acme\/web\n\nposts:/);
+  assert.equal(withRepo("posts: blog/", "acme/web"), "repo: acme/web\nposts: blog/");
+  assert.equal(withRepo(NOTES, "pavelk2/bookva"), NOTES);
 });

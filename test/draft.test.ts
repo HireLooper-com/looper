@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { KINDS, kindOf, ROLES } from "../lib/roles.ts";
-import { cardHow, cleanSkill, kindsOf, nextStep, ownWork, presetSkills, presetTools, stackFor, swap, toolsShown, trialKey, workLine, workOptions } from "../lib/draft-steps.ts";
+import { cardHow, cleanSkill, guessRepo, kindsOf, nextStep, ownWork, presetSkills, presetTools, shipsPRs, stackFor, swap, toolsShown, trialKey, workLine, workOptions } from "../lib/draft-steps.ts";
 
 const seo = ROLES.find((r) => r.id === "seo")!;
 const custom = ROLES.find((r) => r.id === "custom")!;
@@ -112,4 +112,18 @@ test("kinds: a tool does one job, GitHub does none, and a swappable metric never
   for (const r of ROLES.filter((x) => x.id !== "custom"))
     for (const m of r.metrics.filter((x) => kindOf(x.source)))
       for (const t of KINDS[kindOf(m.source)!].tools) assert.ok(!m.name.toLowerCase().includes(t.replace("_", " ")), `${r.id}: "${m.name}" names ${t}`);
+});
+
+test("the repo guess matches the site by homepage or name, and never picks at random", () => {
+  const repos = [
+    { repo: "pavelk2/looper", homepage: "https://hirelooper.com" },
+    { repo: "pavelk2/bookva", homepage: "https://www.timetuna.com/" },
+    { repo: "pavelk2/goodlads", homepage: "" },
+  ];
+  assert.equal(guessRepo(repos, "https://timetuna.com"), "pavelk2/bookva");
+  assert.equal(guessRepo(repos, "goodlads.ai"), "pavelk2/goodlads");
+  assert.equal(guessRepo(repos, "https://theartel.com"), "");
+  assert.equal(guessRepo(repos, ""), "");
+  assert.equal(shipsPRs([{ action: "tool" }, { action: "github_pr" }]), true);
+  assert.equal(shipsPRs([{ action: "manual" }]), false);
 });

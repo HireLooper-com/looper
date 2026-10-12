@@ -1,4 +1,4 @@
-import { pushHistory } from "./brief";
+import { pushHistory, withRepo } from "./brief";
 import { sql } from "./db";
 import { getPublic } from "./net";
 import { connectableNames, githubFor, isConnected, runTool, toolkitNames, toolsFor, wsById } from "./tools";
@@ -296,20 +296,28 @@ async function setupStep(l: Looper, step: SetupStep, cfg: NonNullable<Awaited<Re
     const ws = await wsById(l.workspace_id);
     tools =
       step.tool === "github"
-        ? readTools(await githubFor(ws))
+        ? readTools(await githubFor(ws), step.id === "repo" ? l.repo : "")
         : (await toolsFor(l.workspace_id, step.tool, 30)).map((t) => toolDef(t, (a) => runTool(ws, t.slug, a)));
   }
   const out = await withTools(
     cfg,
     "You set up a looper: an AI hire that owns one business metric. Learn what it needs once, by reading. Never change anything. Plain words, no em dashes.",
-    [`Website: ${l.website || "none given"}`, l.brief && `What the business does: ${l.brief}`, step.ask, "Answer in under 200 words, short `key: value` lines, nothing else."]
+    [
+      `Website: ${l.website || "none given"}`,
+      l.brief && `What the business does: ${l.brief}`,
+      // A repository a person picked is a given: the step learns how it is laid out, never which one it is.
+      step.id === "repo" && l.repo && `The repository is ${l.repo}, picked by the founder. Read it; never look for another.`,
+      step.ask,
+      "Answer in under 200 words, short `key: value` lines, nothing else.",
+    ]
       .filter(Boolean)
       .join("\n"),
     tools,
     12,
   );
   if (!out.trim()) throw new Error("The model returned nothing");
-  return out.trim().slice(0, 3000);
+  const text = out.trim().slice(0, 3000);
+  return step.id === "repo" && l.repo ? withRepo(text, l.repo) : text;
 }
 
 /** Loopers with a setup step still to do whose tool may be connected now, tried at most every 6 hours. */

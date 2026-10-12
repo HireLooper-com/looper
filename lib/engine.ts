@@ -1,4 +1,4 @@
-import type { SetupEntry } from "./brief";
+import { repoFor, type SetupEntry } from "./brief";
 import { sql } from "./db";
 import type { Tool } from "./composio";
 import { githubFor, isConnected, runTool, toolkitNames, toolsFor, wsById } from "./tools";
@@ -35,6 +35,7 @@ export type Looper = {
   setup: Record<string, SetupEntry>;
   signals_at: Record<string, string>;
   work: string; // what one card ships, picked in the builder
+  repo: string; // owner/name pull requests go to, picked by a person; "" falls back to the notes from hire (repoFor)
   fired_at: Date | null;
   metric_failed_at?: Date | null; // when the daily read started failing; cleared by the next reading
   metric_tried_at?: Date | null; // the last failed try; the tick waits 6 hours after it
@@ -261,8 +262,9 @@ const PR_HOW = [
   `Its arguments_json: {"repo": "owner/name", "title": "...", "body": "what changes and why, with the numbers", "files": [...]}.`,
   `A file is {"path": "...", "content": "the whole new file"} for a new page, or {"path": "...", "edits": [{"find": "exact text that occurs once in the current file", "replace": "new text"}]} for a change to an existing one.`,
   "Read the current file with github_read before writing edits, and copy the find text exactly. One page per card. Leave the undo fields empty: the old files are kept when the pull request opens.",
-  "Use the repo named in the notes from hire and follow them for folders, frontmatter and files to leave alone. Without notes, pick the repo whose homepage matches the website.",
+  "Follow the notes from hire for folders, frontmatter and files to leave alone.",
 ].join("\n");
+const prRepo = (repo: string) => `Repository: ${repo}. Every pull request goes to ${repo} and no other; put it in "repo".`;
 
 // A by-hand card is the deliverable itself, so the founder ships it without rewriting anything.
 const BY_HAND =
@@ -314,12 +316,15 @@ export async function planCards(looper: Looper, r: RoutineRow, rules: { version:
   const names = await toolkitNames(wsId);
   let tools: Tool[] = [];
   let reads: LocalTool[] = [];
-  const pr = r.action === "github_pr" && (await isConnected(wsId, "github"));
+  // Pull requests go to the one repository a person picked or confirmed; with none, the cards are by hand.
+  const repo = r.action === "github_pr" ? repoFor(looper) : "";
+  const github = r.action === "github_pr" && (await isConnected(wsId, "github"));
+  const pr = github && Boolean(repo);
   // A pull request routine also reads the data it picks pages from: its signal's tool, or its own, like Search Console.
   const data = signal && signal.tool !== "geo" ? signal.tool : r.tool;
   const source = pr && data && data !== "geo" && data !== "github" && (await isConnected(wsId, data)) ? data : "";
   if (pr) {
-    reads = readTools(await githubFor(ws));
+    reads = readTools(await githubFor(ws), repo);
     if (source)
       reads.push(...(await toolsFor(wsId, source, 30)).filter((t) => READS.test(t.slug)).map((t) => toolDef(t, (a) => runTool(ws, t.slug, a))));
   } else if (await isConnected(wsId, r.tool)) {
@@ -362,8 +367,10 @@ export async function planCards(looper: Looper, r: RoutineRow, rules: { version:
           }`,
     ),
     pr
-      ? [PR_HOW, prRules(limits.pr)].filter(Boolean).join("\n")
-      : r.action === "github_pr"
+      ? [PR_HOW, prRepo(repo), prRules(limits.pr)].filter(Boolean).join("\n")
+      : github
+        ? `No repository is picked for pull requests yet. Write by-hand cards and leave tool_slug empty. ${BY_HAND}`
+        : r.action === "github_pr"
         ? `GitHub is not connected. Write by-hand cards and leave tool_slug empty. ${BY_HAND}`
         : tools.length
           ? `Tools you may put on a card (executed only after approval):\n${tools.map((t) => `- ${t.slug}: ${(t.description || t.name).slice(0, 160)}`).join("\n")}\nA card with no tool call is done by hand. ${BY_HAND}`
@@ -384,7 +391,7 @@ export async function planCards(looper: Looper, r: RoutineRow, rules: { version:
               (signal
                 ? `Read the ledger rows you would act on in ${names[source] ?? source} first, for the detail the ledger lacks.`
                 : `Read the numbers the routine rules ask for in ${names[source] ?? source} first.`),
-            "Report the numbers, the repo (the one in the notes from hire, when there is one), the files that matter and, for each file you would change, the exact current text of the lines to change.",
+            `Read ${repo} only. Report the numbers, the files that matter and, for each file you would change, the exact current text of the lines to change.`,
           ]
             .filter(Boolean)
             .join(" ")
@@ -425,8 +432,9 @@ export async function planCards(looper: Looper, r: RoutineRow, rules: { version:
     if (!slug || !valid.has(slug)) return null;
     try {
       const a = JSON.parse(args || "{}");
-      if (slug === PR_SLUG && !(Array.isArray(a.files) && a.files.length && typeof a.repo === "string")) return null;
-      return { tool_slug: slug, arguments: a };
+      if (slug === PR_SLUG && !(Array.isArray(a.files) && a.files.length)) return null;
+      // The model only read the picked repo, so its files belong there whatever it wrote in "repo".
+      return { tool_slug: slug, arguments: slug === PR_SLUG ? { ...a, repo } : a };
     } catch {
       return null;
     }
@@ -456,7 +464,7 @@ export async function planCards(looper: Looper, r: RoutineRow, rules: { version:
   const guarded = guard(fresh, { locked: new Set(locked.map((x) => x.subject)), used: Object.fromEntries(used.map((u) => [u.kind, u.n])), limits, mode: r.mode });
   const { keep } = guarded;
   const dropped = [...repeats, ...guarded.dropped];
-  return { keep, dropped, findings, rows, pr, pages: pages.length, tool: names[pr ? "github" : r.tool] ?? r.tool, toolConnected: pr || tools.length > 0, readCount: reads.length };
+  return { keep, dropped, findings, rows, pr, repo, pages: pages.length, tool: names[pr ? "github" : r.tool] ?? r.tool, toolConnected: pr || tools.length > 0, readCount: reads.length };
 }
 
 /** Run one routine: plan its cards and put them on the board. */
@@ -504,16 +512,18 @@ export async function runRoutine(routineId: number) {
  * action wait for the founder to mark them done.
  */
 export async function executeCard(cardId: number) {
-  const [c] = await sql<Card & { workspace_id: number; role: string }>`
+  const [c] = await sql<Card & { workspace_id: number; role: string; looper_repo: string; looper_setup: Looper["setup"] }>`
     update cards set status = 'running', updated_at = now()
     from loopers l
     where cards.id = ${cardId} and cards.status = 'approved' and cards.action is not null and l.id = cards.looper_id
-    returning cards.*, l.workspace_id, l.role`;
+    returning cards.*, l.workspace_id, l.role, l.repo as looper_repo, l.setup as looper_setup`;
   if (!c) return;
   const ws = await wsById(c.workspace_id);
   try {
     if (c.action!.tool_slug === PR_SLUG) {
       const a = c.action!.arguments as PrArgs;
+      const repo = repoFor({ repo: c.looper_repo, setup: c.looper_setup });
+      if (a.repo !== repo) throw new Error(`Not opened: this card targets ${a.repo || "no repository"}, and ${repo ? `this looper ships to ${repo}` : "no repository is picked yet"}. Set it on the Brief tab.`);
       const pr = await openPR(await githubFor(ws), a, limitsOf(findRole(c.role)));
       const undo = { tool_slug: PR_SLUG, arguments: { repo: pr.repo, title: `Undo: ${c.title}`.slice(0, 200), body: `Puts back the files changed by ${pr.url}.`, files: pr.previous } };
       await sql`update cards set updated_at = now(), undo = ${JSON.stringify(undo)},

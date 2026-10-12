@@ -132,31 +132,42 @@ export async function closePR(gh: Gh, repo: string, n: number, why: string) {
   await gh("PATCH", `/repos/${repo}/pulls/${n}`, { state: "closed" });
 }
 
-/** Read tools for the model: list repositories, list files, read one file. Read only. */
-export function readTools(gh: Gh) {
+/**
+ * Read tools for the model: list repositories, list files, read one file. Read only. With `pinned`,
+ * the tools read that one repository and nothing else, so research never wanders into another repo.
+ */
+export function readTools(gh: Gh, pinned = "") {
+  const repo = (i: Record<string, unknown>) => (pinned ? checkRepo(pinned) : String(i.repo));
+  const arg = pinned ? {} : { repo: { type: "string" } };
+  const req = pinned ? [] : ["repo"];
+  const where = pinned ? `in ${pinned}` : "of a repository (owner/name)";
   return [
-    {
-      name: "github_repos",
-      description: "Repositories the connected GitHub account can push to, most recently pushed first, with their homepage.",
-      schema: { type: "object", properties: {} },
-      run: () => repos(gh),
-    },
+    ...(pinned
+      ? []
+      : [
+          {
+            name: "github_repos",
+            description: "Repositories the connected GitHub account can push to, most recently pushed first, with their homepage.",
+            schema: { type: "object", properties: {} },
+            run: () => repos(gh),
+          },
+        ]),
     {
       name: "github_files",
-      description: "File paths on the default branch of a repository (owner/name).",
-      schema: { type: "object", properties: { repo: { type: "string" } }, required: ["repo"] },
-      run: (i: Record<string, unknown>) => tree(gh, String(i.repo)),
+      description: `File paths on the default branch ${where}.`,
+      schema: { type: "object", properties: arg, required: req },
+      run: (i: Record<string, unknown>) => tree(gh, repo(i)),
     },
     {
       name: "github_read",
-      description: "The text of one file on the default branch, 20,000 characters at most. For a long file, pass from_line to read on from a line (1 is the first).",
+      description: `The text of one file on the default branch ${where}, 20,000 characters at most. For a long file, pass from_line to read on from a line (1 is the first).`,
       schema: {
         type: "object",
-        properties: { repo: { type: "string" }, path: { type: "string" }, from_line: { type: "number" } },
-        required: ["repo", "path"],
+        properties: { ...arg, path: { type: "string" }, from_line: { type: "number" } },
+        required: [...req, "path"],
       },
       run: async (i: Record<string, unknown>) => {
-        const f = await file(gh, String(i.repo), String(i.path));
+        const f = await file(gh, repo(i), String(i.path));
         if (!f) return { error: "no such file" };
         const lines = f.content.split("\n");
         const from = Math.max(1, Math.floor(Number(i.from_line) || 1));
