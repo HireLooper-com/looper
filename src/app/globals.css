@@ -1,26 +1,68 @@
 @import "tailwindcss";
 
+/* Plasma-inspired palette: quiet greys, near-black ink, small radii, saturated accents used sparingly. */
+@theme {
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-page: #f4f4f4;
+  --color-panel: #fcfcfc;
+  --color-well: #f0f0f0;
+  --color-line: #e5e5e5;
+  --color-ink: #0a0a0a;
+  --color-ink-2: #242424;
+  --color-mute: #757575;
+  --color-faint: #a5a5a5;
+
+  --color-green: #5dd674;
+  --color-green-deep: #162f29;
+  --color-orange: #f8572c;
+  --color-lavender: #aaa3ff;
+  --color-violet: #9188ff;
+  --color-blue: #7ab8ff;
+
+  --radius-card: 8px;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-feature-settings: "ss01", "cv11";
 }
+
+.display {
+  letter-spacing: -0.035em;
+  line-height: 0.98;
+  font-weight: 500;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-mute);
+}
+
+.lavender-orb {
+  background:
+    radial-gradient(circle at 38% 42%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0) 34%),
+    linear-gradient(135deg, #9188ff 0%, #c6c0ff 100%);
+}
+
+.dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+::selection { background: var(--color-lavender); color: var(--color-ink); }

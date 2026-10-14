@@ -6,12 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.79",
+    "@ai-sdk/mcp": "^2.0.74",
+    "@ai-sdk/openai": "^4.0.93",
+    "@ai-sdk/xai": "^5.0.21",
+    "ai": "^7.0.140",
+    "nanoid": "^6.0.2",
     "next": "16.4.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
