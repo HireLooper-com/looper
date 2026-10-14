@@ -22,9 +22,8 @@ export function integrationsFor(looper: Looper | null, settings: Settings): Inte
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 20) || "mcp";
 
 /**
- * Connect to every MCP hub the looper may use. Tools are registered with deferLoading
- * so the model only sees a `search` tool and pulls in the few definitions it needs,
- * which is what keeps thousands of integrations affordable per run.
+ * Connect to every MCP hub the looper may use. The agent keeps these tools inactive until the
+ * model finds them with `find_tools`, which keeps thousands of integrations affordable per run.
  */
 export async function connectTools(integrations: Integration[]): Promise<ConnectedTools> {
   const clients: MCPClient[] = [];
@@ -43,7 +42,7 @@ export async function connectTools(integrations: Integration[]): Promise<Connect
         const prefix = slug(integration.name);
         for (const [name, t] of Object.entries(set)) {
           const key = integrations.length > 1 ? `${prefix}__${name}` : name;
-          tools[key] = { ...t, deferLoading: true } as ToolSet[string];
+          tools[key] = t;
         }
         connected.push(`${integration.name} (${Object.keys(set).length} tools)`);
       } catch (error) {

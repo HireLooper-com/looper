@@ -1,10 +1,20 @@
-export type Provider = "xai" | "openai" | "anthropic";
+export type Provider = "openai" | "xai";
 
-export const PROVIDERS: { id: Provider; label: string; defaultModel: string; keyHint: string }[] = [
-  { id: "xai", label: "Grok (xAI)", defaultModel: "grok-4.7", keyHint: "xai-…" },
-  { id: "openai", label: "OpenAI", defaultModel: "gpt-5.6", keyHint: "sk-…" },
-  { id: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-5-5", keyHint: "sk-ant-…" },
+export const PROVIDERS: { id: Provider; label: string; plan: string; defaultModel: string; keyHint: string }[] = [
+  { id: "openai", label: "OpenAI", plan: "ChatGPT", defaultModel: "gpt-5.6", keyHint: "sk-…" },
+  { id: "xai", label: "xAI", plan: "Grok", defaultModel: "grok-4.7", keyHint: "xai-…" },
 ];
+
+export interface User {
+  id: string;
+  /** provider used for the first sign-in */
+  provider: Provider;
+  email?: string;
+  /** provider:subject pairs that sign in as this user */
+  identities: string[];
+  createdAt: string;
+  lastLoginAt: string;
+}
 
 export type IntegrationKind = "composio" | "zapier" | "pipedream" | "custom";
 
@@ -18,11 +28,33 @@ export interface Integration {
   enabled: boolean;
 }
 
+/** OAuth tokens for a subscription sign-in. Server-only. */
+export interface OAuthCredential {
+  accessToken: string;
+  refreshToken: string;
+  /** epoch ms */
+  expiresAt: number;
+  /** epoch ms; ChatGPT refuses refreshes before this */
+  earliestRefreshAt?: number;
+  scopes: string[];
+  email?: string;
+  subject?: string;
+}
+
+export type AuthMode = "key" | "oauth";
+/** Where Grok subscription tokens are sent: xAI's public API, or the Grok CLI's proxy (unofficial). */
+export type GrokRoute = "api" | "cli-proxy";
+
 export interface Settings {
   provider: Provider;
   apiKeys: Partial<Record<Provider, string>>;
   models: Record<Provider, string>;
   integrations: Integration[];
+  authMode: Partial<Record<Provider, AuthMode>>;
+  oauth: { openai?: OAuthCredential; xai?: OAuthCredential };
+  /** ChatGPT issues a client id per user on first sign-in; it survives sign-out. */
+  chatgptClientId?: string;
+  grokRoute: GrokRoute;
 }
 
 export type ScheduleType = "manual" | "hourly" | "daily" | "weekly";
@@ -136,6 +168,7 @@ export interface ChiefMessage {
   actions?: string[];
 }
 
+/** One user's private workspace. */
 export interface DB {
   settings: Settings;
   loopers: Looper[];
@@ -146,9 +179,13 @@ export interface DB {
 }
 
 /** Settings with secrets masked, safe to send to the browser. */
-export type PublicSettings = Omit<Settings, "apiKeys" | "integrations"> & {
+export type PublicSettings = Omit<Settings, "apiKeys" | "integrations" | "oauth" | "chatgptClientId"> & {
   keysSet: Record<Provider, boolean>;
+  /** connected subscription accounts, by email */
+  subscriptions: { openai?: { email?: string; sharing: boolean }; xai?: { email?: string } };
+  /** true when the server runs on the user's machine (ChatGPT sign-in is only allowed there) */
+  isLocal: boolean;
   integrations: (Omit<Integration, "headers"> & { headerNames: string[] })[];
 };
 
-export type PublicState = Omit<DB, "settings"> & { settings: PublicSettings };
+export type PublicState = Omit<DB, "settings"> & { settings: PublicSettings; user: { email?: string; provider: Provider } };

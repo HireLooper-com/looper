@@ -4,9 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { askChief, clearChief } from "@/app/actions";
-import type { ChiefMessage, Provider } from "@/lib/types";
-import { PROVIDERS } from "@/lib/types";
-import { Button, cx } from "./ui";
+import type { ChiefMessage } from "@/lib/types";
+import { cx } from "./ui";
 
 const STARTERS = [
   "Hire a looper to grow LinkedIn impressions to 50k/month",
@@ -15,7 +14,7 @@ const STARTERS = [
   "How is the team doing this week?",
 ];
 
-export function ChiefChat({ messages, ready, provider, model }: { messages: ChiefMessage[]; ready: boolean; provider: Provider; model: string }) {
+export function ChiefChat({ messages, ready, source, model }: { messages: ChiefMessage[]; ready: boolean; source: string; model: string }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [pending, setPending] = useState<string | null>(null);
@@ -38,24 +37,26 @@ export function ChiefChat({ messages, ready, provider, model }: { messages: Chie
     });
   };
 
-  const label = PROVIDERS.find((p) => p.id === provider)?.label;
-
   return (
-    <section className="dot-grid relative flex min-h-[640px] flex-col overflow-hidden rounded-[8px] bg-ink text-white lg:h-[calc(100vh-7rem)]">
-      <header className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+    <section className="tile flex min-h-[620px] flex-col overflow-hidden lg:h-[calc(100vh-6rem)]">
+      <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
         <div className="flex items-center gap-3">
-          <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-full bg-green text-ink">
-            <span className="h-4 w-4 rounded-full border-[3px] border-ink" />
-          </span>
+          <span className="app-icon flex h-9 w-9 items-center justify-center bg-gradient-to-b from-[#5e5ce6] to-[#3634a3] text-white">✦</span>
           <div>
-            <div className="text-[1rem] font-semibold tracking-[-0.01em]">Chief</div>
-            <div className="text-[0.75rem] text-white/50">
-              {ready ? `${label} · ${model}` : "Needs an API key"}
-            </div>
+            <div className="text-[0.9375rem] font-semibold">Chief</div>
+            <div className="text-[0.75rem] text-mute">{ready ? `${source} · ${model}` : "Not connected"}</div>
           </div>
         </div>
         {messages.length > 0 && (
-          <button onClick={() => start(async () => { await clearChief(); router.refresh(); })} className="text-[0.75rem] text-white/40 hover:text-white">
+          <button
+            onClick={() =>
+              start(async () => {
+                await clearChief();
+                router.refresh();
+              })
+            }
+            className="text-[0.8125rem] text-blue hover:underline"
+          >
             Clear
           </button>
         )}
@@ -63,28 +64,26 @@ export function ChiefChat({ messages, ready, provider, model }: { messages: Chie
 
       <div ref={scroller} className="flex-1 overflow-y-auto px-5 py-6">
         {messages.length === 0 && !pending ? (
-          <div className="flex h-full flex-col justify-end gap-8">
+          <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
+            <span className="app-icon flex h-16 w-16 items-center justify-center bg-gradient-to-b from-[#5e5ce6] to-[#3634a3] text-[1.75rem] text-white">✦</span>
             <div>
-              <p className="eyebrow !text-white/40">Your chief of loopers</p>
-              <h1 className="display mt-3 max-w-[14ch] text-[2.75rem] sm:text-[3.5rem]">
-                Hire loopers. Each owns <span className="text-green">one number.</span>
-              </h1>
-              <p className="mt-4 max-w-[46ch] text-[0.9375rem] leading-relaxed text-white/60">
-                Tell Chief what you want to move. It hires a looper with one metric, a kanban board, a calendar of skills and a retro where it grades its own work.
+              <h1 className="display text-[1.75rem]">What should we move?</h1>
+              <p className="mx-auto mt-2 max-w-[44ch] text-[0.9375rem] leading-relaxed text-mute">
+                Chief turns a goal into a looper with one metric, a kanban board, a calendar of skills and a retro where it grades its own work.
               </p>
             </div>
             {!ready && (
-              <Link href="/settings" className="inline-flex w-fit items-center gap-2 rounded-full bg-green px-5 py-2.5 text-[0.875rem] font-medium text-ink">
-                Bring your Grok, OpenAI or Anthropic key →
+              <Link href="/settings" className="rounded-full bg-blue px-5 py-2.5 text-[0.9375rem] font-medium text-white">
+                Connect your plan in Settings
               </Link>
             )}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex max-w-xl flex-wrap justify-center gap-2">
               {STARTERS.map((s) => (
                 <button
                   key={s}
                   disabled={!ready}
                   onClick={() => send(s)}
-                  className="rounded-full border border-white/15 px-3.5 py-1.5 text-left text-[0.8125rem] text-white/80 transition-colors hover:border-white/40 hover:text-white disabled:opacity-40"
+                  className="rounded-full bg-well px-4 py-2 text-[0.8125rem] text-ink-2 transition-colors hover:bg-[#ebebf0] disabled:opacity-40"
                 >
                   {s}
                 </button>
@@ -92,15 +91,17 @@ export function ChiefChat({ messages, ready, provider, model }: { messages: Chie
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-3">
             {messages.map((m) => (
               <Bubble key={m.id} m={m} />
             ))}
             {pending && (
               <>
                 <Bubble m={{ id: "p", role: "user", content: pending, at: "" }} />
-                <div className="flex items-center gap-2 text-[0.8125rem] text-white/50">
-                  <span className="pulse-dot h-2 w-2 rounded-full bg-green" /> Chief is working…
+                <div className="flex w-fit items-center gap-1 rounded-[18px] rounded-bl-[6px] bg-[#e9e9eb] px-4 py-3">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} className="pulse-dot h-2 w-2 rounded-full bg-faint" style={{ animationDelay: `${i * 0.2}s` }} />
+                  ))}
                 </div>
               </>
             )}
@@ -113,9 +114,9 @@ export function ChiefChat({ messages, ready, provider, model }: { messages: Chie
           e.preventDefault();
           send(text);
         }}
-        className="border-t border-white/10 p-3"
+        className="border-t border-line p-3"
       >
-        <div className="flex items-end gap-2 rounded-[8px] bg-white/[0.06] p-1.5 focus-within:bg-white/[0.09]">
+        <div className="flex items-end gap-2 rounded-[22px] border border-[#d2d2d7] bg-white py-1 pl-4 pr-1 focus-within:border-blue focus-within:ring-4 focus-within:ring-blue/15">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -127,12 +128,19 @@ export function ChiefChat({ messages, ready, provider, model }: { messages: Chie
             }}
             rows={1}
             disabled={!ready}
-            placeholder={ready ? "Ask Chief to hire, brief, pause or report on a looper…" : "Add an API key in Settings to talk to Chief"}
-            className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-3 py-2.5 text-[0.9375rem] text-white outline-none placeholder:text-white/35"
+            placeholder={ready ? "Message Chief" : "Connect your plan in Settings to talk to Chief"}
+            className="max-h-40 min-h-9 flex-1 resize-none bg-transparent py-2 text-[0.9375rem] outline-none placeholder:text-faint"
           />
-          <Button type="submit" variant="light" disabled={!ready || isPending || !text.trim()}>
-            Send
-          </Button>
+          <button
+            type="submit"
+            disabled={!ready || isPending || !text.trim()}
+            aria-label="Send"
+            className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue text-white disabled:bg-[#d2d2d7]"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+              <path d="M7 12V2M7 2 2.5 6.5M7 2l4.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
       </form>
     </section>
@@ -142,11 +150,11 @@ export function ChiefChat({ messages, ready, provider, model }: { messages: Chie
 function Bubble({ m }: { m: ChiefMessage }) {
   const mine = m.role === "user";
   return (
-    <div className={cx("flex flex-col gap-2", mine ? "items-end" : "items-start")}>
+    <div className={cx("flex flex-col gap-1.5", mine ? "items-end" : "items-start")}>
       <div
         className={cx(
-          "max-w-[85%] whitespace-pre-wrap rounded-[8px] px-4 py-3 text-[0.9375rem] leading-relaxed",
-          mine ? "bg-white text-ink" : "bg-white/[0.06] text-white/90",
+          "max-w-[80%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-snug",
+          mine ? "rounded-br-[6px] bg-blue text-white" : "rounded-bl-[6px] bg-[#e9e9eb] text-ink",
         )}
       >
         {m.content}
@@ -154,7 +162,7 @@ function Bubble({ m }: { m: ChiefMessage }) {
       {m.actions && m.actions.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {m.actions.map((a, i) => (
-            <span key={i} className="rounded-full bg-green/15 px-2.5 py-1 text-[0.75rem] text-green">
+            <span key={i} className="rounded-full bg-green/15 px-2.5 py-1 text-[0.75rem] font-medium text-green-deep">
               ✓ {a}
             </span>
           ))}

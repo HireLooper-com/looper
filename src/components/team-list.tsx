@@ -22,7 +22,7 @@ function countRecent(runs: PublicState["runs"], days: number) {
 export function TeamList({ state }: { state: PublicState }) {
   const { loopers, runs, cards } = state;
   return (
-    <div className="flex flex-col gap-4 lg:h-[calc(100vh-7rem)]">
+    <div className="flex flex-col gap-4 lg:h-[calc(100vh-6rem)]">
       <div className="grid grid-cols-3 gap-2">
         <Stat label="Loopers" value={loopers.length} />
         <Stat label="Runs · 7d" value={countRecent(runs, 7)} />
@@ -31,17 +31,17 @@ export function TeamList({ state }: { state: PublicState }) {
 
       <Panel className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
-          <span className="eyebrow">The team</span>
-          <Link href="/loopers" className="text-[0.8125rem] text-mute hover:text-ink">
-            Manage →
+          <span className="text-[0.9375rem] font-semibold">Team</span>
+          <Link href="/loopers" className="text-[0.8125rem] text-blue hover:underline">
+            Manage
           </Link>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loopers.length === 0 ? (
             <div className="flex h-full min-h-60 flex-col items-center justify-center gap-3 px-6 text-center">
-              <span className="lavender-orb h-14 w-14 rounded-full" />
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-blue/10 text-[1.5rem] text-blue">◎</span>
               <p className="max-w-[28ch] text-[0.875rem] text-mute">No loopers yet. Ask Chief to hire your first one, or create it by hand.</p>
-              <Link href="/loopers/new" className="text-[0.875rem] font-medium underline underline-offset-4">
+              <Link href="/loopers/new" className="text-[0.875rem] font-medium text-blue hover:underline">
                 Create a looper
               </Link>
             </div>
@@ -50,7 +50,7 @@ export function TeamList({ state }: { state: PublicState }) {
               const { current, onTrack } = progress(l);
               const lastRun = runs.filter((r) => r.looperId === l.id).at(-1);
               return (
-                <Link key={l.id} href={`/loopers/${l.id}`} className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 hover:bg-well/60">
+                <Link key={l.id} href={`/loopers/${l.id}`} className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 hover:bg-black/[0.03]">
                   <Avatar emoji={l.emoji} color={l.color} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -83,9 +83,9 @@ export function TeamList({ state }: { state: PublicState }) {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-[8px] bg-well px-4 py-3">
-      <div className="text-[1.75rem] font-medium tabular-nums tracking-[-0.03em]">{value}</div>
-      <div className="eyebrow mt-0.5">{label}</div>
+    <div className="tile px-4 py-3">
+      <div className="text-[1.75rem] font-semibold tabular-nums tracking-[-0.03em]">{value}</div>
+      <div className="mt-0.5 text-[0.75rem] text-mute">{label}</div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Nav } from "@/components/nav";
+import { NavShell } from "@/components/nav-shell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Groklooper",
-  description: "Hire AI loopers that each own one business metric. Bring your Grok, OpenAI or Anthropic key.",
+  title: "Chieflooper",
+  description: "Hire AI loopers that each own one business metric. Sign in with your ChatGPT or Grok plan.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -24,10 +24,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <Suspense>
-          <Nav />
+          <NavShell />
         </Suspense>
         <main className="mx-auto w-full max-w-[1360px] flex-1 px-4 pb-16 sm:px-6">
-          <Suspense fallback={<div className="pt-10"><div className="h-[60vh] animate-pulse rounded-[8px] bg-well" /></div>}>{children}</Suspense>
+          <Suspense fallback={<div className="pt-10"><div className="h-[60vh] animate-pulse rounded-[20px] bg-well" /></div>}>{children}</Suspense>
         </main>
       </body>
     </html>

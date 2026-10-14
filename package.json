@@ -1,5 +1,5 @@
 {
-  "name": "groklooper",
+  "name": "chieflooper",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,11 +10,11 @@
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.79",
     "@ai-sdk/mcp": "^2.0.74",
     "@ai-sdk/openai": "^4.0.93",
     "@ai-sdk/xai": "^5.0.21",
     "ai": "^7.0.140",
+    "jose": "^6.2.12",
     "nanoid": "^6.0.2",
     "next": "16.4.0",
     "react": "19.3.0",

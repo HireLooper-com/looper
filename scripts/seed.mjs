@@ -1,8 +1,20 @@
 // Demo data so you can see the boards before your loopers have run. Usage: npm run seed
-// Overwrites data/db.json but keeps any saved settings (keys, integrations).
+// Seeds the most recently signed-in user's workspace (or a "demo" user if nobody has signed in yet),
+// replacing their loopers but keeping their settings (sign-ins, keys, integrations).
 import fs from "node:fs";
+import path from "node:path";
 
-const FILE = "data/db.json";
+const DIR = process.env.GROKLOOPER_DATA_DIR ?? "data";
+const USERS = path.join(DIR, "users.json");
+const users = fs.existsSync(USERS) ? JSON.parse(fs.readFileSync(USERS, "utf8")).users : [];
+let user = [...users].sort((a, b) => b.lastLoginAt.localeCompare(a.lastLoginAt))[0];
+if (!user) {
+  const at = new Date().toISOString();
+  user = { id: "demo", provider: "xai", email: "demo@chieflooper.local", identities: ["xai:demo"], createdAt: at, lastLoginAt: at };
+  fs.mkdirSync(DIR, { recursive: true });
+  fs.writeFileSync(USERS, JSON.stringify({ users: [user] }, null, 2), { mode: 0o600 });
+}
+const FILE = path.join(DIR, "users", `${user.id}.json`);
 const now = Date.now();
 const d = 864e5;
 const iso = (t) => new Date(t).toISOString();
@@ -14,8 +26,11 @@ const db = {
   settings: prev.settings ?? {
     provider: "xai",
     apiKeys: {},
-    models: { xai: "grok-4.7", openai: "gpt-5.6", anthropic: "claude-sonnet-5-5" },
+    models: { xai: "grok-4.7", openai: "gpt-5.6" },
     integrations: [],
+    authMode: {},
+    oauth: {},
+    grokRoute: "api",
   },
   loopers: [
     looper("ivy", "Ivy", "📈", "green", "Grow the founder's LinkedIn reach by publishing, repurposing and engaging daily.",
@@ -46,6 +61,6 @@ const db = {
   chief: [],
 };
 
-fs.mkdirSync("data", { recursive: true });
+fs.mkdirSync(path.dirname(FILE), { recursive: true });
 fs.writeFileSync(FILE, JSON.stringify(db, null, 2), { mode: 0o600 });
-console.log("Seeded 3 demo loopers (paused, so they won't run until you resume them).");
+console.log(`Seeded 3 demo loopers for ${user.email ?? user.id} (paused, so they won't run until you resume them).`);

@@ -1,11 +1,22 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { addIntegration, checkIntegration, removeIntegration, removeKey, saveProvider, toggleIntegration } from "@/app/actions";
+import { useEffect, useState, useTransition } from "react";
+import {
+  addIntegration,
+  checkIntegration,
+  disconnectSubscription,
+  listPlanModels,
+  removeIntegration,
+  removeKey,
+  saveModelSettings,
+  setGrokRoute,
+  toggleIntegration,
+} from "@/app/actions";
 import type { IntegrationKind, Provider, PublicSettings } from "@/lib/types";
 import { PROVIDERS } from "@/lib/types";
-import { Button, Field, Input, Panel, Pill, cx } from "./ui";
+import { ChatGPTButton, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
+import { Button, Field, Input, Panel, Pill, Select, cx } from "./ui";
 
 const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; header?: string; tone: string }[] = [
   {
@@ -29,7 +40,7 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
     apps: "Thousands of apps",
     how: "Use Pipedream's remote MCP server URL for your project. Add the auth header Pipedream gives you.",
     header: "Authorization",
-    tone: "lavender-orb",
+    tone: "bg-lavender",
   },
   {
     kind: "custom",
@@ -41,18 +52,16 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
   },
 ];
 
-export function SettingsView({ settings }: { settings: PublicSettings }) {
+export function SettingsView({ settings, notice }: { settings: PublicSettings; notice?: string }) {
   return (
-    <div className="pt-10">
-      <p className="eyebrow">Settings</p>
-      <h1 className="display mt-2 text-[2.5rem] sm:text-[3.25rem]">Your keys, your tools.</h1>
-      <p className="mt-3 max-w-[60ch] text-[0.9375rem] text-mute">
-        Groklooper runs on your own subscription. Keys are stored locally in <code className="rounded bg-well px-1">data/db.json</code> and never leave your server except to call the provider.
-      </p>
+    <div className="mx-auto max-w-5xl pt-10">
+      <h1 className="display text-[2.5rem] sm:text-[3rem]">Settings</h1>
+      <p className="mt-2 max-w-[60ch] text-[1rem] text-mute">Choose which plan your loopers run on, and connect the apps they can use.</p>
+      {notice && <div className="mt-6 rounded-[12px] bg-blue/10 px-4 py-3 text-[0.875rem] text-blue">{notice}</div>}
 
       <section className="mt-10">
-        <div className="eyebrow mb-3">1 · Model provider</div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <h2 className="mb-3 text-[1.25rem] font-semibold tracking-[-0.01em]">AI plan</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {PROVIDERS.map((p) => (
             <ProviderCard key={p.id} id={p.id} settings={settings} />
           ))}
@@ -60,7 +69,8 @@ export function SettingsView({ settings }: { settings: PublicSettings }) {
       </section>
 
       <section className="mt-12">
-        <div className="eyebrow mb-3">2 · Integration hubs</div>
+        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Integrations</h2>
+        <p className="mb-4 text-[0.875rem] text-mute">Each hub is one MCP link that reaches hundreds or thousands of apps. Loopers search for the tool they need while they work.</p>
         <Integrations settings={settings} />
       </section>
     </div>
@@ -71,46 +81,120 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
   const router = useRouter();
   const meta = PROVIDERS.find((p) => p.id === id)!;
   const active = settings.provider === id;
+  const sub = settings.subscriptions[id];
+  const mode = settings.authMode[id] ?? (sub ? "oauth" : "key");
   const hasKey = settings.keysSet[id];
   const [key, setKey] = useState("");
   const [model, setModel] = useState(settings.models[id]);
+  const [planModels, setPlanModels] = useState<{ id: string; name: string }[]>([]);
+  const [showKey, setShowKey] = useState(false);
   const [pending, start] = useTransition();
+  const refresh = () => router.refresh();
+
+  useEffect(() => {
+    if (id !== "openai" || !sub) return;
+    listPlanModels("openai").then(setPlanModels).catch(() => setPlanModels([]));
+  }, [id, sub]);
+
+  const Mark = id === "openai" ? OpenAIMark : GrokMark;
+  const usable = mode === "oauth" ? !!sub : hasKey;
 
   return (
-    <div className={cx("flex flex-col gap-4 rounded-[8px] border p-5", active ? "border-ink bg-white" : "border-line bg-panel")}>
-      <div className="flex items-center justify-between">
-        <span className="text-[1.0625rem] font-semibold tracking-[-0.01em]">{meta.label}</span>
-        {active ? <Pill tone="dark">In use</Pill> : hasKey ? <Pill tone="green">Key saved</Pill> : <Pill>No key</Pill>}
+    <Panel className={cx("flex flex-col gap-5 p-6", active && "ring-2 ring-blue")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-ink text-white">
+            <Mark className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="text-[1.0625rem] font-semibold">{meta.plan}</div>
+            <div className="text-[0.8125rem] text-mute">{sub ? `Signed in${sub.email ? ` as ${sub.email}` : ""}` : "Not connected"}</div>
+          </div>
+        </div>
+        {active ? <Pill tone="blue">In use</Pill> : usable ? <Pill tone="green">Ready</Pill> : null}
       </div>
-      <Field label="API key">
-        <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? "•••••••• saved — paste to replace" : meta.keyHint} autoComplete="off" />
-      </Field>
+
+      {sub ? (
+        <div className="flex flex-col gap-3">
+          {id === "openai" && !settings.subscriptions.openai?.sharing && (
+            <p className="text-[0.8125rem] text-orange">Plan usage wasn&apos;t granted. Sign in again and allow plan usage.</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {mode === "oauth" && hasKey && (
+              <Button size="sm" variant="soft" onClick={() => start(async () => { await saveModelSettings({ provider: id, model, useKey: true }); refresh(); })}>
+                Use API key instead
+              </Button>
+            )}
+            {mode === "key" && (
+              <Button size="sm" variant="soft" onClick={() => start(async () => { await saveModelSettings({ provider: id, model, useKey: false }); refresh(); })}>
+                Use my {meta.plan} plan
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => start(async () => { await disconnectSubscription(id); refresh(); })}>
+              Disconnect
+            </Button>
+          </div>
+        </div>
+      ) : id === "openai" ? (
+        <ChatGPTButton isLocal={settings.isLocal} label="Connect ChatGPT plan" />
+      ) : (
+        <GrokSignIn label="Connect Grok plan" onConnected={refresh} />
+      )}
+
       <Field label="Model">
-        <Input value={model} onChange={(e) => setModel(e.target.value)} />
-      </Field>
-      <div className="flex items-center justify-between gap-2">
-        {hasKey ? (
-          <Button size="sm" variant="danger" className="!px-0" onClick={() => start(async () => { await removeKey(id); router.refresh(); })}>
-            Remove key
-          </Button>
+        {id === "openai" && mode === "oauth" && planModels.length > 0 ? (
+          <Select value={model} onChange={(e) => setModel(e.target.value)}>
+            {!planModels.some((m) => m.id === model) && <option value={model}>{model}</option>}
+            {planModels.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </Select>
         ) : (
-          <span />
+          <Input value={model} onChange={(e) => setModel(e.target.value)} />
         )}
+      </Field>
+
+      {id === "xai" && sub && mode === "oauth" && (
+        <Field label="Send Grok requests to" hint="Some SuperGrok tiers get a 403 on xAI's API. The Grok CLI endpoint is what the Grok CLI uses; it's unofficial and identifies as the Grok CLI.">
+          <Select value={settings.grokRoute} onChange={(e) => start(async () => { await setGrokRoute(e.target.value as "api" | "cli-proxy"); refresh(); })}>
+            <option value="api">xAI API (api.x.ai)</option>
+            <option value="cli-proxy">Grok CLI endpoint (unofficial)</option>
+          </Select>
+        </Field>
+      )}
+
+      <div>
+        <button className="text-[0.8125rem] text-blue hover:underline" onClick={() => setShowKey((s) => !s)}>
+          {showKey ? "Hide API key" : hasKey ? "API key saved · change" : `Use an ${meta.label} API key instead`}
+        </button>
+        {showKey && (
+          <div className="mt-3 flex gap-2">
+            <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? "Paste to replace" : meta.keyHint} autoComplete="off" />
+            {hasKey && (
+              <Button size="sm" variant="ghost" className="!h-10" onClick={() => start(async () => { await removeKey(id); refresh(); })}>
+                Remove
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-auto flex justify-end">
         <Button
           size="sm"
-          disabled={pending || (!hasKey && !key)}
+          disabled={pending || (!usable && !key)}
           onClick={() =>
             start(async () => {
-              await saveProvider({ provider: id, model, apiKey: key });
+              await saveModelSettings({ provider: id, model, apiKey: key || undefined, useKey: key ? true : undefined });
               setKey("");
-              router.refresh();
+              refresh();
             })
           }
         >
-          {active ? "Save" : "Save & use"}
+          {active ? "Save" : `Use ${meta.plan}`}
         </Button>
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -131,23 +215,26 @@ function Integrations({ settings }: { settings: PublicSettings }) {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3">
         {HUBS.map((h) => (
           <button
             key={h.kind}
-            onClick={() => { setHub(h); setError(null); }}
-            className={cx("flex flex-col gap-4 rounded-[8px] border p-5 text-left transition-colors", hub?.kind === h.kind ? "border-ink bg-white" : "border-line bg-panel hover:border-ink/30")}
+            onClick={() => {
+              setHub(h);
+              setError(null);
+            }}
+            className={cx("tile flex flex-col gap-4 p-5 text-left", hub?.kind === h.kind && "ring-2 ring-blue")}
           >
-            <span className={cx("h-9 w-9 rounded-full", h.tone)} />
+            <span className={cx("h-10 w-10 rounded-[11px]", h.tone)} />
             <div>
-              <div className="font-semibold tracking-[-0.01em]">{h.name}</div>
+              <div className="font-semibold">{h.name}</div>
               <div className="text-[0.8125rem] text-mute">{h.apps}</div>
             </div>
           </button>
         ))}
       </div>
 
-      <Panel className="p-5">
+      <Panel className="p-6">
         {hub ? (
           <form
             className="grid gap-4"
@@ -170,7 +257,7 @@ function Integrations({ settings }: { settings: PublicSettings }) {
               })
             }
           >
-            <div className="text-[1.25rem] font-medium tracking-[-0.02em]">Connect {hub.name}</div>
+            <div className="text-[1.25rem] font-semibold tracking-[-0.01em]">Connect {hub.name}</div>
             <p className="text-[0.8125rem] leading-relaxed text-mute">{hub.how}</p>
             <Field label="Name">
               <Input name="name" defaultValue={hub.name} />
@@ -194,20 +281,23 @@ function Integrations({ settings }: { settings: PublicSettings }) {
           </form>
         ) : settings.integrations.length === 0 ? (
           <div className="flex h-full min-h-56 flex-col justify-center gap-2">
-            <div className="text-[1.25rem] font-medium tracking-[-0.02em]">Thousands of apps, one URL each</div>
+            <div className="text-[1.25rem] font-semibold tracking-[-0.01em]">Thousands of apps, one link each</div>
             <p className="text-[0.875rem] leading-relaxed text-mute">
-              Loopers use the Model Context Protocol. Connect a hub and every looper can reach Gmail, Slack, HubSpot, LinkedIn, Notion, Sheets, Stripe and thousands more. They search for the tool they need at run time, so a big catalog doesn&apos;t slow them down.
+              Connect a hub and every looper can reach Gmail, Slack, HubSpot, LinkedIn, Notion, Sheets, Stripe and thousands more. They search for the tool they need at run time, so a big catalog doesn&apos;t slow them down.
             </p>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            <div className="eyebrow mb-1">Connected</div>
+            <div className="mb-1 text-[0.8125rem] font-medium text-mute">Connected</div>
             {settings.integrations.map((i) => (
-              <div key={i.id} className="rounded-[6px] bg-well p-3">
+              <div key={i.id} className="rounded-[12px] bg-well p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-[0.9375rem] font-medium">{i.name}</div>
-                    <div className="truncate text-[0.75rem] text-mute">{i.url.replace(/(https?:\/\/[^/]+).*/, "$1/…")}{i.headerNames.length > 0 && ` · ${i.headerNames.join(", ")}`}</div>
+                    <div className="truncate text-[0.75rem] text-mute">
+                      {i.url.replace(/(https?:\/\/[^/]+).*/, "$1/…")}
+                      {i.headerNames.length > 0 && ` · ${i.headerNames.join(", ")}`}
+                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button size="sm" variant="ghost" onClick={() => test(i.id)}>Test</Button>
@@ -222,7 +312,7 @@ function Integrations({ settings }: { settings: PublicSettings }) {
                 {tests[i.id] && <div className={cx("mt-2 break-words text-[0.75rem]", tests[i.id].startsWith("✕") ? "text-orange" : "text-green-deep")}>{tests[i.id]}</div>}
               </div>
             ))}
-            <p className="mt-2 text-[0.75rem] text-faint">Pick a hub on the left to add another.</p>
+            <p className="mt-2 text-[0.75rem] text-faint">Pick a hub to add another.</p>
           </div>
         )}
       </Panel>

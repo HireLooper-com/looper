@@ -1,27 +1,28 @@
 @import "tailwindcss";
 
-/* Plasma-inspired palette: quiet greys, near-black ink, small radii, saturated accents used sparingly. */
+/* iCloud.com-inspired: Apple system type, #f5f5f7 canvas, white rounded tiles with soft shadows, Apple blue. */
 @theme {
-  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", var(--font-geist-sans), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", var(--font-geist-mono), Menlo, monospace;
 
-  --color-page: #f4f4f4;
-  --color-panel: #fcfcfc;
-  --color-well: #f0f0f0;
-  --color-line: #e5e5e5;
-  --color-ink: #0a0a0a;
-  --color-ink-2: #242424;
-  --color-mute: #757575;
-  --color-faint: #a5a5a5;
+  --color-page: #f5f5f7;
+  --color-panel: #ffffff;
+  --color-well: #f5f5f7;
+  --color-line: #e5e5ea;
+  --color-ink: #1d1d1f;
+  --color-ink-2: #424245;
+  --color-mute: #6e6e73;
+  --color-faint: #86868b;
 
-  --color-green: #5dd674;
-  --color-green-deep: #162f29;
-  --color-orange: #f8572c;
-  --color-lavender: #aaa3ff;
-  --color-violet: #9188ff;
-  --color-blue: #7ab8ff;
-
-  --radius-card: 8px;
+  --color-blue: #0071e3;
+  --color-blue-hover: #0077ed;
+  --color-green: #34c759;
+  --color-green-deep: #248a3d;
+  --color-orange: #f56300;
+  --color-red: #ff3b30;
+  --color-lavender: #af52de;
+  --color-violet: #5e5ce6;
+  --color-teal: #30b0c7;
 }
 
 :root {
@@ -29,34 +30,53 @@
 }
 
 body {
-  background: var(--color-page);
+  background:
+    radial-gradient(60rem 30rem at 10% -10%, rgba(94, 92, 230, 0.08), transparent 60%),
+    radial-gradient(50rem 30rem at 100% 0%, rgba(48, 176, 199, 0.08), transparent 60%),
+    var(--color-page);
+  background-attachment: fixed;
   color: var(--color-ink);
-  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* Soft colour wash behind the home and sign-in screens, like iCloud's canvas. */
+.wash {
+  background:
+    radial-gradient(60rem 30rem at 10% -10%, rgba(94, 92, 230, 0.10), transparent 60%),
+    radial-gradient(50rem 30rem at 100% 0%, rgba(48, 176, 199, 0.10), transparent 60%),
+    radial-gradient(50rem 40rem at 50% 120%, rgba(255, 149, 0, 0.07), transparent 60%),
+    var(--color-page);
+}
+
+.tile {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 18px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+a.tile:hover,
+button.tile:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05), 0 10px 30px rgba(0, 0, 0, 0.08);
 }
 
 .display {
-  letter-spacing: -0.035em;
-  line-height: 0.98;
-  font-weight: 500;
+  letter-spacing: -0.028em;
+  line-height: 1.05;
+  font-weight: 600;
 }
 
 .eyebrow {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
   color: var(--color-mute);
 }
 
-.lavender-orb {
-  background:
-    radial-gradient(circle at 38% 42%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0) 34%),
-    linear-gradient(135deg, #9188ff 0%, #c6c0ff 100%);
-}
-
-.dot-grid {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px);
-  background-size: 18px 18px;
+/* App icon squircle */
+.app-icon {
+  border-radius: 22.5%;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }
 
 @keyframes pulse-dot {
@@ -65,4 +85,4 @@ body {
 }
 .pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
 
-::selection { background: var(--color-lavender); color: var(--color-ink); }
+::selection { background: rgba(0, 113, 227, 0.2); }

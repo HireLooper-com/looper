@@ -69,7 +69,7 @@ export function SkillsPanel({ looper, runs, integrations }: { looper: Looper; ru
               </div>
               <p className="mt-3 whitespace-pre-wrap text-[0.875rem] leading-relaxed text-ink-2">{s.instructions}</p>
               {lastResult?.skillId === s.id && (
-                <div className={cx("mt-4 whitespace-pre-wrap rounded-[6px] p-3 text-[0.8125rem] leading-relaxed", lastResult.status === "error" ? "bg-orange/10 text-orange" : "bg-green/15 text-green-deep")}>
+                <div className={cx("mt-4 whitespace-pre-wrap rounded-[12px] p-3 text-[0.8125rem] leading-relaxed", lastResult.status === "error" ? "bg-orange/10 text-orange" : "bg-green/15 text-green-deep")}>
                   {lastResult.summary}
                 </div>
               )}
@@ -86,12 +86,12 @@ export function SkillsPanel({ looper, runs, integrations }: { looper: Looper; ru
           </p>
           <div className="mt-4 flex flex-col gap-2">
             {integrations.length === 0 && (
-              <Link href="/settings" className="rounded-[6px] border border-dashed border-line p-3 text-[0.8125rem] text-mute hover:border-ink/30 hover:text-ink">
+              <Link href="/settings" className="rounded-[12px] border border-dashed border-line p-3 text-[0.8125rem] text-mute hover:border-ink/30 hover:text-ink">
                 No integration hubs yet. Connect Composio, Zapier or Pipedream →
               </Link>
             )}
             {integrations.map((i) => (
-              <label key={i.id} className="flex cursor-pointer items-center justify-between gap-3 rounded-[6px] bg-well px-3 py-2.5">
+              <label key={i.id} className="flex cursor-pointer items-center justify-between gap-3 rounded-[12px] bg-well px-3 py-2.5">
                 <span className="text-[0.875rem]">
                   {i.name}
                   {!i.enabled && <span className="ml-2 text-[0.75rem] text-faint">disabled globally</span>}
@@ -140,9 +140,9 @@ function SkillEditor({ looperId, skill, onClose }: { looperId: string; skill: Pa
   const [days, setDays] = useState<number[]>(skill.schedule?.days ?? [1]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 backdrop-blur-sm sm:items-center" onClick={onClose}>
       <form
-        className="grid w-full max-w-lg gap-4 rounded-[8px] bg-panel p-6"
+        className="grid w-full max-w-lg gap-4 tile p-6"
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
@@ -186,7 +186,7 @@ function SkillEditor({ looperId, skill, onClose }: { looperId: string; skill: Pa
                 type="button"
                 key={i}
                 onClick={() => setDays((cur) => (cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i].sort()))}
-                className={cx("h-9 w-9 rounded-full text-[0.8125rem]", days.includes(i) ? "bg-ink text-white" : "bg-well")}
+                className={cx("h-9 w-9 rounded-full text-[0.8125rem]", days.includes(i) ? "bg-blue text-white" : "bg-[#ebebf0]")}
               >
                 {d}
               </button>

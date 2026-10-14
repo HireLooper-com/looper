@@ -3,19 +3,20 @@ import type { Accent } from "@/lib/types";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
+// App-icon style gradients, like iCloud's tiles.
 export const accentBg: Record<Accent, string> = {
-  green: "bg-green",
-  orange: "bg-orange",
-  lavender: "lavender-orb",
-  blue: "bg-blue",
-  ink: "bg-ink-2",
+  green: "bg-gradient-to-b from-[#5fd77a] to-[#28b44b]",
+  orange: "bg-gradient-to-b from-[#ffb340] to-[#ff8a00]",
+  lavender: "bg-gradient-to-b from-[#c77dff] to-[#9b4ddb]",
+  blue: "bg-gradient-to-b from-[#4fa8ff] to-[#0a7cff]",
+  ink: "bg-gradient-to-b from-[#5ac8e0] to-[#1e9cb8]",
 };
 export const accentHex: Record<Accent, string> = {
-  green: "#5dd674",
-  orange: "#f8572c",
-  lavender: "#9188ff",
-  blue: "#7ab8ff",
-  ink: "#242424",
+  green: "#34c759",
+  orange: "#ff9500",
+  lavender: "#af52de",
+  blue: "#0071e3",
+  ink: "#30b0c7",
 };
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "soft" | "danger" | "light"; size?: "sm" | "md" };
@@ -25,12 +26,12 @@ export function Button({ variant = "primary", size = "md", className, ...props }
       {...props}
       className={cx(
         "inline-flex items-center justify-center gap-2 rounded-full font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        size === "sm" ? "h-8 px-3.5 text-[0.8125rem]" : "h-10 px-5 text-[0.875rem]",
-        variant === "primary" && "bg-ink text-white hover:bg-ink-2",
+        size === "sm" ? "h-8 px-3.5 text-[0.8125rem]" : "h-10 px-5 text-[0.9375rem]",
+        variant === "primary" && "bg-blue text-white hover:bg-blue-hover",
         variant === "light" && "bg-white text-ink hover:bg-well",
-        variant === "soft" && "bg-well text-ink hover:bg-line",
-        variant === "ghost" && "text-mute hover:bg-well hover:text-ink",
-        variant === "danger" && "text-orange hover:bg-orange/10",
+        variant === "soft" && "bg-[#e8e8ed] text-ink hover:bg-[#dcdce1]",
+        variant === "ghost" && "text-blue hover:bg-blue/8",
+        variant === "danger" && "text-red hover:bg-red/8",
         className,
       )}
     />
@@ -38,7 +39,7 @@ export function Button({ variant = "primary", size = "md", className, ...props }
 }
 
 export function Panel({ className, children }: { className?: string; children: ReactNode }) {
-  return <section className={cx("rounded-[8px] border border-line bg-panel", className)}>{children}</section>;
+  return <section className={cx("tile", className)}>{children}</section>;
 }
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -51,7 +52,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   );
 }
 
-const inputCls = "w-full rounded-[6px] border border-line bg-white px-3 text-[0.875rem] text-ink outline-none placeholder:text-faint focus:border-ink";
+const inputCls = "w-full rounded-[10px] border border-[#d2d2d7] bg-white px-3 text-[0.9375rem] text-ink outline-none placeholder:text-faint focus:border-blue focus:ring-4 focus:ring-blue/15";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(inputCls, "h-10", props.className)} />;
@@ -63,16 +64,17 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={cx(inputCls, "h-10 appearance-none pr-8", props.className)} />;
 }
 
-export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: "grey" | "green" | "orange" | "lavender" | "dark" }) {
+export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: "grey" | "green" | "orange" | "lavender" | "dark" | "blue" }) {
   return (
     <span
       className={cx(
         "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[0.75rem] font-medium",
-        tone === "grey" && "bg-well text-ink-2",
-        tone === "green" && "bg-green/20 text-green-deep",
+        tone === "grey" && "bg-[#f0f0f3] text-ink-2",
+        tone === "green" && "bg-green/15 text-green-deep",
         tone === "orange" && "bg-orange/12 text-orange",
-        tone === "lavender" && "bg-lavender/25 text-[#4b41c9]",
+        tone === "lavender" && "bg-lavender/15 text-[#8e3fbf]",
         tone === "dark" && "bg-ink text-white",
+        tone === "blue" && "bg-blue/10 text-blue",
       )}
     >
       {children}
@@ -83,7 +85,7 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
 export function Avatar({ emoji, color, size = 40 }: { emoji: string; color: Accent; size?: number }) {
   return (
     <span
-      className={cx("inline-flex shrink-0 items-center justify-center rounded-full", accentBg[color], color === "ink" && "text-white")}
+      className={cx("app-icon inline-flex shrink-0 items-center justify-center text-white", accentBg[color])}
       style={{ width: size, height: size, fontSize: size * 0.45 }}
     >
       {emoji}
@@ -91,7 +93,7 @@ export function Avatar({ emoji, color, size = 40 }: { emoji: string; color: Acce
   );
 }
 
-export function Sparkline({ values, color = "#0a0a0a", width = 120, height = 36 }: { values: number[]; color?: string; width?: number; height?: number }) {
+export function Sparkline({ values, color = "#0071e3", width = 120, height = 36 }: { values: number[]; color?: string; width?: number; height?: number }) {
   if (values.length < 2) return <div style={{ width, height }} className="flex items-center text-[0.6875rem] text-faint">no trend yet</div>;
   const min = Math.min(...values);
   const max = Math.max(...values);
