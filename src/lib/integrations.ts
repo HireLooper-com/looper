@@ -40,7 +40,9 @@ export async function connectTools(integrations: Integration[]): Promise<Connect
         clients.push(client);
         const set = await client.tools();
         const prefix = slug(integration.name);
+        const denied = new Set(integration.deniedTools ?? []);
         for (const [name, t] of Object.entries(set)) {
+          if (denied.has(name)) continue;
           const key = integrations.length > 1 ? `${prefix}__${name}` : name;
           tools[key] = t;
         }

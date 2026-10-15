@@ -5,11 +5,14 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { chiefReply, defaultRetroSkill, runRetro, runSkill } from "@/lib/agent";
 import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
+import { appFromName, MCP_APPS } from "@/lib/apps";
+import * as composioApi from "@/lib/composio";
+import { kv } from "@/lib/kv";
 import { testIntegration } from "@/lib/integrations";
 import * as chatgpt from "@/lib/oauth/chatgpt";
 import * as grok from "@/lib/oauth/grok";
 import { clearSession, currentUser, requireUid, requireUser, setSession } from "@/lib/session";
-import type { Card, Column, GrokRoute, Integration, IntegrationKind, Looper, Provider, Skill } from "@/lib/types";
+import type { AppRef, Card, Column, GrokRoute, Integration, IntegrationKind, Looper, Provider, Skill } from "@/lib/types";
 import { ACCENTS } from "@/lib/types";
 
 const now = () => new Date().toISOString();
@@ -158,7 +161,7 @@ export async function checkIntegration(id: string) {
 }
 
 // — Loopers —
-export async function createLooper(input: { name: string; emoji: string; mission: string; metricName: string; unit: string; direction: "up" | "down"; target: number; current?: number }) {
+export async function createLooper(input: { name: string; emoji: string; mission: string; metricName: string; unit: string; direction: "up" | "down"; target: number; current?: number; apps?: string[] }) {
   const uid = await requireUid();
   const id = await mutate(uid, (db) => {
     const looper: Looper = {
@@ -176,6 +179,7 @@ export async function createLooper(input: { name: string; emoji: string; mission
       },
       skills: [defaultRetroSkill()],
       integrationIds: "all",
+      apps: (input.apps ?? []).map(appFromName).filter((a, i, all) => all.findIndex((b) => b.slug === a.slug) === i),
       status: "active",
       createdAt: now(),
     };
@@ -278,5 +282,111 @@ export async function editCard(cardId: string, patch: { title?: string; descript
 export async function deleteCard(cardId: string) {
   const uid = await requireUid();
   await mutate(uid, (db) => void (db.cards = db.cards.filter((x) => x.id !== cardId)));
+  return done(true);
+}
+
+// — Apps (per looper) —
+
+type AppState = "connected" | "not_connected" | "unavailable";
+interface AppRow extends AppRef {
+  state: AppState;
+  detail: string;
+  setup?: string[];
+}
+
+export async function looperAppStatus(looperId: string): Promise<{ composio: boolean; apps: AppRow[] }> {
+  const uid = await requireUid();
+  const db = await read(uid);
+  const looper = db.loopers.find((l) => l.id === looperId);
+  if (!looper) throw new Error("Looper not found");
+  const composio = composioApi.hasComposio();
+  const accounts = composio ? await composioApi.activeAccounts(uid).catch(() => new Map<string, composioApi.Account>()) : new Map<string, composioApi.Account>();
+  const local = isLocalServer();
+
+  const apps = await Promise.all(
+    (looper.apps ?? []).map(async (app): Promise<AppRow> => {
+      if (app.via === "mcp") {
+        const preset = MCP_APPS[app.slug];
+        const integration = db.settings.integrations.find((i) => i.app === app.slug && i.enabled);
+        if (preset?.localOnly && !local)
+          return { ...app, state: "unavailable", detail: `${app.name} runs on your own machine. Open Chieflooper locally to connect it.` };
+        if (integration) return { ...app, state: "connected", detail: `Read-only via ${integration.url.replace(/^https?:\/\//, "")}` };
+        return { ...app, state: "not_connected", detail: "Runs on your machine through a small MCP server. Payments are blocked.", setup: preset?.setup };
+      }
+      if (!composio) return { ...app, state: "not_connected", detail: "Needs Composio on the server" };
+      const tk = await composioApi.getToolkit(app.slug).catch(() => null);
+      if (!tk) return { ...app, state: "unavailable", detail: "Not found in the app catalog. Remove it or add it through a hub in Settings." };
+      const logo = app.logo ?? tk.meta?.logo;
+      const account = accounts.get(app.slug);
+      if (account) return { ...app, name: tk.name, logo, state: "connected", detail: account.state?.val?.displayName ? `Connected as ${account.state.val.displayName}` : "Connected" };
+      return { ...app, name: tk.name, logo, state: "not_connected", detail: (tk.composio_managed_auth_schemes ?? []).length ? `Sign in with ${tk.name}` : `Paste your ${tk.name} key on a secure Composio page` };
+    }),
+  );
+
+  // Remember logos and canonical names so Chief and tiles can show them.
+  const known = new Map(apps.map((a) => [a.slug, a]));
+  if (apps.some((a) => a.logo && !looper.apps?.find((x) => x.slug === a.slug)?.logo))
+    await mutate(uid, (d) => {
+      const l = d.loopers.find((x) => x.id === looperId);
+      if (l?.apps) l.apps = l.apps.map((a) => ({ ...a, name: known.get(a.slug)?.name ?? a.name, logo: known.get(a.slug)?.logo ?? a.logo }));
+    });
+  return { composio, apps };
+}
+
+/** Start Composio's hosted connect page for one app; returns the URL to open. */
+export async function connectApp(looperId: string, slug: string) {
+  const uid = await requireUid();
+  const h = await headers();
+  const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
+  const callback = `${origin}/connect/callback?looper=${encodeURIComponent(looperId)}&app=${encodeURIComponent(slug)}`;
+  const link = await composioApi.linkAccount(uid, slug, callback);
+  // The callback's query string isn't proof: remember which account we started for whom.
+  await kv.set(`composio-link:${link.connected_account_id}`, { uid, looperId, slug }, 3600);
+  return link.redirect_url;
+}
+
+/** Connect an MCP-based app (e.g. bunq): check the server answers, then save it with payment tools blocked. */
+export async function connectMcpApp(looperId: string, slug: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const uid = await requireUid();
+  const preset = MCP_APPS[slug];
+  if (!preset) return { ok: false, error: "Unknown app" };
+  if (preset.localOnly && !isLocalServer()) return { ok: false, error: `${preset.name} only works when Chieflooper runs on your machine.` };
+  const probe: Integration = { id: "probe", name: preset.name, kind: "custom", url: preset.url, headers: {}, enabled: true, app: slug, deniedTools: preset.deniedTools };
+  const test = await testIntegration(probe);
+  if (!test.ok) return { ok: false, error: `Couldn't reach ${preset.name} at ${preset.url}. Is bunq-mcp running? (${test.error})` };
+  await mutate(uid, (db) => {
+    const existing = db.settings.integrations.find((i) => i.app === slug);
+    if (existing) Object.assign(existing, { url: preset.url, deniedTools: preset.deniedTools, enabled: true });
+    else db.settings.integrations.push({ ...probe, id: nanoid(8) });
+  });
+  return done({ ok: true });
+}
+
+export async function searchApps(q: string): Promise<AppRef[]> {
+  await requireUid();
+  const query = q.trim().toLowerCase();
+  const mcp = Object.entries(MCP_APPS)
+    .filter(([slug, a]) => slug.includes(query) || a.name.toLowerCase().includes(query))
+    .map(([slug, a]) => ({ slug, name: a.name, via: "mcp" as const, logo: a.logo }));
+  if (!composioApi.hasComposio()) return mcp.length ? mcp : [appFromName(q)];
+  const found = await composioApi.searchToolkits(q).catch(() => []);
+  return [...mcp, ...found.map((t) => ({ slug: t.slug, name: t.name, logo: t.logo, via: "composio" as const }))];
+}
+
+export async function addLooperApp(looperId: string, app: AppRef) {
+  const uid = await requireUid();
+  await mutate(uid, (db) => {
+    const l = db.loopers.find((x) => x.id === looperId);
+    if (l && !l.apps?.some((a) => a.slug === app.slug)) l.apps = [...(l.apps ?? []), app];
+  });
+  return done(true);
+}
+
+export async function removeLooperApp(looperId: string, slug: string) {
+  const uid = await requireUid();
+  await mutate(uid, (db) => {
+    const l = db.loopers.find((x) => x.id === looperId);
+    if (l?.apps) l.apps = l.apps.filter((a) => a.slug !== slug);
+  });
   return done(true);
 }

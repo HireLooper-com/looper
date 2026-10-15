@@ -6,6 +6,7 @@ import { useEffect, useState, useTransition } from "react";
 import { recordMetric, updateLooper } from "@/app/actions";
 import { occurrences } from "@/lib/schedule";
 import type { Card, Looper, PublicSettings, Retro, Run } from "@/lib/types";
+import { AppsPanel } from "./apps-panel";
 import { CalendarView } from "./calendar";
 import { Kanban } from "./kanban";
 import { RetroBoard } from "./retro-board";
@@ -17,7 +18,8 @@ const TABS = [
   { id: "board", label: "Kanban", icon: "▦" },
   { id: "calendar", label: "Calendar", icon: "◷" },
   { id: "retro", label: "Retro", icon: "↺" },
-  { id: "skills", label: "Skills & tools", icon: "✧" },
+  { id: "apps", label: "Apps", icon: "⌘" },
+  { id: "skills", label: "Skills", icon: "✧" },
 ];
 
 export function LooperView(props: {
@@ -56,6 +58,7 @@ export function LooperView(props: {
     board: cards.filter((c) => c.column !== "done").length,
     retro: retros.length || undefined,
     skills: looper.skills.length,
+    apps: looper.apps?.length || undefined,
   };
 
   return (
@@ -149,6 +152,8 @@ export function LooperView(props: {
           <CalendarView looper={looper} runs={runs} />
         ) : tab === "retro" ? (
           <RetroBoard looper={looper} retros={retros} running={running} />
+        ) : tab === "apps" ? (
+          <AppsPanel looperId={looper.id} looperName={looper.name} />
         ) : tab === "skills" ? (
           <SkillsPanel looper={looper} runs={runs} integrations={integrations} />
         ) : (

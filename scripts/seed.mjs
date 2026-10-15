@@ -1,6 +1,5 @@
 // Demo data so you can see the boards before your loopers have run. Usage: npm run seed
-// Seeds the most recently signed-in user's workspace (or a "demo" user if nobody has signed in yet),
-// replacing their loopers but keeping their settings (sign-ins, keys, integrations).
+// Only ever writes the separate "demo" account (demo@chieflooper.local); real users are never touched.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -28,18 +27,18 @@ async function kvSet(key, value) {
 }
 
 const users = (await kvGet("users"))?.users ?? [];
-let user = [...users].sort((a, b) => b.lastLoginAt.localeCompare(a.lastLoginAt))[0];
+let user = users.find((u) => u.id === "demo");
 if (!user) {
   const at = new Date().toISOString();
   user = { id: "demo", provider: "xai", email: "demo@chieflooper.local", identities: ["xai:demo"], createdAt: at, lastLoginAt: at };
-  await kvSet("users", { users: [user] });
+  await kvSet("users", { users: [...users, user] });
 }
 const prev = (await kvGet(`ws:${user.id}`)) ?? {};
 const now = Date.now();
 const d = 864e5;
 const iso = (t) => new Date(t).toISOString();
 const skill = (id, name, instructions, type, time, days = [1], kind = "work") => ({ id, name, instructions, kind, schedule: { type, time, days } });
-const looper = (id, name, emoji, color, mission, metric, skills) => ({ id, name, emoji, color, mission, metric, skills, integrationIds: "all", status: "paused", createdAt: iso(now - 20 * d) });
+const looper = (id, name, emoji, color, mission, metric, skills, apps = []) => ({ id, name, emoji, color, mission, metric, skills, apps, integrationIds: "all", status: "paused", createdAt: iso(now - 20 * d) });
 
 const db = {
   settings: prev.settings ?? {
@@ -61,6 +60,10 @@ const db = {
       { name: "Qualified demos", unit: "per week", direction: "up", target: 10, history: [4, 5, 5, 7].map((value, i) => ({ at: iso(now - (3 - i) * 2 * d), value })) },
       [skill("s4", "Lead follow-up", "Follow up open HubSpot leads by Gmail and log replies.", "weekly", "10:00", [1, 3, 5]),
        skill("s5", "Weekly retro", "Reflect on the week's work against the metric.", "weekly", "17:00", [5], "retro")]),
+    looper("vera", "Vera", "🧾", "blue", "Prepare the quarterly Dutch VAT return for the eenmanszaak: match bunq transactions to invoices in Gmail and income in Stripe.",
+      { name: "Bank transactions without a matched invoice", unit: "transactions", direction: "down", target: 0, history: [] },
+      [skill("s7", "Match transactions", "Pull new bunq transactions, find the matching invoice in Gmail or payout in Stripe, and note anything unmatched.", "weekly", "09:00", [1, 4])],
+      [{ slug: "bunq", name: "bunq", via: "mcp" }, { slug: "stripe", name: "Stripe", via: "composio" }, { slug: "gmail", name: "Gmail", via: "composio" }]),
     looper("sol", "Sol", "💬", "lavender", "Keep support fast and friendly across Crisp and email.",
       { name: "First response time", unit: "min", direction: "down", target: 60, history: [180, 150, 120, 95].map((value, i) => ({ at: iso(now - (3 - i) * d), value })) },
       [skill("s6", "Triage inbox", "Triage new Crisp conversations and draft replies.", "hourly", "00:15")]),

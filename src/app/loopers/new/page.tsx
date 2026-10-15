@@ -31,8 +31,9 @@ export default function NewLooper() {
                 direction: fd.get("direction") as "up" | "down",
                 target: Number(fd.get("target")),
                 current: fd.get("current") === "" ? undefined : Number(fd.get("current")),
+                apps: String(fd.get("apps") ?? "").split(",").map((a) => a.trim()).filter(Boolean),
               });
-              router.push(`/loopers/${id}`);
+              router.push(`/loopers/${id}?tab=apps`);
             })
           }
         >
@@ -74,6 +75,9 @@ export default function NewLooper() {
               <Input name="current" type="number" step="any" placeholder="12000" />
             </Field>
           </div>
+          <Field label="Apps it works with" hint="Comma-separated. You'll connect each one with a click on the next screen.">
+            <Input name="apps" placeholder="bunq, Stripe, Gmail" />
+          </Field>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => router.back()}>
               Cancel

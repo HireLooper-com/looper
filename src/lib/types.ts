@@ -26,6 +26,18 @@ export interface Integration {
   url: string;
   headers: Record<string, string>;
   enabled: boolean;
+  /** catalog app this server provides, e.g. "bunq" */
+  app?: string;
+  /** tools never exposed to loopers, e.g. real-money payments */
+  deniedTools?: string[];
+}
+
+/** An app a looper needs. Composio apps connect with one click; MCP apps point at a server. */
+export interface AppRef {
+  slug: string;
+  name: string;
+  via: "composio" | "mcp";
+  logo?: string;
 }
 
 /** OAuth tokens for a subscription sign-in. Server-only. */
@@ -101,6 +113,8 @@ export interface Looper {
   skills: Skill[];
   /** "all" or a list of integration ids */
   integrationIds: "all" | string[];
+  /** apps this looper needs connected */
+  apps?: AppRef[];
   status: "active" | "paused";
   createdAt: string;
 }
@@ -166,6 +180,8 @@ export interface ChiefMessage {
   content: string;
   at: string;
   actions?: string[];
+  /** follow-up links, e.g. connecting a new looper's apps */
+  links?: { label: string; href: string }[];
 }
 
 /** One user's private workspace. */

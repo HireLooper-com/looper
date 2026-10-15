@@ -3,10 +3,12 @@ import { isStepCount, Output, streamText, tool, type ModelMessage, type ToolSet 
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
+import { composioTools } from "./composio";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
 import { describeSchedule, isDue } from "./schedule";
-import type { Card, Column, DB, Looper, Retro, Run, Settings, Skill, ToolCallLog } from "./types";
+import { appFromName } from "./apps";
+import type { AppRef, Card, Column, DB, Looper, Retro, Run, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -203,6 +205,11 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
 
   const run = await startRun(uid, looper, skill, trigger);
   const ext = await connectTools(integrationsFor(looper, db.settings));
+  const composioSlugs = (looper.apps ?? []).filter((a) => a.via === "composio").map((a) => a.slug);
+  const apps = await composioTools(uid, composioSlugs).catch((e) => ({ tools: {}, connected: [] as string[], missing: composioSlugs, error: errorText(e) }));
+  ext.tools = { ...ext.tools, ...apps.tools };
+  ext.connected.push(...apps.connected);
+  if (apps.missing.length) ext.failed.push(...apps.missing.map((slug) => ({ name: `${slug} (not connected yet)`, error: "" })));
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
     const result = await callModel(uid, db.settings, {
@@ -211,7 +218,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         `Run your skill "${skill.name}" now.`,
         skill.instructions,
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
-        ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}.` : "",
+        ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Apps tab.` : "",
       ].join("\n\n"),
       tools: boardTools(uid, looper.id, "looper"),
       external: ext.tools,
@@ -346,7 +353,11 @@ function toSkill(s: z.infer<typeof skillInput>): Skill {
   return { id: nanoid(8), name: s.name, instructions: s.instructions, kind: "work", schedule: { type: s.type, time: s.time, days: s.days } };
 }
 
-function chiefTools(uid: string, actions: string[]): ToolSet {
+function dedupeApps(apps: AppRef[]) {
+  return apps.filter((a, i) => a.slug && apps.findIndex((b) => b.slug === a.slug) === i);
+}
+
+function chiefTools(uid: string, actions: string[], links: { label: string; href: string }[]): ToolSet {
   const findLooper = (db: DB, idOrName: string) => {
     const l = db.loopers.find((x) => x.id === idOrName || x.name.toLowerCase() === idOrName.toLowerCase());
     if (!l) throw new Error(`No looper "${idOrName}"`);
@@ -383,6 +394,7 @@ function chiefTools(uid: string, actions: string[]): ToolSet {
         mission: z.string(),
         metric: z.object({ name: z.string(), unit: z.string(), direction: z.enum(["up", "down"]), target: z.number(), current: z.number().optional() }),
         skills: z.array(skillInput).min(1).max(4),
+        apps: z.array(z.string()).max(8).default([]).describe("apps the looper needs, by name, e.g. ['Stripe', 'Gmail', 'bunq']"),
         starterCards: z.array(z.string()).max(5).default([]),
       }),
       execute: (input) =>
@@ -402,10 +414,12 @@ function chiefTools(uid: string, actions: string[]): ToolSet {
             },
             skills: [...input.skills.map(toSkill), defaultRetroSkill()],
             integrationIds: "all",
+            apps: dedupeApps(input.apps.map(appFromName)),
             status: "active",
             createdAt: now(),
           };
           db.loopers.push(looper);
+          if (looper.apps?.length) links.push({ label: `Connect ${looper.apps.map((a) => a.name).join(", ")} for ${looper.name}`, href: `/loopers/${looper.id}?tab=apps` });
           for (const title of input.starterCards)
             db.cards.push({ id: nanoid(8), looperId: looper.id, title, description: "", column: "todo", createdBy: "chief", createdAt: now(), updatedAt: now() });
           actions.push(`Hired ${looper.name}`);
@@ -420,10 +434,15 @@ function chiefTools(uid: string, actions: string[]): ToolSet {
         target: z.number().optional(),
         status: z.enum(["active", "paused"]).optional(),
         addSkills: z.array(skillInput).optional(),
+        addApps: z.array(z.string()).optional().describe("apps to add, by name"),
       }),
       execute: (input) =>
         mutate(uid, (db) => {
           const l = findLooper(db, input.looper);
+          if (input.addApps?.length) {
+            l.apps = dedupeApps([...(l.apps ?? []), ...input.addApps.map(appFromName)]);
+            links.push({ label: `Connect apps for ${l.name}`, href: `/loopers/${l.id}?tab=apps` });
+          }
           if (input.mission) l.mission = input.mission;
           if (input.target !== undefined) l.metric.target = input.target;
           if (input.status) l.status = input.status;
@@ -474,7 +493,9 @@ function chiefTools(uid: string, actions: string[]): ToolSet {
 
 const CHIEF_INSTRUCTIONS = `You are Chief, the head of a team of loopers. A looper is an AI operator hired to move exactly one business metric. It has one kanban board, a calendar of scheduled skills, and a retro board where it judges its own effectiveness.
 
-Your job: turn the user's goals into loopers, manage them, and report on them. When the user wants something done repeatedly, propose a looper (name, one metric with unit/direction/target, 1–4 scheduled skills that name the apps to use) and hire it with create_looper — don't ask more than one clarifying question first. One metric per looper, always; split goals that have two metrics into two loopers. Loopers reach thousands of apps through the connected integration hubs; if none are connected, tell the user to add one in Settings (Composio, Zapier MCP, Pipedream, or any MCP URL).
+Your job: turn the user's goals into loopers, manage them, and report on them. When the user wants something done repeatedly, propose a looper (name, one metric with unit/direction/target, 1–4 scheduled skills that name the apps to use) and hire it with create_looper — don't ask more than one clarifying question first. One metric per looper, always; split goals that have two metrics into two loopers.
+
+Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]). The app shows the user one-click Connect buttons for them right after hiring, so say "connect them with the button below" rather than explaining setup.
 
 Be brief and concrete. Use plain text with short lists.`;
 
@@ -485,20 +506,21 @@ export async function chiefReply(uid: string, userText: string) {
 
   const history: ModelMessage[] = [...db.chief.slice(-30), userMsg].map((m) => ({ role: m.role, content: m.content }));
   const actions: string[] = [];
+  const links: { label: string; href: string }[] = [];
   let content: string;
   try {
     const team = db.loopers.map((l) => `- ${l.name} (${l.status}): ${metricLine(l)}`).join("\n") || "- nobody hired yet";
     const result = await callModel(uid, db.settings, {
       instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}.\nCurrent team:\n${team}\nIntegration hubs: ${db.settings.integrations.filter((i) => i.enabled).map((i) => i.name).join(", ") || "none"}`,
       messages: history,
-      tools: chiefTools(uid, actions),
+      tools: chiefTools(uid, actions, links),
       maxSteps: 12,
     });
     content = (await result.text) || (actions.length ? "Done." : "…");
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   }
-  const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions };
+  const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
   await mutate(uid, (d) => void d.chief.push(reply));
   return reply;
 }

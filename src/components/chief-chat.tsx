@@ -159,6 +159,15 @@ function Bubble({ m }: { m: ChiefMessage }) {
       >
         {m.content}
       </div>
+      {m.links && m.links.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {m.links.map((l, i) => (
+            <Link key={i} href={l.href} className="rounded-full bg-blue px-4 py-2 text-[0.8125rem] font-medium text-white hover:bg-blue-hover">
+              {l.label}
+            </Link>
+          ))}
+        </div>
+      )}
       {m.actions && m.actions.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {m.actions.map((a, i) => (
