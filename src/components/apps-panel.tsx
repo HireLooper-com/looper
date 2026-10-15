@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { addLooperApp, connectApp, connectMcpApp, looperAppStatus, removeLooperApp, searchApps } from "@/app/actions";
+import { addLooperApp, connectApp, connectMcpApp, disconnectAccount, looperAppStatus, removeLooperApp, searchApps } from "@/app/actions";
 import type { AppRef } from "@/lib/types";
 import { Button, Input, Panel, Pill, cx } from "./ui";
 
@@ -29,13 +29,13 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
     load();
   }, [load]);
 
-  const connect = (row: Row) =>
+  const connect = (row: Row, another = false) =>
     start(async () => {
       setBusy(row.slug);
       setError(null);
       try {
         if (row.via === "composio") {
-          window.location.assign(await connectApp(looperId, row.slug));
+          window.location.assign(await connectApp(looperId, row.slug, another));
           return;
         }
         const r = await connectMcpApp(looperId, row.slug);
@@ -104,6 +104,34 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
                   ×
                 </button>
               </div>
+              {row.accounts && row.accounts.length > 0 && (
+                <div className="ml-[52px] flex flex-col gap-1.5">
+                  {row.accounts.map((a) => (
+                    <div key={a.id} className="flex items-center justify-between gap-3 rounded-[10px] bg-well px-3 py-2 text-[0.8125rem]">
+                      <span className="truncate">{a.label}</span>
+                      <button
+                        className="shrink-0 text-red hover:underline"
+                        onClick={() => {
+                          if (!confirm(`Disconnect ${a.label}? Loopers will lose access to it.`)) return;
+                          start(async () => {
+                            try {
+                              await disconnectAccount(a.id);
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : String(e));
+                            }
+                            await load();
+                          });
+                        }}
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  ))}
+                  <button className="w-fit text-[0.8125rem] font-medium text-blue hover:underline disabled:opacity-50" disabled={busy === row.slug} onClick={() => connect(row, true)}>
+                    + Connect another {row.name} account
+                  </button>
+                </div>
+              )}
               {row.setup && row.state !== "connected" && (
                 <ol className="ml-[52px] list-decimal space-y-1 pl-4 text-[0.8125rem] text-ink-2">
                   {row.setup.map((step, i) => (

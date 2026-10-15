@@ -292,6 +292,8 @@ interface AppRow extends AppRef {
   state: AppState;
   detail: string;
   setup?: string[];
+  /** connected accounts of this app (Composio), e.g. several Stripe accounts */
+  accounts?: { id: string; label: string }[];
 }
 
 export async function looperAppStatus(looperId: string): Promise<{ composio: boolean; apps: AppRow[] }> {
@@ -300,7 +302,7 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
   const looper = db.loopers.find((l) => l.id === looperId);
   if (!looper) throw new Error("Looper not found");
   const composio = composioApi.hasComposio();
-  const accounts = composio ? await composioApi.activeAccounts(uid).catch(() => new Map<string, composioApi.Account>()) : new Map<string, composioApi.Account>();
+  const accounts = composio ? await composioApi.activeAccounts(uid).catch(() => new Map<string, composioApi.Account[]>()) : new Map<string, composioApi.Account[]>();
   const local = isLocalServer();
 
   const apps = await Promise.all(
@@ -317,8 +319,16 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
       const tk = await composioApi.getToolkit(app.slug).catch(() => null);
       if (!tk) return { ...app, state: "unavailable", detail: "Not found in the app catalog. Remove it or add it through a hub in Settings." };
       const logo = app.logo ?? tk.meta?.logo;
-      const account = accounts.get(app.slug);
-      if (account) return { ...app, name: tk.name, logo, state: "connected", detail: account.state?.val?.displayName ? `Connected as ${account.state.val.displayName}` : "Connected" };
+      const list = (accounts.get(app.slug) ?? []).map((a) => ({ id: a.id, label: composioApi.accountLabel(a) }));
+      if (list.length)
+        return {
+          ...app,
+          name: tk.name,
+          logo,
+          state: "connected",
+          accounts: list,
+          detail: list.length === 1 ? `Connected as ${list[0].label}` : `${list.length} accounts connected`,
+        };
       return { ...app, name: tk.name, logo, state: "not_connected", detail: (tk.composio_managed_auth_schemes ?? []).length ? `Sign in with ${tk.name}` : `Paste your ${tk.name} key on a secure Composio page` };
     }),
   );
@@ -333,13 +343,22 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
   return { composio, apps };
 }
 
-/** Start Composio's hosted connect page for one app; returns the URL to open. */
-export async function connectApp(looperId: string, slug: string) {
+/** Start Composio's hosted connect page for one app; returns the URL to open.
+ * `another` adds a further account of an app that's already connected (e.g. a second Stripe). */
+export async function connectApp(looperId: string, slug: string, another = false) {
   const uid = await requireUid();
+  let alias: string | undefined;
+  if (another) {
+    const existing = (await composioApi.activeAccounts(uid)).get(slug) ?? [];
+    const taken = new Set(existing.map((a) => a.alias).filter(Boolean));
+    let n = existing.length + 1;
+    while (taken.has(`${slug}-${n}`)) n++;
+    alias = `${slug}-${n}`;
+  }
   const h = await headers();
   const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
   const callback = `${origin}/connect/callback?looper=${encodeURIComponent(looperId)}&app=${encodeURIComponent(slug)}`;
-  const link = await composioApi.linkAccount(uid, slug, callback);
+  const link = await composioApi.linkAccount(uid, slug, callback, alias);
   // The callback's query string isn't proof: remember which account we started for whom.
   await kv.set(`composio-link:${link.connected_account_id}`, { uid, looperId, slug }, 3600);
   return link.redirect_url;
@@ -388,5 +407,15 @@ export async function removeLooperApp(looperId: string, slug: string) {
     const l = db.loopers.find((x) => x.id === looperId);
     if (l?.apps) l.apps = l.apps.filter((a) => a.slug !== slug);
   });
+  return done(true);
+}
+
+/** Disconnect one account of an app (it stops working for every looper). */
+export async function disconnectAccount(accountId: string) {
+  const uid = await requireUid();
+  // Only the signed-in user's own accounts can be removed.
+  const mine = (await composioApi.listAccounts(uid)).some((a) => a.id === accountId);
+  if (!mine) throw new Error("That connection isn't yours.");
+  await composioApi.deleteAccount(accountId);
   return done(true);
 }

@@ -70,13 +70,19 @@ async function authConfigFor(slug: string): Promise<string> {
   return created.auth_config.id;
 }
 
-/** Start a hosted Connect flow; returns where to send the browser and the account being created. */
-export async function linkAccount(uid: string, slug: string, callbackUrl: string) {
+/** Start a hosted Connect flow; returns where to send the browser and the account being created.
+ * `alias` (unique per user and app) lets one person connect several accounts of the same app. */
+export async function linkAccount(uid: string, slug: string, callbackUrl: string, alias?: string) {
   return call<{ redirect_url: string; connected_account_id: string; expires_at?: string }>("POST", "/connected_accounts/link", {
     auth_config_id: await authConfigFor(slug),
     user_id: uid,
     callback_url: callbackUrl,
+    ...(alias ? { alias } : {}),
   });
+}
+
+export async function deleteAccount(id: string) {
+  await call("DELETE", `/connected_accounts/${encodeURIComponent(id)}`);
 }
 
 export interface Account {
@@ -84,6 +90,7 @@ export interface Account {
   status: "INITIALIZING" | "INITIATED" | "ACTIVE" | "FAILED" | "EXPIRED" | "INACTIVE" | "REVOKED";
   toolkit: { slug: string };
   is_disabled?: boolean;
+  alias?: string | null;
   state?: { val?: { displayName?: string } };
   updated_at?: string;
 }
@@ -97,10 +104,16 @@ export function getAccount(id: string) {
   return call<Account & { user_id?: string }>("GET", `/connected_accounts/${encodeURIComponent(id)}`);
 }
 
-/** Newest usable account per toolkit. */
+/** A human label for an account: the provider's display name, else the alias. */
+export const accountLabel = (a: Account) => a.state?.val?.displayName || a.alias || a.id;
+
+/** Usable accounts per toolkit, newest first. */
 export async function activeAccounts(uid: string) {
-  const map = new Map<string, Account>();
-  for (const a of await listAccounts(uid)) if (a.status === "ACTIVE" && !a.is_disabled && !map.has(a.toolkit.slug)) map.set(a.toolkit.slug, a);
+  const map = new Map<string, Account[]>();
+  for (const a of await listAccounts(uid)) {
+    if (a.status !== "ACTIVE" || a.is_disabled) continue;
+    map.set(a.toolkit.slug, [...(map.get(a.toolkit.slug) ?? []), a]);
+  }
   return map;
 }
 
@@ -135,7 +148,10 @@ async function execute(uid: string, toolSlug: string, args: Record<string, unkno
   return res.data;
 }
 
-/** AI SDK tools for the given toolkits, bound to the user's connected accounts. */
+/**
+ * AI SDK tools for the given toolkits, bound to the user's connected accounts. With several accounts
+ * of one app (e.g. two Stripe accounts) each tool gets a required `account` argument listing them.
+ */
 export async function composioTools(uid: string, slugs: string[]): Promise<{ tools: ToolSet; connected: string[]; missing: string[] }> {
   if (!hasComposio() || slugs.length === 0) return { tools: {}, connected: [], missing: slugs };
   const accounts = await activeAccounts(uid);
@@ -144,20 +160,40 @@ export async function composioTools(uid: string, slugs: string[]): Promise<{ too
   const missing: string[] = [];
   await Promise.all(
     slugs.map(async (slug) => {
-      const account = accounts.get(slug);
-      if (!account) return void missing.push(slug);
-      const list = await listTools(slug).catch(() => []);
-      for (const t of list)
+      const list = accounts.get(slug) ?? [];
+      if (!list.length) return void missing.push(slug);
+      // Labels can repeat (two accounts with the same name), so suffix duplicates.
+      const labels = list.map((a, i) => {
+        const base = accountLabel(a);
+        return list.slice(0, i).some((b) => accountLabel(b) === base) ? `${base} (${i + 1})` : base;
+      });
+      const multi = list.length > 1;
+      const defs = await listTools(slug).catch(() => []);
+      for (const t of defs) {
+        const schema = structuredClone(t.input_parameters ?? { type: "object", properties: {} }) as {
+          type?: string;
+          properties?: Record<string, unknown>;
+          required?: string[];
+        };
+        if (multi) {
+          schema.type ??= "object";
+          schema.properties = { account: { type: "string", enum: labels, description: `Which ${slug} account to use` }, ...schema.properties };
+          schema.required = ["account", ...(schema.required ?? [])];
+        }
         tools[t.slug] = tool({
           description: `${t.name}: ${t.description}`.slice(0, 1000),
-          inputSchema: jsonSchema(t.input_parameters as Parameters<typeof jsonSchema>[0]),
-          execute: async (args) => {
-            const data = await execute(uid, t.slug, args as Record<string, unknown>, account.id);
+          inputSchema: jsonSchema(schema as Parameters<typeof jsonSchema>[0]),
+          execute: async (input) => {
+            const { account: label, ...args } = input as Record<string, unknown>;
+            const chosen = multi ? list[labels.indexOf(String(label))] : list[0];
+            if (!chosen) throw new Error(`Unknown ${slug} account "${label}". Use one of: ${labels.join(", ")}`);
+            const data = await execute(uid, t.slug, multi ? args : (input as Record<string, unknown>), chosen.id);
             const text = JSON.stringify(data);
             return text.length > 20_000 ? `${text.slice(0, 20_000)}… (truncated)` : data;
           },
         });
-      connected.push(`${slug} (${list.length} tools)`);
+      }
+      connected.push(`${slug} (${defs.length} tools${multi ? `, accounts: ${labels.join(", ")}` : `, account: ${labels[0]}`})`);
     }),
   );
   return { tools, connected, missing };
