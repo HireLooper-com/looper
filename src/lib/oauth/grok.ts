@@ -2,6 +2,7 @@ import "server-only";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { randomBytes } from "node:crypto";
 import { emailAllowed, mutate, read, upsertUser } from "../db";
+import { kv } from "../kv";
 import type { OAuthCredential } from "../types";
 
 // Grok subscription sign-in (SuperGrok / X Premium) via device code.
@@ -27,9 +28,8 @@ interface Device {
   linkUid?: string;
 }
 
-const g = globalThis as { __grokDevices?: Map<string, Device>; __grokRefresh?: Map<string, Promise<OAuthCredential>> };
-const devices = (g.__grokDevices ??= new Map());
-const refreshing = (g.__grokRefresh ??= new Map());
+// Pending device sign-ins are stored in the shared store: on Vercel each poll may reach a different instance.
+const deviceKey = (flowId: string) => `grok-device:${flowId}`;
 
 async function post(url: string, body: Record<string, string>) {
   const r = await fetch(url, {
@@ -47,7 +47,6 @@ export async function startDevice(linkUid?: string) {
   if (!ok) throw new Error(data.error_description ?? `xAI sign-in unavailable (${status})`);
   const interval = Number(data.interval ?? 5);
   const flowId = randomBytes(18).toString("base64url");
-  for (const [k, v] of devices) if (Date.now() > v.expiresAt) devices.delete(k);
   const device: Device = {
     deviceCode: data.device_code,
     interval,
@@ -55,7 +54,7 @@ export async function startDevice(linkUid?: string) {
     nextPollAt: Date.now() + interval * 1000,
     linkUid,
   };
-  devices.set(flowId, device);
+  await kv.set(deviceKey(flowId), device, Math.ceil((device.expiresAt - Date.now()) / 1000));
   return {
     flowId,
     userCode: data.user_code as string,
@@ -89,8 +88,10 @@ type PollResult = { status: "pending" | "denied" | "expired" | "not-allowed" } |
 
 /** Step 2: the browser calls this every `interval` seconds; one token request per call. */
 export async function pollDevice(flowId: string): Promise<PollResult> {
-  const d = devices.get(flowId);
+  const d = await kv.get<Device>(deviceKey(flowId));
   if (!d || Date.now() > d.expiresAt) return { status: "expired" };
+  const save = () => kv.set(deviceKey(flowId), d, Math.max(1, Math.ceil((d.expiresAt - Date.now()) / 1000)));
+  const drop = () => kv.delete(deviceKey(flowId));
   if (Date.now() < d.nextPollAt) return { status: "pending" };
 
   const { ok, data } = await post(TOKEN_URL, {
@@ -102,24 +103,26 @@ export async function pollDevice(flowId: string): Promise<PollResult> {
     switch (data.error) {
       case "authorization_pending":
         d.nextPollAt = Date.now() + d.interval * 1000;
+        await save();
         return { status: "pending" };
       case "slow_down":
         d.interval += 5;
         d.nextPollAt = Date.now() + d.interval * 1000;
+        await save();
         return { status: "pending" };
       case "access_denied":
       case "authorization_denied":
-        devices.delete(flowId);
+        await drop();
         return { status: "denied" };
       case "expired_token":
-        devices.delete(flowId);
+        await drop();
         return { status: "expired" };
       default:
-        devices.delete(flowId);
+        await drop();
         throw new Error(data.error_description ?? data.error ?? "xAI sign-in failed");
     }
   }
-  devices.delete(flowId);
+  await drop();
   if (!data.refresh_token) throw new Error("xAI didn't return a refresh token. Try signing in again.");
   const identity = await identityOf(data.id_token);
   if (!identity.subject) throw new Error("xAI didn't confirm who signed in. Try again.");
@@ -134,31 +137,30 @@ export async function pollDevice(flowId: string): Promise<PollResult> {
   return { status: "connected", uid: user.id, linked: !!d.linkUid };
 }
 
-async function refresh(uid: string, cred: OAuthCredential): Promise<OAuthCredential> {
-  // Refresh tokens rotate and may be single-use: never retry this request blindly.
-  const { ok, status, data } = await post(TOKEN_URL, { grant_type: "refresh_token", client_id: CLIENT_ID, refresh_token: cred.refreshToken });
-  if (!ok) {
-    if (status === 400 || status === 401 || data.error === "invalid_grant") {
-      await mutate(uid, (db) => void delete db.settings.oauth.xai);
-      throw new Error("Your Grok session ended. Sign in with Grok again.");
-    }
-    throw new Error(data.error_description ?? `Couldn't refresh the Grok session (${status})`);
-  }
-  const next: OAuthCredential = { ...cred, ...credentialFrom(data, cred) };
-  await mutate(uid, (db) => void (db.settings.oauth.xai = next));
-  return next;
-}
-
 export async function grokAccessToken(uid: string, force = false): Promise<string> {
   const cred = (await read(uid)).settings.oauth.xai;
   if (!cred) throw new Error("Grok isn't connected. Use “Continue with Grok”.");
   if (!force && cred.expiresAt - Date.now() > 5 * 60_000) return cred.accessToken;
-  let p = refreshing.get(uid);
-  if (!p) {
-    p = refresh(uid, cred).finally(() => refreshing.delete(uid));
-    refreshing.set(uid, p);
-  }
-  return (await p).accessToken;
+
+  // Refresh under the workspace lock: refresh tokens rotate and may be single-use, so two
+  // instances must never spend the same one. Whoever gets the lock second sees the new token.
+  const outcome = await mutate(uid, async (db) => {
+    const current = db.settings.oauth.xai;
+    if (!current) return { error: "Grok isn't connected. Use “Continue with Grok”." };
+    if (current.accessToken !== cred.accessToken) return { token: current.accessToken };
+    const { ok, status, data } = await post(TOKEN_URL, { grant_type: "refresh_token", client_id: CLIENT_ID, refresh_token: current.refreshToken });
+    if (!ok) {
+      if (status === 400 || status === 401 || data.error === "invalid_grant") {
+        delete db.settings.oauth.xai;
+        return { error: "Your Grok session ended. Sign in with Grok again." };
+      }
+      return { error: data.error_description ?? `Couldn't refresh the Grok session (${status})` };
+    }
+    db.settings.oauth.xai = { ...current, ...credentialFrom(data, current) };
+    return { token: db.settings.oauth.xai.accessToken };
+  });
+  if ("error" in outcome) throw new Error(outcome.error);
+  return outcome.token;
 }
 
 export async function signOut(uid: string) {

@@ -4,21 +4,40 @@
 import fs from "node:fs";
 import path from "node:path";
 
+// Same storage as the app: Postgres when DATABASE_URL is set (run with `node --env-file=.env.local`), else data/kv files.
 const DIR = process.env.GROKLOOPER_DATA_DIR ?? "data";
-const USERS = path.join(DIR, "users.json");
-const users = fs.existsSync(USERS) ? JSON.parse(fs.readFileSync(USERS, "utf8")).users : [];
+let pgPool;
+async function kvGet(key) {
+  if (process.env.DATABASE_URL) {
+    const { Pool } = await import("pg");
+    pgPool ??= new Pool({ connectionString: process.env.DATABASE_URL });
+    await pgPool.query("CREATE TABLE IF NOT EXISTS chieflooper_kv (key text PRIMARY KEY, value jsonb NOT NULL, expires_at timestamptz, updated_at timestamptz NOT NULL DEFAULT now())");
+    return (await pgPool.query("SELECT value FROM chieflooper_kv WHERE key = $1", [key])).rows[0]?.value;
+  }
+  const f = path.join(DIR, "kv", `${encodeURIComponent(key)}.json`);
+  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")).value : undefined;
+}
+async function kvSet(key, value) {
+  if (process.env.DATABASE_URL) {
+    await pgPool.query("INSERT INTO chieflooper_kv (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()", [key, JSON.stringify(value)]);
+    return;
+  }
+  const f = path.join(DIR, "kv", `${encodeURIComponent(key)}.json`);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ value }), { mode: 0o600 });
+}
+
+const users = (await kvGet("users"))?.users ?? [];
 let user = [...users].sort((a, b) => b.lastLoginAt.localeCompare(a.lastLoginAt))[0];
 if (!user) {
   const at = new Date().toISOString();
   user = { id: "demo", provider: "xai", email: "demo@chieflooper.local", identities: ["xai:demo"], createdAt: at, lastLoginAt: at };
-  fs.mkdirSync(DIR, { recursive: true });
-  fs.writeFileSync(USERS, JSON.stringify({ users: [user] }, null, 2), { mode: 0o600 });
+  await kvSet("users", { users: [user] });
 }
-const FILE = path.join(DIR, "users", `${user.id}.json`);
+const prev = (await kvGet(`ws:${user.id}`)) ?? {};
 const now = Date.now();
 const d = 864e5;
 const iso = (t) => new Date(t).toISOString();
-const prev = fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, "utf8")) : {};
 const skill = (id, name, instructions, type, time, days = [1], kind = "work") => ({ id, name, instructions, kind, schedule: { type, time, days } });
 const looper = (id, name, emoji, color, mission, metric, skills) => ({ id, name, emoji, color, mission, metric, skills, integrationIds: "all", status: "paused", createdAt: iso(now - 20 * d) });
 
@@ -61,6 +80,6 @@ const db = {
   chief: [],
 };
 
-fs.mkdirSync(path.dirname(FILE), { recursive: true });
-fs.writeFileSync(FILE, JSON.stringify(db, null, 2), { mode: 0o600 });
+await kvSet(`ws:${user.id}`, db);
+await pgPool?.end();
 console.log(`Seeded 3 demo loopers for ${user.email ?? user.id} (paused, so they won't run until you resume them).`);

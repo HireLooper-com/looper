@@ -2,7 +2,6 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { emailAllowed, hostId, mutate, read, upsertUser } from "../db";
-import type { OAuthCredential } from "../types";
 
 // Sign in with ChatGPT, plan-usage flavour for open-source / locally hosted apps.
 // Protocol: https://developers.openai.com/siwc/token-sharing-open-source
@@ -35,11 +34,9 @@ interface Pending {
 const g = globalThis as {
   __chatgptPending?: Map<string, Pending>;
   __chatgptHandoff?: Map<string, { uid: string; at: number }>;
-  __chatgptRefresh?: Map<string, Promise<OAuthCredential>>;
 };
 const pending = (g.__chatgptPending ??= new Map());
 const handoffs = (g.__chatgptHandoff ??= new Map());
-const refreshing = (g.__chatgptRefresh ??= new Map());
 
 const b64url = (b: Buffer) => b.toString("base64url");
 
@@ -165,46 +162,45 @@ export function redeemHandoff(code: string) {
 
 const RELOGIN = new Set(["invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired", "refresh_token_invalidated", "refresh_token_reused"]);
 
-async function refresh(uid: string, cred: OAuthCredential): Promise<OAuthCredential> {
-  const clientId = (await read(uid)).settings.chatgptClientId;
-  if (!clientId) throw new Error("ChatGPT isn't connected. Sign in with ChatGPT again.");
-  try {
-    const t = await tokenRequest({ grant_type: "refresh_token", client_id: clientId, refresh_token: cred.refreshToken, resource: RESOURCE });
-    const identity = t.id_token ? await verifyIdToken(t.id_token, clientId) : undefined;
-    if (identity && cred.subject && identity.subject !== cred.subject) throw new Error("ChatGPT account changed during refresh.");
-    const next: OAuthCredential = {
-      ...cred,
-      accessToken: t.access_token,
-      refreshToken: t.refresh_token ?? cred.refreshToken,
-      expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000,
-      earliestRefreshAt: toMs(t.earliest_refresh_at),
-      scopes: t.scope ? t.scope.split(" ") : cred.scopes,
-    };
-    await mutate(uid, (d) => void (d.settings.oauth.openai = next));
-    return next;
-  } catch (e) {
-    if (RELOGIN.has((e as { code?: string }).code ?? "")) {
-      await mutate(uid, (d) => void delete d.settings.oauth.openai);
-      throw new Error("Your ChatGPT session ended. Sign in with ChatGPT again.");
-    }
-    throw e;
-  }
-}
-
-/** A valid access token, refreshing (once per user, serialized) when it has under a minute left. */
+/** A valid access token. Refreshes under the workspace lock (refresh tokens rotate) when under a minute is left. */
 export async function chatgptAccessToken(uid: string): Promise<string> {
-  const cred = (await read(uid)).settings.oauth.openai;
+  const db0 = await read(uid);
+  const cred = db0.settings.oauth.openai;
   if (!cred) throw new Error("ChatGPT isn't connected. Use “Continue with ChatGPT”.");
   if (!cred.scopes.includes(SHARING_SCOPE)) throw new Error("ChatGPT plan sharing wasn't granted. Sign in again and allow plan usage.");
   const fresh = cred.expiresAt - Date.now() > 60_000;
   const tooEarly = cred.earliestRefreshAt && Date.now() < cred.earliestRefreshAt;
   if (fresh || (tooEarly && cred.expiresAt > Date.now())) return cred.accessToken;
-  let p = refreshing.get(uid);
-  if (!p) {
-    p = refresh(uid, cred).finally(() => refreshing.delete(uid));
-    refreshing.set(uid, p);
-  }
-  return (await p).accessToken;
+
+  const clientId = db0.settings.chatgptClientId;
+  if (!clientId) throw new Error("ChatGPT isn't connected. Sign in with ChatGPT again.");
+  const outcome = await mutate(uid, async (db) => {
+    const current = db.settings.oauth.openai;
+    if (!current) return { error: "ChatGPT isn't connected. Use “Continue with ChatGPT”." };
+    if (current.accessToken !== cred.accessToken) return { token: current.accessToken };
+    try {
+      const t = await tokenRequest({ grant_type: "refresh_token", client_id: clientId, refresh_token: current.refreshToken, resource: RESOURCE });
+      const identity = t.id_token ? await verifyIdToken(t.id_token, clientId) : undefined;
+      if (identity && current.subject && identity.subject !== current.subject) return { error: "ChatGPT account changed during refresh." };
+      db.settings.oauth.openai = {
+        ...current,
+        accessToken: t.access_token,
+        refreshToken: t.refresh_token ?? current.refreshToken,
+        expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000,
+        earliestRefreshAt: toMs(t.earliest_refresh_at),
+        scopes: t.scope ? t.scope.split(" ") : current.scopes,
+      };
+      return { token: t.access_token };
+    } catch (e) {
+      if (RELOGIN.has((e as { code?: string }).code ?? "")) {
+        delete db.settings.oauth.openai;
+        return { error: "Your ChatGPT session ended. Sign in with ChatGPT again." };
+      }
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  if ("error" in outcome) throw new Error(outcome.error);
+  return outcome.token;
 }
 
 export async function signOut(uid: string) {

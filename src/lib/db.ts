@@ -1,17 +1,13 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { nanoid } from "nanoid";
+import { kv } from "./kv";
 import type { DB, Provider, PublicState, User } from "./types";
 import { PROVIDERS } from "./types";
 
-// JSON files keep the app zero-setup: one index of users and one workspace file per user.
-// Swap for Postgres when deploying multi-instance.
-const DATA_DIR = process.env.GROKLOOPER_DATA_DIR ?? path.join(process.cwd(), "data");
-const USERS_FILE = path.join(DATA_DIR, "users.json");
-const HOST_FILE = path.join(DATA_DIR, "host.json");
-const workspaceFile = (uid: string) => path.join(DATA_DIR, "users", `${uid.replace(/[^\w-]/g, "")}.json`);
+// Users and workspaces live in the shared key-value store (Postgres on Vercel, files locally).
+const wsKey = (uid: string) => `ws:${uid}`;
+const USERS_KEY = "users";
 
 function empty(): DB {
   return {
@@ -32,55 +28,28 @@ function empty(): DB {
   };
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    return JSON.parse(await fs.readFile(file, "utf8")) as T;
-  } catch {
-    return fallback;
-  }
+/** Fill in fields added after a workspace was first saved. Mutates in place. */
+function normalize(db: Partial<DB>): DB {
+  const base = empty();
+  for (const k of Object.keys(base) as (keyof DB)[]) if (db[k] === undefined) (db as Record<string, unknown>)[k] = base[k];
+  db.settings = Object.assign(base.settings, db.settings);
+  if (db.runs && db.runs.length > 1000) db.runs.splice(0, db.runs.length - 1000);
+  return db as DB;
 }
 
-async function writeJson(file: string, data: unknown) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
-  await fs.rename(tmp, file);
+export async function read(uid: string): Promise<DB> {
+  return normalize((await kv.get<Partial<DB>>(wsKey(uid))) ?? {});
 }
 
-// One write queue per file so concurrent runs don't clobber each other.
-const queues = new Map<string, Promise<unknown>>();
-function serialized<T>(file: string, fn: () => Promise<T>): Promise<T> {
-  const next = (queues.get(file) ?? Promise.resolve()).then(fn);
-  queues.set(file, next.catch(() => undefined));
-  return next;
-}
-
-async function loadWorkspace(uid: string): Promise<DB> {
-  const db = { ...empty(), ...(await readJson<Partial<DB>>(workspaceFile(uid), {})) } as DB;
-  db.settings = { ...empty().settings, ...db.settings };
-  return db;
-}
-
-export function read(uid: string): Promise<DB> {
-  const file = workspaceFile(uid);
-  return (queues.get(file) ?? Promise.resolve()).then(() => loadWorkspace(uid));
-}
-
-/** Serialized read-modify-write of one user's workspace. */
+/** Locked read-modify-write of one user's workspace. */
 export function mutate<T>(uid: string, fn: (db: DB) => T | Promise<T>): Promise<T> {
-  const file = workspaceFile(uid);
-  return serialized(file, async () => {
-    const db = await loadWorkspace(uid);
-    const result = await fn(db);
-    await writeJson(file, db);
-    return result;
-  });
+  return kv.update<Partial<DB>, T>(wsKey(uid), () => ({}), (value) => fn(normalize(value)));
 }
 
 // — Users —
 
 export async function listUsers(): Promise<User[]> {
-  return (await readJson<{ users: User[] }>(USERS_FILE, { users: [] })).users;
+  return (await kv.get<{ users: User[] }>(USERS_KEY))?.users ?? [];
 }
 
 export async function getUser(uid: string) {
@@ -92,8 +61,7 @@ export async function getUser(uid: string) {
  * attached to that signed-in user instead (connecting a second subscription).
  */
 export function upsertUser(identity: { provider: Provider; subject: string; email?: string }, linkTo?: string): Promise<User> {
-  return serialized(USERS_FILE, async () => {
-    const data = await readJson<{ users: User[] }>(USERS_FILE, { users: [] });
+  return kv.update<{ users: User[] }, User>(USERS_KEY, () => ({ users: [] }), (data) => {
     const key = `${identity.provider}:${identity.subject}`;
     const at = new Date().toISOString();
     let user = linkTo ? data.users.find((u) => u.id === linkTo) : data.users.find((u) => u.identities.includes(key));
@@ -106,7 +74,6 @@ export function upsertUser(identity: { provider: Provider; subject: string; emai
     if (!user.identities.includes(key)) user.identities.push(key);
     user.email ??= identity.email;
     user.lastLoginAt = at;
-    await writeJson(USERS_FILE, data);
     return user;
   });
 }
@@ -122,13 +89,7 @@ export function emailAllowed(email?: string) {
 
 /** Stable per-installation id sent to ChatGPT as ext_agent_host_id. */
 export function hostId(): Promise<string> {
-  return serialized(HOST_FILE, async () => {
-    const data = await readJson<{ hostId?: string }>(HOST_FILE, {});
-    if (data.hostId) return data.hostId;
-    const id = `urn:uuid:${randomUUID()}`;
-    await writeJson(HOST_FILE, { hostId: id });
-    return id;
-  });
+  return kv.update<{ hostId?: string }, string>("host", () => ({}), (data) => (data.hostId ??= `urn:uuid:${randomUUID()}`));
 }
 
 /** ChatGPT plan usage is only offered to apps running on the user's own machine. */

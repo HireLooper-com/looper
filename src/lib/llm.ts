@@ -4,6 +4,7 @@ import { createXai } from "@ai-sdk/xai";
 import type { LanguageModel, ToolSet } from "ai";
 import { chatgptAccessToken, RESOURCE, USAGE_URL } from "./oauth/chatgpt";
 import { API_BASE, CLI_PROXY_BASE, cliProxyHeaders, grokAccessToken, GROK_USAGE_URL, isGrokEntitlementError } from "./oauth/grok";
+import { isLocalServer } from "./db";
 import type { Settings } from "./types";
 import { PROVIDERS } from "./types";
 
@@ -27,6 +28,8 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
   const mode = settings.authMode[provider] ?? "key";
 
   if (provider === "openai" && mode === "oauth") {
+    // OpenAI allows plan usage only from apps running on the user's machine.
+    if (!isLocalServer()) throw new Error("ChatGPT plans can only run loopers when Chieflooper runs on your own machine. Switch to Grok or an OpenAI API key in Settings.");
     const openai = createOpenAI({
       apiKey: "chatgpt-plan",
       baseURL: RESOURCE,

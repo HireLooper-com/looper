@@ -13,14 +13,10 @@ export function OpenAIMark({ className }: { className?: string }) {
   );
 }
 
+/** Official Grok app icon (grok.com). */
 export function GrokMark({ className }: { className?: string }) {
-  // Neutral mark (ring with a slash) rather than xAI's trademark.
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-      <circle cx="12" cy="12" r="8" />
-      <path d="M5 19 19 5" />
-    </svg>
-  );
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/grok.png" alt="" className={cx("rounded-[22%]", className)} />;
 }
 
 /** "Continue with ChatGPT": OpenAI's browser sign-in. Only available when the app runs locally. */
@@ -138,7 +134,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, classNam
           className,
         )}
       >
-        <GrokMark className="h-[18px] w-[18px]" />
+        <GrokMark className="h-5 w-5" />
         {pending ? "Getting a code…" : label}
       </button>
       {message && <p className="text-[0.75rem] text-orange">{message}</p>}

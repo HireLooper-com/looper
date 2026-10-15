@@ -1,0 +1,135 @@
+import "server-only";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { attachDatabasePool } from "@vercel/functions";
+import { Pool } from "pg";
+
+/**
+ * Tiny JSON key-value store. Postgres (Neon) when DATABASE_URL is set, so every server instance
+ * shares state; local JSON files otherwise, for zero-setup development.
+ * `update` is a locked read-modify-write: SELECT … FOR UPDATE in Postgres, a per-key queue on disk.
+ */
+export interface KV {
+  get<T>(key: string): Promise<T | undefined>;
+  set(key: string, value: unknown, ttlSeconds?: number): Promise<void>;
+  delete(key: string): Promise<void>;
+  update<T, R>(key: string, fallback: () => T, fn: (value: T) => R | Promise<R>): Promise<R>;
+}
+
+// — Postgres —
+
+const g = globalThis as { __clPool?: Pool; __clSchema?: Promise<void> };
+
+function pool() {
+  if (!g.__clPool) {
+    g.__clPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 5000 });
+    attachDatabasePool(g.__clPool);
+  }
+  return g.__clPool;
+}
+
+function ensureSchema() {
+  g.__clSchema ??= pool()
+    .query(
+      `CREATE TABLE IF NOT EXISTS chieflooper_kv (
+        key text PRIMARY KEY,
+        value jsonb NOT NULL,
+        expires_at timestamptz,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )`,
+    )
+    .then(() => undefined)
+    .catch((e) => {
+      g.__clSchema = undefined;
+      throw e;
+    });
+  return g.__clSchema;
+}
+
+const live = "(expires_at IS NULL OR expires_at > now())";
+
+const postgres: KV = {
+  async get<T>(key: string) {
+    await ensureSchema();
+    const r = await pool().query(`SELECT value FROM chieflooper_kv WHERE key = $1 AND ${live}`, [key]);
+    return r.rows[0]?.value as T | undefined;
+  },
+  async set(key, value, ttlSeconds) {
+    await ensureSchema();
+    await pool().query(
+      `INSERT INTO chieflooper_kv (key, value, expires_at, updated_at)
+       VALUES ($1, $2, CASE WHEN $3::int IS NULL THEN NULL ELSE now() + make_interval(secs => $3::int) END, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at, updated_at = now()`,
+      [key, JSON.stringify(value), ttlSeconds ?? null],
+    );
+  },
+  async delete(key) {
+    await ensureSchema();
+    await pool().query(`DELETE FROM chieflooper_kv WHERE key = $1`, [key]);
+  },
+  async update(key, fallback, fn) {
+    await ensureSchema();
+    const client = await pool().connect();
+    try {
+      await client.query("BEGIN");
+      // Make sure the row exists so FOR UPDATE has something to lock.
+      await client.query(`INSERT INTO chieflooper_kv (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [key, JSON.stringify(fallback())]);
+      const r = await client.query(`SELECT value, ${live} AS alive FROM chieflooper_kv WHERE key = $1 FOR UPDATE`, [key]);
+      const value = (r.rows[0]?.alive ? r.rows[0].value : fallback()) as Parameters<typeof fn>[0];
+      const result = await fn(value);
+      await client.query(`UPDATE chieflooper_kv SET value = $2, expires_at = NULL, updated_at = now() WHERE key = $1`, [key, JSON.stringify(value)]);
+      await client.query("COMMIT");
+      return result;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw e;
+    } finally {
+      client.release();
+    }
+  },
+};
+
+// — Local files —
+
+const DATA_DIR = process.env.GROKLOOPER_DATA_DIR ?? path.join(process.cwd(), "data");
+const fileOf = (key: string) => path.join(DATA_DIR, "kv", `${encodeURIComponent(key)}.json`);
+const queues = new Map<string, Promise<unknown>>();
+
+function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const next = (queues.get(key) ?? Promise.resolve()).then(fn);
+  queues.set(key, next.catch(() => undefined));
+  return next;
+}
+
+async function readFile<T>(key: string): Promise<T | undefined> {
+  try {
+    const { value, expiresAt } = JSON.parse(await fs.readFile(fileOf(key), "utf8"));
+    return expiresAt && expiresAt < Date.now() ? undefined : value;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeFile(key: string, value: unknown, ttlSeconds?: number) {
+  const file = fileOf(key);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify({ value, expiresAt: ttlSeconds ? Date.now() + ttlSeconds * 1000 : undefined }), { mode: 0o600 });
+  await fs.rename(tmp, file);
+}
+
+const files: KV = {
+  get: (key) => (queues.get(key) ?? Promise.resolve()).then(() => readFile(key)),
+  set: (key, value, ttl) => serialized(key, () => writeFile(key, value, ttl)),
+  delete: (key) => serialized(key, () => fs.rm(fileOf(key), { force: true })),
+  update: (key, fallback, fn) =>
+    serialized(key, async () => {
+      const value = (await readFile<ReturnType<typeof fallback>>(key)) ?? fallback();
+      const result = await fn(value);
+      await writeFile(key, value);
+      return result;
+    }),
+};
+
+export const kv: KV = process.env.DATABASE_URL ? postgres : files;
+export const usingPostgres = () => !!process.env.DATABASE_URL;

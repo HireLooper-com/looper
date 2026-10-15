@@ -50,13 +50,16 @@ Integration tools stay out of the model's context until the looper asks for them
 
 ## Storage and sessions
 
-- `data/users.json` lists users; `data/users/<id>.json` is each user's workspace, including their OAuth tokens and keys. The folder is gitignored and files are written with mode 600.
+- Everything lives in one key-value table, `chieflooper_kv`: the user list, one workspace per user (loopers, boards, runs, retros, OAuth tokens, keys) and pending sign-ins. It is created on first use.
+- **Postgres** when `DATABASE_URL` is set: Neon, provisioned through the Vercel Marketplace. All server instances share it, and writes lock the row, so concurrent runs and token refreshes don't collide. Running locally with `.env.local` from `vercel env pull` uses the same database.
+- **Local files** under `data/kv/` when `DATABASE_URL` isn't set (gitignored, mode 600).
 - Sessions are an HMAC-signed cookie. Set `SESSION_SECRET` when hosting; locally one is generated in `data/.session-secret`.
-- This file store suits a single server. On Vercel the filesystem is temporary, so users, sessions and loopers don't persist. Move `src/lib/db.ts` to Postgres before relying on a hosted deployment.
+- ChatGPT plan tokens are only ever used by a local server. A hosted instance refuses to run a ChatGPT-plan looper, even if it finds the tokens in the shared database.
 
 ## Code map
 
 - `src/lib/oauth/chatgpt.ts`, `src/lib/oauth/grok.ts`: plan sign-in, token refresh, sign-out
+- `src/lib/kv.ts`, `src/lib/db.ts`: storage (Postgres or files), users and workspaces
 - `src/lib/session.ts`, `src/proxy.ts`: sessions and the login gate
 - `src/lib/agent.ts`: looper runs, retros, the scheduler tick, and Chief with its management tools
 - `src/lib/llm.ts`: the model for each user's plan or key

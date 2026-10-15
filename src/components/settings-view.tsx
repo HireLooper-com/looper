@@ -103,9 +103,13 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
     <Panel className={cx("flex flex-col gap-5 p-6", active && "ring-2 ring-blue")}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-ink text-white">
-            <Mark className="h-5 w-5" />
-          </span>
+          {id === "xai" ? (
+            <Mark className="h-11 w-11" />
+          ) : (
+            <span className="flex h-11 w-11 items-center justify-center rounded-[22%] bg-ink text-white">
+              <Mark className="h-5 w-5" />
+            </span>
+          )}
           <div>
             <div className="text-[1.0625rem] font-semibold">{meta.plan}</div>
             <div className="text-[0.8125rem] text-mute">{sub ? `Signed in${sub.email ? ` as ${sub.email}` : ""}` : "Not connected"}</div>

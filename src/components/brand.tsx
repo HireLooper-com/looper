@@ -1,18 +1,19 @@
 import { cx } from "./ui";
 
-/** App icon: a loop on a blue-violet squircle. */
+/** App icon: the looper figure-eight on a blue gradient squircle (from hirelooper.com). */
 export function LogoMark({ size = 28, className }: { size?: number; className?: string }) {
   return (
-    <span
-      className={cx("app-icon inline-flex shrink-0 items-center justify-center bg-gradient-to-br from-[#5e5ce6] via-[#0a84ff] to-[#30b0c7]", className)}
-      style={{ width: size, height: size }}
-    >
-      <svg viewBox="0 0 24 24" width={size * 0.62} height={size * 0.62} fill="none" aria-hidden>
-        <path d="M12 4.5a7.5 7.5 0 1 1-6.9 4.55" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" />
-        <path d="M3.4 5.2 5.3 9.1l3.9-1.6" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx="12" cy="12" r="2.4" fill="#fff" />
-      </svg>
-    </span>
+    <svg viewBox="0 0 100 100" width={size} height={size} className={cx("shrink-0", className)} aria-hidden>
+      <defs>
+        <linearGradient id="cl-logo" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#7A9BFF" />
+          <stop offset=".5" stopColor="#3D6BFF" />
+          <stop offset="1" stopColor="#1F38B8" />
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" rx="22" fill="url(#cl-logo)" />
+      <path d="M50 50C58 34 82 34 82 50C82 66 58 66 50 50C42 34 18 34 18 50C18 66 42 66 50 50Z" fill="none" stroke="#fff" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
