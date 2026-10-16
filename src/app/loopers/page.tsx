@@ -10,7 +10,7 @@ export default async function LoopersPage() {
   const { loopers, runs, cards, retros } = await getState();
 
   return (
-    <div className="mx-auto max-w-[1100px] pt-10">
+    <div className="mx-auto max-w-[1100px] px-6 pb-16 pt-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="display text-[2.5rem] sm:text-[3rem]">Loopers</h1>

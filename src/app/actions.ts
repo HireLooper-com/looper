@@ -3,7 +3,7 @@
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
-import { chiefReply, defaultRetroSkill, runRetro, runSkill } from "@/lib/agent";
+import { chiefReply, defaultRetroSkill, looperChatReply, runRetro, runSkill } from "@/lib/agent";
 import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
@@ -123,6 +123,17 @@ export async function listPlanModels(provider: Provider) {
 export async function askChief(text: string) {
   const uid = await requireUid();
   return done(await chiefReply(uid, text));
+}
+
+export async function askLooper(looperId: string, text: string) {
+  const uid = await requireUid();
+  return done(await looperChatReply(uid, looperId, text));
+}
+
+export async function clearLooperChat(looperId: string) {
+  const uid = await requireUid();
+  await mutate(uid, (db) => void ((db.chats ??= {})[looperId] = []));
+  return done(true);
 }
 
 export async function clearChief() {

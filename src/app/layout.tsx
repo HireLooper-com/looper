@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
-import { NavShell } from "@/components/nav-shell";
+import { Shell } from "@/components/shell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,13 +22,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">
-        <Suspense>
-          <NavShell />
+      <body className="min-h-full">
+        <Suspense fallback={<div className="h-dvh animate-pulse bg-page" />}>
+          <Shell>{children}</Shell>
         </Suspense>
-        <main className="mx-auto w-full max-w-[1360px] flex-1 px-4 pb-16 sm:px-6">
-          <Suspense fallback={<div className="pt-10"><div className="h-[60vh] animate-pulse rounded-[20px] bg-well" /></div>}>{children}</Suspense>
-        </main>
       </body>
     </html>
   );

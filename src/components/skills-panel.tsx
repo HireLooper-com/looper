@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { deleteLooper, deleteSkill, runLooperSkill, saveSkill, updateLooper } from "@/app/actions";
@@ -10,7 +9,7 @@ import { Button, Field, Input, Panel, Pill, Select, Textarea, cx, timeAgo } from
 
 const WEEK = ["S", "M", "T", "W", "T", "F", "S"];
 
-export function SkillsPanel({ looper, runs, integrations }: { looper: Looper; runs: Run[]; integrations: PublicSettings["integrations"] }) {
+export function SkillsPanel({ looper, runs }: { looper: Looper; runs: Run[]; integrations?: PublicSettings["integrations"] }) {
   const router = useRouter();
   const [editing, setEditing] = useState<Partial<Skill> | null>(null);
   const [busy, start] = useTransition();
@@ -28,17 +27,10 @@ export function SkillsPanel({ looper, runs, integrations }: { looper: Looper; ru
     });
   };
 
-  const allowAll = looper.integrationIds === "all";
-  const allowed = (id: string) => allowAll || (looper.integrationIds as string[]).includes(id);
-  const toggleIntegration = (id: string) => {
-    const current = allowAll ? integrations.map((i) => i.id) : (looper.integrationIds as string[]);
-    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-    start(async () => { await updateLooper(looper.id, { integrationIds: next }); router.refresh(); });
-  };
-
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="mx-auto flex max-w-4xl flex-col gap-4">
       <div className="flex flex-col gap-3">
+        <CoreInstructions looper={looper} />
         <div className="flex items-center justify-between">
           <div className="eyebrow">Skills · {looper.skills.length}</div>
           <Button size="sm" onClick={() => setEditing({ name: "", instructions: "", kind: "work", schedule: { type: "daily", time: "09:00", days: [1] } })}>
@@ -78,50 +70,19 @@ export function SkillsPanel({ looper, runs, integrations }: { looper: Looper; ru
         })}
       </div>
 
-      <div className="flex flex-col gap-4">
-        <Panel className="p-5">
-          <div className="eyebrow">Tools</div>
-          <p className="mt-2 text-[0.8125rem] leading-relaxed text-mute">
-            {looper.name} always has its kanban board and metric log. External apps come from integration hubs; each hub exposes hundreds to thousands of apps, which the looper finds by search at run time.
-          </p>
-          <div className="mt-4 flex flex-col gap-2">
-            {integrations.length === 0 && (
-              <Link href="/settings" className="rounded-[12px] border border-dashed border-line p-3 text-[0.8125rem] text-mute hover:border-ink/30 hover:text-ink">
-                No integration hubs yet. Connect Composio, Zapier or Pipedream →
-              </Link>
-            )}
-            {integrations.map((i) => (
-              <label key={i.id} className="flex cursor-pointer items-center justify-between gap-3 rounded-[12px] bg-well px-3 py-2.5">
-                <span className="text-[0.875rem]">
-                  {i.name}
-                  {!i.enabled && <span className="ml-2 text-[0.75rem] text-faint">disabled globally</span>}
-                </span>
-                <input type="checkbox" checked={allowed(i.id)} onChange={() => toggleIntegration(i.id)} className="h-4 w-4 accent-ink" />
-              </label>
-            ))}
-            {!allowAll && integrations.length > 0 && (
-              <button className="text-left text-[0.75rem] text-mute underline underline-offset-2" onClick={() => start(async () => { await updateLooper(looper.id, { integrationIds: "all" }); router.refresh(); })}>
-                Allow all hubs, including future ones
-              </button>
-            )}
-          </div>
-        </Panel>
-
-        <Panel className="p-5">
-          <div className="eyebrow">Danger zone</div>
-          <p className="mt-2 text-[0.8125rem] text-mute">Retiring removes this looper with its board, calendar and retros.</p>
-          <Button
-            variant="danger"
-            size="sm"
-            className="mt-3 !px-0"
-            onClick={() => {
-              if (!confirm(`Retire ${looper.name}? This can't be undone.`)) return;
-              start(async () => { await deleteLooper(looper.id); router.push("/loopers"); });
-            }}
-          >
-            Retire {looper.name}
-          </Button>
-        </Panel>
+      <div className="flex justify-center pt-2">
+        <button
+          className="text-[0.8125rem] text-red hover:underline"
+          onClick={() => {
+            if (!confirm(`Retire ${looper.name}? This removes its board, database, calendar and retros and can't be undone.`)) return;
+            start(async () => {
+              await deleteLooper(looper.id);
+              router.push("/");
+            });
+          }}
+        >
+          Retire {looper.name}
+        </button>
       </div>
 
       {editing && <SkillEditor looperId={looper.id} skill={editing} onClose={() => setEditing(null)} />}
@@ -208,5 +169,44 @@ function SkillEditor({ looperId, skill, onClose }: { looperId: string; skill: Pa
         </div>
       </form>
     </div>
+  );
+}
+
+/** The looper's standing brief: what it's for, its sources and its rules. Every skill run starts from it. */
+function CoreInstructions({ looper }: { looper: Looper }) {
+  const router = useRouter();
+  const [text, setText] = useState(looper.mission);
+  const [saved, setSaved] = useState(looper.mission);
+  const [pending, start] = useTransition();
+  if (looper.mission !== saved && text === saved) {
+    setSaved(looper.mission);
+    setText(looper.mission);
+  }
+  const dirty = text.trim() !== saved.trim();
+  return (
+    <Panel className="p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[1.0625rem] font-semibold">Core instructions</div>
+          <div className="text-[0.8125rem] text-mute">What {looper.name} is for, where its data lives and what it must never do. Every skill starts from this.</div>
+        </div>
+        {dirty && (
+          <Button
+            size="sm"
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                await updateLooper(looper.id, { mission: text.trim() });
+                setSaved(text.trim());
+                router.refresh();
+              })
+            }
+          >
+            Save
+          </Button>
+        )}
+      </div>
+      <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={Math.min(14, Math.max(5, Math.ceil(text.length / 90)))} className="mt-3 break-all text-[0.875rem]" />
+    </Panel>
   );
 }

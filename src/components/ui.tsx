@@ -82,29 +82,26 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
   );
 }
 
-/** A looper as a little bot (after Grok Bot's mascot): a white blob with two eyes on the looper's colour.
- * `seed` varies the gaze so loopers don't all look alike. */
+// Blob colours for loopers (Grok Bot style: solid blob, two slanted eye strokes).
+const BLOB: Record<Accent, string> = { green: "#3fbf6f", orange: "#f2793b", lavender: "#b45ad8", blue: "#3b82f6", ink: "#a8724f" };
+
+/** A looper as a little bot after Grok Bot's mascot: a soft blob with two slanted eyes.
+ * `seed` varies tilt and gaze so loopers don't all look alike. Chief is the dark one. */
 export function Bot({ color, size = 40, seed = "", dark = false, className }: { color?: Accent; size?: number; seed?: string; dark?: boolean; className?: string }) {
   const h = [...seed].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
-  const look = ((h % 5) - 2) * 1.1; // eyes glance left/right
-  const tilt = ((h >> 3) % 7) - 3; // blob tilts a little
+  const tilt = ((h % 9) - 4) * 3; // degrees
+  const look = (((h >> 4) % 3) - 1) * 1.2; // eyes shift left/right
+  const fill = dark ? "#1d1d1f" : BLOB[color ?? "blue"];
+  const eye = dark ? "#fff" : "rgba(0,0,0,0.78)";
   return (
-    <span
-      className={cx("app-icon inline-flex shrink-0 items-center justify-center overflow-hidden", dark ? "bg-gradient-to-b from-[#3a3a3c] to-[#0b0b0c]" : accentBg[color ?? "blue"], className)}
-      style={{ width: size, height: size }}
-      aria-hidden
-    >
-      <svg viewBox="0 0 40 40" width={size} height={size}>
-        <g transform={`rotate(${tilt} 20 22)`}>
-          <ellipse cx="20" cy="23.5" rx="15" ry="13" fill="#fff" />
-          <ellipse cx="20" cy="29" rx="13" ry="5.5" fill="#000" opacity="0.05" />
-          <ellipse cx={14.5 + look} cy="21.5" rx="2.4" ry="3.8" fill="#1d1d1f" />
-          <ellipse cx={25.5 + look} cy="21.5" rx="2.4" ry="3.8" fill="#1d1d1f" />
-          <ellipse cx={15.2 + look} cy="20.1" rx="0.75" ry="1" fill="#fff" />
-          <ellipse cx={26.2 + look} cy="20.1" rx="0.75" ry="1" fill="#fff" />
-        </g>
-      </svg>
-    </span>
+    <svg viewBox="0 0 40 40" width={size} height={size} className={cx("shrink-0", className)} aria-hidden>
+      <g transform={`rotate(${tilt} 20 20)`}>
+        <path d="M20 4.5c8.9 0 15.5 6.4 15.5 15.2S29.2 35.5 20 35.5 4.5 28.6 4.5 19.9 11.1 4.5 20 4.5Z" fill={fill} />
+        <path d="M27.5 9.5c2.3 1.4 3.9 3.3 4.7 5.6" stroke="#fff" strokeOpacity={dark ? 0.18 : 0.35} strokeWidth="2" strokeLinecap="round" fill="none" />
+        <rect x={17.6 + look} y="11.5" width="3.6" height="9.5" rx="1.8" fill={eye} transform={`rotate(-16 ${19.4 + look} 16.2)`} />
+        <rect x={24.6 + look} y="11.5" width="3.6" height="9.5" rx="1.8" fill={eye} transform={`rotate(-16 ${26.4 + look} 16.2)`} />
+      </g>
+    </svg>
   );
 }
 

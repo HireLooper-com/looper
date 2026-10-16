@@ -54,7 +54,7 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
 
 export function SettingsView({ settings, notice }: { settings: PublicSettings; notice?: string }) {
   return (
-    <div className="mx-auto max-w-5xl pt-10">
+    <div className="mx-auto max-w-5xl px-6 pb-16 pt-10">
       <h1 className="display text-[2.5rem] sm:text-[3rem]">Settings</h1>
       <p className="mt-2 max-w-[60ch] text-[1rem] text-mute">Choose which plan your loopers run on, and connect the apps they can use.</p>
       {notice && <div className="mt-6 rounded-[12px] bg-blue/10 px-4 py-3 text-[0.875rem] text-blue">{notice}</div>}

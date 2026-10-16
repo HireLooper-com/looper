@@ -115,6 +115,8 @@ export interface Looper {
   integrationIds: "all" | string[];
   /** apps this looper needs connected */
   apps?: AppRef[];
+  /** short role tag shown next to the name, e.g. "Accounting" */
+  role?: string;
   status: "active" | "paused";
   createdAt: string;
 }
@@ -194,6 +196,8 @@ export interface DB {
   runs: Run[];
   retros: Retro[];
   chief: ChiefMessage[];
+  /** one conversation per looper */
+  chats?: Record<string, ChiefMessage[]>;
 }
 
 /** Settings with secrets masked, safe to send to the browser. */

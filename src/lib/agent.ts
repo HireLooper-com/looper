@@ -205,6 +205,17 @@ async function finishRun(uid: string, id: string, patch: Partial<Run>) {
   });
 }
 
+/** Every external tool a looper can use: MCP hubs plus its connected Composio apps. Close when done. */
+async function looperApps(uid: string, looper: Looper, db: DB) {
+  const ext = await connectTools(integrationsFor(looper, db.settings));
+  const composioSlugs = (await resolveApps((looper.apps ?? []).filter((a) => a.via === "composio")).catch(() => [])).map((a) => a.slug);
+  const apps = await composioTools(uid, composioSlugs).catch(() => ({ tools: {}, connected: [] as string[], missing: composioSlugs }));
+  ext.tools = { ...ext.tools, ...apps.tools };
+  ext.connected.push(...apps.connected);
+  if (apps.missing.length) ext.failed.push(...apps.missing.map((slug) => ({ name: `${slug} (not connected yet)`, error: "" })));
+  return ext;
+}
+
 export async function runSkill(uid: string, looperId: string, skillId: string, trigger: Run["trigger"] = "manual", adhoc?: Skill, maxSteps = 25) {
   const db = await read(uid);
   const looper = db.loopers.find((l) => l.id === looperId);
@@ -213,12 +224,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   if (skill.kind === "retro") return runRetro(uid, looperId, trigger, skill);
 
   const run = await startRun(uid, looper, skill, trigger);
-  const ext = await connectTools(integrationsFor(looper, db.settings));
-  const composioSlugs = (await resolveApps((looper.apps ?? []).filter((a) => a.via === "composio")).catch(() => [])).map((a) => a.slug);
-  const apps = await composioTools(uid, composioSlugs).catch((e) => ({ tools: {}, connected: [] as string[], missing: composioSlugs, error: errorText(e) }));
-  ext.tools = { ...ext.tools, ...apps.tools };
-  ext.connected.push(...apps.connected);
-  if (apps.missing.length) ext.failed.push(...apps.missing.map((slug) => ({ name: `${slug} (not connected yet)`, error: "" })));
+  const ext = await looperApps(uid, looper, db);
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
     // A looper without a database designs one before it works, so its results land in rows.
@@ -402,6 +408,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
       description: "Hire a new looper. Each looper owns exactly ONE business metric. Give it 1–4 work skills on sensible schedules; a weekly retro skill is added automatically.",
       inputSchema: z.object({
         name: z.string().describe("short, human first name–style, e.g. 'Ivy'"),
+        role: z.string().max(24).optional().describe("one-word role tag, e.g. 'Accounting', 'SEO', 'Sales'"),
         emoji: z.string().default("◎"),
         mission: z.string(),
         metric: z.object({ name: z.string(), unit: z.string(), direction: z.enum(["up", "down"]), target: z.number(), current: z.number().optional() }),
@@ -435,6 +442,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
             skills: [...input.skills.map(toSkill), defaultRetroSkill()],
             integrationIds: "all",
             apps,
+            role: input.role,
             status: "active",
             createdAt: now(),
           };
@@ -695,4 +703,87 @@ export async function fillDatabase(uid: string, looperId: string, trigger: Run["
     ].join("\n"),
   };
   return runSkill(uid, looperId, skill.id, trigger, skill, 60);
+}
+
+// ——— Chatting with a looper ———
+
+/** Talk to one looper directly. It answers with its own tools: board, database, apps; it can also
+ * edit its core instructions and skills, and start one of its skills in the background. */
+export async function looperChatReply(uid: string, looperId: string, userText: string) {
+  const db = await read(uid);
+  const looper = db.loopers.find((l) => l.id === looperId);
+  if (!looper) throw new Error("Looper not found");
+  const userMsg = { id: nanoid(8), role: "user" as const, content: userText, at: now() };
+  await mutate(uid, (d) => void ((d.chats ??= {})[looperId] = [...(d.chats?.[looperId] ?? []), userMsg]));
+
+  // Recent runs are part of the conversation: the looper reports there.
+  const history = [...(db.chats?.[looperId] ?? []).slice(-30), userMsg];
+  const runs = db.runs.filter((r) => r.looperId === looperId && r.status !== "running").slice(-5);
+  const actions: string[] = [];
+  const links: { label: string; href: string }[] = [];
+  const ext = await looperApps(uid, looper, db);
+  let content: string;
+  try {
+    const table = await readDatabase(uid, looperId);
+    const own: ToolSet = {
+      update_core_instructions: tool({
+        description: "Rewrite your core instructions (mission, sources, rules) when the owner asks to change how you work.",
+        inputSchema: z.object({ instructions: z.string().min(10) }),
+        execute: ({ instructions }) =>
+          mutate(uid, (d) => {
+            const l = d.loopers.find((x) => x.id === looperId);
+            if (l) l.mission = instructions;
+            actions.push("Updated core instructions");
+            return { ok: true };
+          }),
+      }),
+      save_skill: tool({
+        description: "Add a skill, or change one by name (instructions and schedule).",
+        inputSchema: skillInput,
+        execute: (input) =>
+          mutate(uid, (d) => {
+            const l = d.loopers.find((x) => x.id === looperId);
+            if (!l) return { error: "gone" };
+            const existing = l.skills.find((x) => x.name.toLowerCase() === input.name.toLowerCase());
+            if (existing) Object.assign(existing, { instructions: input.instructions, schedule: { type: input.type, time: input.time, days: input.days } });
+            else l.skills.push(toSkill(input));
+            actions.push(`${existing ? "Updated" : "Added"} skill ${input.name}`);
+            return { ok: true };
+          }),
+      }),
+      start_skill: tool({
+        description: "Start one of your skills now in the background; its result appears in this chat when done.",
+        inputSchema: z.object({ skill: z.string() }),
+        execute: async ({ skill }) => {
+          const s = looper.skills.find((x) => x.name.toLowerCase() === skill.toLowerCase());
+          if (!s) return { error: `No skill "${skill}". Skills: ${looper.skills.map((x) => x.name).join(", ")}` };
+          after(() => runSkill(uid, looperId, s.id, "chief").then(() => undefined).catch(() => undefined));
+          actions.push(`Started ${s.name}`);
+          return { started: s.name };
+        },
+      }),
+    };
+    const result = await callModel(uid, db.settings, {
+      instructions: [
+        looperBrief(db, looper, describeDatabase(table)),
+        `You're chatting with your owner. Answer as ${looper.name}, briefly and concretely, in first person. Use your tools to look things up instead of guessing; you can change your own instructions and skills when asked.`,
+        runs.length ? `Your latest runs:\n${runs.map((r) => `- ${r.startedAt.slice(0, 16)} ${r.skillName} [${r.status}]: ${r.summary.slice(0, 600)}`).join("\n")}` : "",
+        ext.connected.length ? `Connected apps: ${ext.connected.join(", ")}.` : "No apps connected yet.",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      messages: history.map((m) => ({ role: m.role, content: m.content })),
+      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...own },
+      external: ext.tools,
+      maxSteps: 20,
+    });
+    content = (await result.text) || (actions.length ? "Done." : "…");
+  } catch (error) {
+    content = `I couldn't reach the model: ${errorText(error)}`;
+  } finally {
+    await ext.close();
+  }
+  const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
+  await mutate(uid, (d) => void ((d.chats ??= {})[looperId] = [...(d.chats?.[looperId] ?? []), reply]));
+  return reply;
 }

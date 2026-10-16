@@ -1,29 +1,26 @@
 "use client";
 
-import { useNow } from "./use-now";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import { recordMetric, updateLooper } from "@/app/actions";
+import { useEffect, useTransition } from "react";
+import { askLooper, clearLooperChat, updateLooper } from "@/app/actions";
 import { occurrences } from "@/lib/schedule";
-import type { Card, Looper, PublicSettings, Retro, Run } from "@/lib/types";
+import type { Card, ChiefMessage, Looper, PublicSettings, Retro, Run } from "@/lib/types";
+import { cardAssignee } from "@/lib/types";
 import { AppsPanel } from "./apps-panel";
+import { ChatPanel } from "./chat-panel";
 import { CalendarView } from "./calendar";
 import { DatabaseView } from "./database-view";
 import { Kanban } from "./kanban";
+import { MetricView } from "./metric-view";
 import { RetroBoard } from "./retro-board";
 import { SkillsPanel } from "./skills-panel";
-import { progress } from "./team-list";
-import { Avatar, Button, Input, Sparkline, accentHex, cx, fmt } from "./ui";
+import { Bot, Button, cx, fmt } from "./ui";
+import { useNow } from "./use-now";
 
-const TABS = [
-  { id: "board", label: "Kanban", icon: "▦" },
-  { id: "database", label: "Database", icon: "☷" },
-  { id: "calendar", label: "Calendar", icon: "◷" },
-  { id: "retro", label: "Retro", icon: "↺" },
-  { id: "apps", label: "Apps", icon: "⌘" },
-  { id: "skills", label: "Skills", icon: "✧" },
-];
+const TABS = ["chat", "metric", "board", "calendar", "database", "skills", "retro", "apps"] as const;
+type Tab = (typeof TABS)[number];
+const LABELS: Record<Tab, string> = { chat: "Chat", metric: "Metric", board: "Kanban", calendar: "Calendar", database: "Database", skills: "Skills", retro: "Retro", apps: "Apps" };
 
 export function LooperView(props: {
   looper: Looper;
@@ -31,19 +28,24 @@ export function LooperView(props: {
   runs: Run[];
   retros: Retro[];
   integrations: PublicSettings["integrations"];
+  database: { name: string; rows: number; rowNoun: string } | null;
+  chat: ChiefMessage[];
+  ready: boolean;
   tab: string;
 }) {
-  const { looper, cards, runs, retros, integrations, tab } = props;
+  const { looper, cards, runs, retros, integrations, database } = props;
+  const tab: Tab = (TABS as readonly string[]).includes(props.tab) ? (props.tab as Tab) : "chat";
   const router = useRouter();
   const [busy, start] = useTransition();
-  const [reading, setReading] = useState("");
   const running = runs.some((r) => r.status === "running");
-  const { current, pct, onTrack } = progress(looper);
   const now = useNow();
-  const next =
-    now && looper.status === "active"
-      ? looper.skills.flatMap((s) => occurrences(s.schedule, new Date(now), new Date(now + 8 * 864e5)).slice(0, 1)).sort((a, b) => a.getTime() - b.getTime())[0]
-      : undefined;
+
+  const nextRuns = now && looper.status === "active"
+    ? looper.skills
+        .flatMap((s) => occurrences(s.schedule, new Date(now), new Date(now + 8 * 864e5)).slice(0, 1).map((at) => ({ at, s })))
+        .sort((a, b) => a.at.getTime() - b.at.getTime())
+    : [];
+  const next = nextRuns[0];
 
   useEffect(() => {
     if (!running) return;
@@ -51,120 +53,117 @@ export function LooperView(props: {
     return () => clearInterval(t);
   }, [running, router]);
 
-  const act = (fn: () => Promise<unknown>) =>
-    start(async () => {
-      await fn();
-      router.refresh();
-    });
+  const open = cards.filter((c) => c.column !== "done");
+  const forYou = open.filter((c) => cardAssignee(c) === "you");
+  const doing = open.find((c) => c.column === "doing") ?? open.find((c) => c.column === "todo");
+  const lastRetro = retros.at(-1);
+  const current = looper.metric.history.at(-1)?.value;
+  const when = (d: Date) => d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
-  const counts: Record<string, number | undefined> = {
-    board: cards.filter((c) => c.column !== "done").length,
-    retro: retros.length || undefined,
-    skills: looper.skills.length,
+  const counts: Partial<Record<Tab, number>> = {
+    board: forYou.length || undefined,
+    database: database?.rows || undefined,
     apps: looper.apps?.length || undefined,
+  };
+  const summary: Record<Tab, string> = {
+    chat: "",
+    metric: `${looper.metric.name} ${fmt(current)} of ${fmt(looper.metric.target)}`,
+    board: forYou.length ? `${forYou.length} for you: ${forYou[0].title}` : doing ? doing.title : "No open cards",
+    calendar: next ? `${next.s.name}, ${when(next.at)}` : looper.status === "paused" ? "Paused" : "Nothing scheduled",
+    database: database ? `${database.rows} ${database.rowNoun}${database.rows === 1 ? "" : "s"}` : "Designs itself when opened",
+    skills: `Core instructions · ${looper.skills.length} skills`,
+    retro: lastRetro ? `Last: ${lastRetro.effectiveness}/5 effective` : "First retro after a week",
+    apps: looper.apps?.length ? looper.apps.map((a) => a.name).join(", ") : "No apps yet",
   };
 
   return (
-    <div className="grid grid-cols-1 gap-5 pt-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-      <aside className="flex flex-col gap-4 lg:sticky lg:top-[4.5rem] lg:self-start">
-        <div className="tile p-5">
-          <div className="flex items-center gap-3">
-            <Avatar seed={looper.id} color={looper.color} size={52} />
-            <div className="min-w-0">
-              <h1 className="truncate text-[1.375rem] font-semibold tracking-[-0.02em]">{looper.name}</h1>
-              <div className="flex items-center gap-1.5 text-[0.8125rem] text-mute">
-                <span className={cx("h-2 w-2 rounded-full", running ? "pulse-dot bg-green" : looper.status === "active" ? "bg-green" : "bg-faint")} />
-                {running ? "Working now" : looper.status === "active" ? "Active" : "Paused"}
-              </div>
-            </div>
+    <div className={cx("flex flex-col", tab === "chat" && "h-[calc(100dvh-58px)] lg:h-dvh")}>
+      <header className="sticky top-0 z-20 border-b border-black/[0.05] bg-page/85 px-4 backdrop-blur-xl sm:px-6">
+        <div className="flex items-center justify-between gap-3 pt-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Bot color={looper.color} size={30} seed={looper.id} />
+            <h1 className="truncate text-[1.0625rem] font-semibold">{looper.name}</h1>
+            {looper.role && <span className="rounded-[5px] bg-black/[0.05] px-1.5 text-[0.75rem] text-mute">{looper.role}</span>}
+            <span className="hidden items-center gap-1.5 text-[0.8125rem] text-mute sm:flex">
+              <span className={cx("h-1.5 w-1.5 rounded-full", running ? "pulse-dot bg-green" : looper.status === "active" ? "bg-green" : "bg-faint")} />
+              {running ? "Working now" : looper.status === "active" ? (next ? `Next run ${when(next.at)}` : "Active") : "Paused"}
+            </span>
           </div>
-          <p className="mt-4 text-[0.875rem] leading-relaxed text-ink-2">{looper.mission}</p>
-
-          <div className="mt-5 rounded-[14px] bg-well p-4">
-            <div className="flex items-center justify-between gap-2 text-[0.8125rem] text-mute">
-              <span className="truncate">{looper.metric.name}</span>
-              <span>{looper.metric.direction === "up" ? "↑" : "↓"}</span>
-            </div>
-            <div className="mt-1 flex items-end justify-between gap-2">
-              <div>
-                <span className="text-[2.25rem] font-semibold leading-none tracking-[-0.035em] tabular-nums">{fmt(current)}</span>
-                <div className="mt-1 text-[0.75rem] text-faint">
-                  target {fmt(looper.metric.target)} {looper.metric.unit}
-                </div>
-              </div>
-              <Sparkline values={looper.metric.history.map((p) => p.value)} color={accentHex[looper.color]} width={96} height={36} />
-            </div>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#e3e3e8]">
-              <div className={cx("h-full rounded-full", onTrack ? "bg-green" : "bg-blue")} style={{ width: `${pct}%` }} />
-            </div>
-            <form
-              className="mt-3 flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const v = Number(reading);
-                if (reading === "" || Number.isNaN(v)) return;
-                setReading("");
-                act(() => recordMetric(looper.id, v));
-              }}
-            >
-              <Input value={reading} onChange={(e) => setReading(e.target.value)} type="number" step="any" placeholder="Log a reading" className="!h-8 !text-[0.8125rem]" />
-              <Button size="sm" variant="soft" disabled={busy || reading === ""}>
-                Log
-              </Button>
-            </form>
-          </div>
-        </div>
-
-        <nav className="tile p-2">
-          {TABS.map((t) => (
-            <Link
-              key={t.id}
-              href={`/loopers/${looper.id}?tab=${t.id}`}
-              scroll={false}
-              className={cx(
-                "flex items-center gap-3 rounded-[10px] px-3 py-2 text-[0.9375rem] transition-colors",
-                tab === t.id ? "bg-blue text-white" : "text-ink hover:bg-black/[0.04]",
-              )}
-            >
-              <span className={cx("w-5 text-center", tab === t.id ? "text-white" : "text-blue")}>{t.icon}</span>
-              <span className="flex-1">{t.label}</span>
-              {counts[t.id] !== undefined && <span className={cx("text-[0.8125rem]", tab === t.id ? "text-white/80" : "text-faint")}>{counts[t.id]}</span>}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="tile flex items-center justify-between gap-3 p-4 text-[0.8125rem]">
-          <div>
-            <div className="text-mute">Next run</div>
-            <div className="font-semibold">{next ? next.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }) : "—"}</div>
-          </div>
-          <Button size="sm" variant="soft" disabled={busy} onClick={() => act(() => updateLooper(looper.id, { status: looper.status === "active" ? "paused" : "active" }))}>
+          <Button
+            size="sm"
+            variant="soft"
+            disabled={busy}
+            onClick={() =>
+              start(async () => {
+                await updateLooper(looper.id, { status: looper.status === "active" ? "paused" : "active" });
+                router.refresh();
+              })
+            }
+          >
             {looper.status === "active" ? "Pause" : "Resume"}
           </Button>
         </div>
-      </aside>
+        <nav className="-mb-px mt-2 flex gap-1 overflow-x-auto" aria-label="Looper sections">
+          {TABS.map((t) => (
+            <Link
+              key={t}
+              href={`/loopers/${looper.id}?tab=${t}`}
+              scroll={false}
+              title={summary[t] || undefined}
+              className={cx(
+                "flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-2.5 pt-1.5 text-[0.875rem] transition-colors",
+                tab === t ? "border-ink font-medium text-ink" : "border-transparent text-mute hover:text-ink",
+              )}
+            >
+              {LABELS[t]}
+              {counts[t] !== undefined && (
+                <span className={cx("rounded-full px-1.5 text-[0.6875rem]", t === "board" ? "bg-blue text-white" : "bg-black/[0.06] text-mute")}>{counts[t]}</span>
+              )}
+            </Link>
+          ))}
+        </nav>
+      </header>
 
-      <main className="min-w-0">
-        <div className="mb-4 flex items-baseline justify-between gap-3">
-          <h2 className="display text-[1.75rem]">{TABS.find((t) => t.id === tab)?.label ?? "Kanban"}</h2>
-          <Link href="/loopers" className="text-[0.875rem] text-blue hover:underline">
-            All loopers
-          </Link>
+      {tab === "chat" ? (
+        <div className="min-h-0 flex-1">
+          <LooperChat looper={looper} messages={props.chat} runs={runs} ready={props.ready} />
         </div>
-        {tab === "calendar" ? (
-          <CalendarView looper={looper} runs={runs} />
-        ) : tab === "retro" ? (
-          <RetroBoard looper={looper} retros={retros} running={running} />
-        ) : tab === "database" ? (
-          <DatabaseView looperId={looper.id} looperName={looper.name} color={looper.color} />
-        ) : tab === "apps" ? (
-          <AppsPanel looperId={looper.id} looperName={looper.name} />
-        ) : tab === "skills" ? (
-          <SkillsPanel looper={looper} runs={runs} integrations={integrations} />
-        ) : (
-          <Kanban looperId={looper.id} cards={cards} looperName={looper.name} color={looper.color} />
-        )}
-      </main>
+      ) : (
+        <div className="min-w-0 px-4 py-6 sm:px-6">
+          {tab === "metric" ? (
+            <MetricView looper={looper} />
+          ) : tab === "calendar" ? (
+            <CalendarView looper={looper} runs={runs} />
+          ) : tab === "database" ? (
+            <DatabaseView looperId={looper.id} looperName={looper.name} color={looper.color} />
+          ) : tab === "retro" ? (
+            <RetroBoard looper={looper} retros={retros} running={running} />
+          ) : tab === "apps" ? (
+            <AppsPanel looperId={looper.id} looperName={looper.name} />
+          ) : tab === "skills" ? (
+            <SkillsPanel looper={looper} runs={runs} integrations={integrations} />
+          ) : (
+            <Kanban looperId={looper.id} cards={cards} looperName={looper.name} color={looper.color} />
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function LooperChat({ looper, messages, runs, ready }: { looper: Looper; messages: ChiefMessage[]; runs: Run[]; ready: boolean }) {
+  return (
+    <ChatPanel
+      bot={{ name: looper.name, color: looper.color, seed: looper.id }}
+      messages={messages}
+      runs={runs.filter((r) => r.summary || r.status === "running").map((r) => ({ id: r.id, at: r.startedAt, skill: r.skillName, status: r.status, summary: r.summary }))}
+      ready={ready}
+      starters={[`What did you do on your last run?`, `What's blocking ${looper.metric.name}?`, `Show me what's in your database`, `Change how you work`]}
+      emptyTitle={`Hi, I'm ${looper.name}`}
+      emptyText={`I own one number: ${looper.metric.name}. Ask me anything, give me a task, or change how I work. My runs report here too.`}
+      placeholder={`Message ${looper.name}`}
+      send={(t) => askLooper(looper.id, t)}
+      clear={() => clearLooperChat(looper.id)}
+    />
   );
 }

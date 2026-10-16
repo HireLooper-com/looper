@@ -20,7 +20,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const isLocal = isLocalServer();
 
   return (
-    <div className="wash fixed inset-0 top-12 overflow-y-auto">
+    <div className="wash fixed inset-0 overflow-y-auto">
       <div className="mx-auto flex min-h-full max-w-[440px] flex-col items-center justify-center px-4 py-12">
         <div className="tile w-full px-8 pb-8 pt-10 text-center sm:px-10">
           <LogoMark size={76} className="mx-auto" />

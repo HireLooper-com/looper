@@ -13,7 +13,7 @@ export default function NewLooper() {
   const [emoji, setEmoji] = useState(EMOJI[0]);
 
   return (
-    <div className="mx-auto max-w-2xl pt-10">
+    <div className="mx-auto max-w-2xl px-6 pb-16 pt-10">
       <h1 className="display text-[2.5rem]">Hire a looper</h1>
       <p className="mt-3 text-[0.9375rem] text-mute">Pick one number this looper is responsible for. Add skills on its page after hiring, or let Chief draft everything for you.</p>
 

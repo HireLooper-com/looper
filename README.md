@@ -8,7 +8,9 @@ Hire AI **loopers**. Each one owns exactly one business metric and has:
 - **1 skill calendar**: scheduled skills (hourly, daily, weekly or on demand) and every past run
 - **1 retro board**: the looper reviews its own runs and metric movement, rates its effectiveness from 1 to 5, and turns "try next" items into new cards
 
-**Chief** is the main bot. Ask it to hire, brief, pause, retire or run loopers, or to report on the team.
+**Chief** is the main bot. Ask it to hire, brief, pause, retire or run loopers, or to report on the team. You can also chat with every looper directly; its runs report into that chat.
+
+The app is laid out like Grok Bot: Chief and the loopers in a rail on the left, the selected one on the right with Chat first and Metric, Kanban, Calendar, Database, Skills, Retro and Apps as tabs. Each looper's core instructions live in its Skills tab.
 
 ## Sign in with your plan
 
