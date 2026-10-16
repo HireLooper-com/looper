@@ -5,10 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { signOutApp } from "@/app/actions";
 import { LogoMark, Wordmark } from "./brand";
-import { cx } from "./ui";
+import { Bot, cx } from "./ui";
 
 const APPS = [
-  { href: "/chief", label: "Chief", tone: "bg-gradient-to-b from-[#5e5ce6] to-[#3634a3]", glyph: "✦" },
+  { href: "/chief", label: "Chief", tone: "bg-gradient-to-b from-[#3a3a3c] to-[#0b0b0c]", glyph: "chief" },
   { href: "/loopers", label: "Loopers", tone: "bg-gradient-to-b from-[#4fa8ff] to-[#0a7cff]", glyph: "◎" },
   { href: "/settings", label: "Settings", tone: "bg-gradient-to-b from-[#a1a1a6] to-[#6e6e73]", glyph: "⚙︎" },
 ];
@@ -63,7 +63,11 @@ export function Nav({ email, plan }: { email?: string; plan?: string }) {
                 <div className="absolute right-0 top-10 grid w-[264px] grid-cols-3 gap-1 rounded-[18px] border border-black/[0.06] bg-white/95 p-3 shadow-[0_12px_40px_rgba(0,0,0,0.12)] backdrop-blur-xl">
                   {[{ href: "/", label: "Home", tone: "bg-gradient-to-b from-[#ff9f0a] to-[#ff7a00]", glyph: "⌂" }, ...APPS].map((a) => (
                     <Link key={a.href} href={a.href} className="flex flex-col items-center gap-1.5 rounded-[12px] p-2 hover:bg-black/[0.04]">
-                      <span className={cx("app-icon flex h-12 w-12 items-center justify-center text-[1.25rem] text-white", a.tone)}>{a.glyph}</span>
+                      {a.glyph === "chief" ? (
+                        <Bot dark size={48} seed="chief" />
+                      ) : (
+                        <span className={cx("app-icon flex h-12 w-12 items-center justify-center text-[1.25rem] text-white", a.tone)}>{a.glyph}</span>
+                      )}
                       <span className="text-[0.75rem] text-ink-2">{a.label}</span>
                     </Link>
                   ))}

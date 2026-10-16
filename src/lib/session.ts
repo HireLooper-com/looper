@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { getUser } from "./db";
 
 export const SESSION_COOKIE = "cl_session";
@@ -56,8 +57,9 @@ export async function clearSession() {
   (await cookies()).delete(SESSION_COOKIE);
 }
 
-/** The signed-in user, or null. */
+/** The signed-in user, or null. Always request-time: sessions expire, so this reads the clock. */
 export async function currentUser() {
+  await connection();
   const uid = await verifyToken((await cookies()).get(SESSION_COOKIE)?.value);
   return uid ? ((await getUser(uid)) ?? null) : null;
 }

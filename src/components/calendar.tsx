@@ -1,5 +1,6 @@
 "use client";
 
+import { useNow } from "./use-now";
 import { useMemo, useState } from "react";
 import { occurrences } from "@/lib/schedule";
 import type { Looper, Run } from "@/lib/types";
@@ -14,10 +15,10 @@ const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2
 export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Entry | null>(null);
-  const [now] = useState(() => Date.now());
+  const now = useNow();
 
   const { month, cells, byDay } = useMemo(() => {
-    const today = new Date();
+    const today = new Date(now || 0);
     const month = new Date(today.getFullYear(), today.getMonth() + offset, 1);
     const first = new Date(month);
     first.setDate(1 - ((month.getDay() + 6) % 7)); // start grid on Monday
@@ -25,7 +26,7 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
     const gridEnd = new Date(cells[41].getFullYear(), cells[41].getMonth(), cells[41].getDate() + 1);
 
     const entries: Entry[] = runs.map((r) => ({ key: r.id, at: new Date(r.startedAt), label: r.skillName, kind: r.status, run: r }));
-    if (looper.status === "active") {
+    if (now && looper.status === "active") {
       const from = new Date(Math.max(now, first.getTime()));
       for (const s of looper.skills)
         for (const at of occurrences(s.schedule, from, gridEnd).slice(0, 400))
@@ -39,7 +40,8 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
     return { month, cells, byDay };
   }, [offset, runs, looper, now]);
 
-  const todayKey = dayKey(new Date());
+  const todayKey = dayKey(new Date(now || 0));
+  if (!now) return <div className="tile h-[640px] animate-pulse" />;
 
   return (
     <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">

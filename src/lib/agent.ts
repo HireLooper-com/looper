@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
 import { composioTools, resolveApps } from "./composio";
+import { columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
 import { describeSchedule, isDue } from "./schedule";
@@ -98,7 +99,7 @@ function metricLine(l: Looper) {
   return `${l.metric.name}: ${last ? `${last.value} ${l.metric.unit}` : "no reading yet"} (target ${l.metric.target} ${l.metric.unit}, ${l.metric.direction === "up" ? "higher is better" : "lower is better"})`;
 }
 
-function looperBrief(db: DB, l: Looper) {
+function looperBrief(db: DB, l: Looper, database = "") {
   const cards = db.cards.filter((c) => c.looperId === l.id && c.column !== "done");
   const retro = db.retros.filter((r) => r.looperId === l.id).at(-1);
   return [
@@ -109,6 +110,7 @@ function looperBrief(db: DB, l: Looper) {
     `Open kanban cards:\n${cards.map((c) => `- [${c.column}] ${c.id}: ${c.title}`).join("\n") || "- none"}`,
     retro ? `Your last retro said to try next:\n${retro.tryNext.map((t) => `- ${t}`).join("\n")}` : "",
     `Your skills: ${l.skills.map((s) => `${s.name} (${describeSchedule(s.schedule)})`).join("; ")}.`,
+    database,
     "Work rules: keep your kanban board current (add cards for work you plan, move them as you go). When you learn the latest metric value from a real source, record it with metric_record. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. Finish with a 2–4 sentence summary of what you did and what changed.",
   ]
     .filter(Boolean)
@@ -212,15 +214,16 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   if (apps.missing.length) ext.failed.push(...apps.missing.map((slug) => ({ name: `${slug} (not connected yet)`, error: "" })));
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
+    const database = describeDatabase(await readDatabase(uid, looper.id));
     const result = await callModel(uid, db.settings, {
-      instructions: looperBrief(db, looper),
+      instructions: looperBrief(db, looper, database),
       prompt: [
         `Run your skill "${skill.name}" now.`,
         skill.instructions,
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
         ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Apps tab.` : "",
       ].join("\n\n"),
-      tools: boardTools(uid, looper.id, "looper"),
+      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id) },
       external: ext.tools,
       maxSteps: 25,
     });
@@ -395,6 +398,10 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         metric: z.object({ name: z.string(), unit: z.string(), direction: z.enum(["up", "down"]), target: z.number(), current: z.number().optional() }),
         skills: z.array(skillInput).min(1).max(4),
         apps: z.array(z.string()).max(8).default([]).describe("apps the looper needs, by name, e.g. ['Stripe', 'Gmail', 'bunq']"),
+        database: z
+          .object({ name: z.string(), rowNoun: z.string().describe("what one row is, e.g. 'bank transaction'"), columns: z.array(columnSpec).min(2).max(15) })
+          .optional()
+          .describe("the looper's database: one row per unit of its work"),
         starterCards: z.array(z.string()).max(5).default([]),
       }),
       execute: async (input) => {
@@ -425,6 +432,9 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
             db.cards.push({ id: nanoid(8), looperId: looper.id, title, description: "", column: "todo", createdBy: "chief", createdAt: now(), updatedAt: now() });
           actions.push(`Hired ${looper.name}`);
           return { id: looper.id, name: looper.name };
+        }).then(async (r) => {
+          if (input.database) await mutateDatabase(uid, r.id, (box) => void (box.db ??= newDatabase(input.database!.name, input.database!.rowNoun, input.database!.columns)));
+          return r;
         });
       },
     }),
@@ -466,6 +476,9 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           db.runs = db.runs.filter((x) => x.looperId !== l.id);
           db.retros = db.retros.filter((x) => x.looperId !== l.id);
           actions.push(`Retired ${l.name}`);
+          return { id: l.id };
+        }).then(async ({ id }) => {
+          await deleteDatabase(uid, id);
           return { ok: true };
         }),
     }),
@@ -498,6 +511,8 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
 const CHIEF_INSTRUCTIONS = `You are Chief, the head of a team of loopers. A looper is an AI operator hired to move exactly one business metric. It has one kanban board, a calendar of scheduled skills, and a retro board where it judges its own effectiveness.
 
 Your job: turn the user's goals into loopers, manage them, and report on them. When the user wants something done repeatedly, propose a looper (name, one metric with unit/direction/target, 1–4 scheduled skills that name the apps to use) and hire it with create_looper — don't ask more than one clarifying question first. One metric per looper, always; split goals that have two metrics into two loopers.
+
+Give every looper a database (create_looper.database) whose rows are the unit of its work, with 5–10 useful columns: a VAT looper gets one row per bank transaction (date, amount, counterparty, source, VAT rate, VAT amount, invoice found, status); an SEO looper gets one row per blog post or idea (title, status Idea/Drafting/Published, keyword, URL, clicks); a sales looper one row per lead. Use select columns for statuses.
 
 Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]). The app shows the user one-click Connect buttons for them right after hiring, so say "connect them with the button below" rather than explaining setup.
 

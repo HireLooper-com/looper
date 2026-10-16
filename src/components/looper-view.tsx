@@ -1,5 +1,6 @@
 "use client";
 
+import { useNow } from "./use-now";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
@@ -8,6 +9,7 @@ import { occurrences } from "@/lib/schedule";
 import type { Card, Looper, PublicSettings, Retro, Run } from "@/lib/types";
 import { AppsPanel } from "./apps-panel";
 import { CalendarView } from "./calendar";
+import { DatabaseView } from "./database-view";
 import { Kanban } from "./kanban";
 import { RetroBoard } from "./retro-board";
 import { SkillsPanel } from "./skills-panel";
@@ -16,6 +18,7 @@ import { Avatar, Button, Input, Sparkline, accentHex, cx, fmt } from "./ui";
 
 const TABS = [
   { id: "board", label: "Kanban", icon: "▦" },
+  { id: "database", label: "Database", icon: "☷" },
   { id: "calendar", label: "Calendar", icon: "◷" },
   { id: "retro", label: "Retro", icon: "↺" },
   { id: "apps", label: "Apps", icon: "⌘" },
@@ -36,9 +39,9 @@ export function LooperView(props: {
   const [reading, setReading] = useState("");
   const running = runs.some((r) => r.status === "running");
   const { current, pct, onTrack } = progress(looper);
-  const [now] = useState(() => Date.now());
+  const now = useNow();
   const next =
-    looper.status === "active"
+    now && looper.status === "active"
       ? looper.skills.flatMap((s) => occurrences(s.schedule, new Date(now), new Date(now + 8 * 864e5)).slice(0, 1)).sort((a, b) => a.getTime() - b.getTime())[0]
       : undefined;
 
@@ -66,7 +69,7 @@ export function LooperView(props: {
       <aside className="flex flex-col gap-4 lg:sticky lg:top-[4.5rem] lg:self-start">
         <div className="tile p-5">
           <div className="flex items-center gap-3">
-            <Avatar emoji={looper.emoji} color={looper.color} size={52} />
+            <Avatar seed={looper.id} color={looper.color} size={52} />
             <div className="min-w-0">
               <h1 className="truncate text-[1.375rem] font-semibold tracking-[-0.02em]">{looper.name}</h1>
               <div className="flex items-center gap-1.5 text-[0.8125rem] text-mute">
@@ -152,6 +155,8 @@ export function LooperView(props: {
           <CalendarView looper={looper} runs={runs} />
         ) : tab === "retro" ? (
           <RetroBoard looper={looper} retros={retros} running={running} />
+        ) : tab === "database" ? (
+          <DatabaseView looperId={looper.id} looperName={looper.name} />
         ) : tab === "apps" ? (
           <AppsPanel looperId={looper.id} looperName={looper.name} />
         ) : tab === "skills" ? (

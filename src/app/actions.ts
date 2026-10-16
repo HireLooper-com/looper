@@ -8,6 +8,7 @@ import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
 import { kv } from "@/lib/kv";
+import { deleteDatabase } from "@/lib/database";
 import { testIntegration } from "@/lib/integrations";
 import * as chatgpt from "@/lib/oauth/chatgpt";
 import * as grok from "@/lib/oauth/grok";
@@ -204,6 +205,7 @@ export async function updateLooper(id: string, patch: Partial<Pick<Looper, "name
 
 export async function deleteLooper(id: string) {
   const uid = await requireUid();
+  await deleteDatabase(uid, id);
   await mutate(uid, (db) => {
     db.loopers = db.loopers.filter((x) => x.id !== id);
     db.cards = db.cards.filter((x) => x.looperId !== id);

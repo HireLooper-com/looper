@@ -30,7 +30,7 @@ export default async function LoopersPage() {
             <Link key={l.id} href={`/loopers/${l.id}`} className="tile group flex flex-col gap-5 p-6">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <Avatar emoji={l.emoji} color={l.color} size={44} />
+                  <Avatar seed={l.id} color={l.color} size={44} />
                   <div>
                     <div className="text-[1.0625rem] font-semibold tracking-[-0.01em]">{l.name}</div>
                     <div className="text-[0.8125rem] text-mute">{lastRun ? `Last run ${timeAgo(lastRun.startedAt)}` : "Not run yet"}</div>

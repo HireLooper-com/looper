@@ -4,6 +4,7 @@ Hire AI **loopers**. Each one owns exactly one business metric and has:
 
 - **1 metric**: a number with a target and direction, logged over time
 - **1 kanban board**: the looper adds cards and moves them as it works
+- **1 database**: a Notion-style table where one row is one unit of the looper's work (a bank transaction for a VAT looper, a blog post for an SEO looper). The looper adds and updates rows on every run; you edit them inline
 - **1 skill calendar**: scheduled skills (hourly, daily, weekly or on demand) and every past run
 - **1 retro board**: the looper reviews its own runs and metric movement, rates its effectiveness from 1 to 5, and turns "try next" items into new cards
 

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { askChief, clearChief } from "@/app/actions";
 import type { ChiefMessage } from "@/lib/types";
-import { cx } from "./ui";
+import { Bot, cx } from "./ui";
 
 const STARTERS = [
   "Hire a looper to grow LinkedIn impressions to 50k/month",
@@ -41,7 +41,7 @@ export function ChiefChat({ messages, ready, source, model }: { messages: ChiefM
     <section className="tile flex min-h-[620px] flex-col overflow-hidden lg:h-[calc(100vh-6rem)]">
       <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
         <div className="flex items-center gap-3">
-          <span className="app-icon flex h-9 w-9 items-center justify-center bg-gradient-to-b from-[#5e5ce6] to-[#3634a3] text-white">✦</span>
+          <Bot dark size={36} seed="chief" />
           <div>
             <div className="text-[0.9375rem] font-semibold">Chief</div>
             <div className="text-[0.75rem] text-mute">{ready ? `${source} · ${model}` : "Not connected"}</div>
@@ -65,7 +65,7 @@ export function ChiefChat({ messages, ready, source, model }: { messages: ChiefM
       <div ref={scroller} className="flex-1 overflow-y-auto px-5 py-6">
         {messages.length === 0 && !pending ? (
           <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
-            <span className="app-icon flex h-16 w-16 items-center justify-center bg-gradient-to-b from-[#5e5ce6] to-[#3634a3] text-[1.75rem] text-white">✦</span>
+            <Bot dark size={64} seed="chief" />
             <div>
               <h1 className="display text-[1.75rem]">What should we move?</h1>
               <p className="mx-auto mt-2 max-w-[44ch] text-[0.9375rem] leading-relaxed text-mute">

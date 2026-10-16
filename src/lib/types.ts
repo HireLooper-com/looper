@@ -205,3 +205,42 @@ export type PublicSettings = Omit<Settings, "apiKeys" | "integrations" | "oauth"
 };
 
 export type PublicState = Omit<DB, "settings"> & { settings: PublicSettings; user: { email?: string; provider: Provider } };
+
+// — Looper database (Notion-style table; one row = one unit of the looper's work) —
+
+export type DbColumnType = "text" | "number" | "currency" | "date" | "select" | "checkbox" | "url";
+export const DB_COLUMN_TYPES: { id: DbColumnType; label: string; icon: string }[] = [
+  { id: "text", label: "Text", icon: "Aa" },
+  { id: "number", label: "Number", icon: "#" },
+  { id: "currency", label: "Currency", icon: "€" },
+  { id: "date", label: "Date", icon: "◷" },
+  { id: "select", label: "Select", icon: "▾" },
+  { id: "checkbox", label: "Checkbox", icon: "☑" },
+  { id: "url", label: "URL", icon: "↗" },
+];
+
+export interface DbColumn {
+  id: string;
+  name: string;
+  type: DbColumnType;
+  /** select options, in order */
+  options?: string[];
+}
+
+export type DbValue = string | number | boolean | null;
+
+export interface DbRow {
+  id: string;
+  cells: Record<string, DbValue>;
+  createdBy: "looper" | "user";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LooperDatabase {
+  name: string;
+  /** what one row represents, e.g. "bank transaction" */
+  rowNoun: string;
+  columns: DbColumn[];
+  rows: DbRow[];
+}

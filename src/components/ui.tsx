@@ -82,15 +82,35 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
   );
 }
 
-export function Avatar({ emoji, color, size = 40 }: { emoji: string; color: Accent; size?: number }) {
+/** A looper as a little bot (after Grok Bot's mascot): a white blob with two eyes on the looper's colour.
+ * `seed` varies the gaze so loopers don't all look alike. */
+export function Bot({ color, size = 40, seed = "", dark = false, className }: { color?: Accent; size?: number; seed?: string; dark?: boolean; className?: string }) {
+  const h = [...seed].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  const look = ((h % 5) - 2) * 1.1; // eyes glance left/right
+  const tilt = ((h >> 3) % 7) - 3; // blob tilts a little
   return (
     <span
-      className={cx("app-icon inline-flex shrink-0 items-center justify-center text-white", accentBg[color])}
-      style={{ width: size, height: size, fontSize: size * 0.45 }}
+      className={cx("app-icon inline-flex shrink-0 items-center justify-center overflow-hidden", dark ? "bg-gradient-to-b from-[#3a3a3c] to-[#0b0b0c]" : accentBg[color ?? "blue"], className)}
+      style={{ width: size, height: size }}
+      aria-hidden
     >
-      {emoji}
+      <svg viewBox="0 0 40 40" width={size} height={size}>
+        <g transform={`rotate(${tilt} 20 22)`}>
+          <ellipse cx="20" cy="23.5" rx="15" ry="13" fill="#fff" />
+          <ellipse cx="20" cy="29" rx="13" ry="5.5" fill="#000" opacity="0.05" />
+          <ellipse cx={14.5 + look} cy="21.5" rx="2.4" ry="3.8" fill="#1d1d1f" />
+          <ellipse cx={25.5 + look} cy="21.5" rx="2.4" ry="3.8" fill="#1d1d1f" />
+          <ellipse cx={15.2 + look} cy="20.1" rx="0.75" ry="1" fill="#fff" />
+          <ellipse cx={26.2 + look} cy="20.1" rx="0.75" ry="1" fill="#fff" />
+        </g>
+      </svg>
     </span>
   );
+}
+
+/** Looper avatar. The emoji is kept in data but loopers now show as bots. */
+export function Avatar({ color, size = 40, seed }: { emoji?: string; color: Accent; size?: number; seed?: string }) {
+  return <Bot color={color} size={size} seed={seed} />;
 }
 
 export function Sparkline({ values, color = "#0071e3", width = 120, height = 36 }: { values: number[]; color?: string; width?: number; height?: number }) {

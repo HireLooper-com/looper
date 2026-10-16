@@ -2,7 +2,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { getState } from "./actions";
 import { progress } from "@/components/team-list";
-import { Avatar, Sparkline, accentHex, cx, fmt, timeAgo } from "@/components/ui";
+import { Avatar, Bot, Sparkline, accentHex, cx, fmt, timeAgo } from "@/components/ui";
 import { occurrences } from "@/lib/schedule";
 import { PROVIDERS } from "@/lib/types";
 
@@ -48,7 +48,7 @@ export default async function Home() {
           {/* Chief: wide tile */}
           <Link href="/chief" className="tile group flex min-h-[220px] flex-col p-6 sm:col-span-2">
             <div className="flex items-center gap-3">
-              <span className="app-icon flex h-10 w-10 items-center justify-center bg-gradient-to-b from-[#5e5ce6] to-[#3634a3] text-[1.1rem] text-white">✦</span>
+              <Bot dark size={40} seed="chief" />
               <div>
                 <div className="text-[1.0625rem] font-semibold">Chief</div>
                 <div className="text-[0.8125rem] text-mute">Hire, brief and manage your loopers</div>
@@ -87,7 +87,7 @@ export default async function Home() {
               <Link key={l.id} href={`/loopers/${l.id}`} className="tile flex flex-col gap-4 p-6">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <Avatar emoji={l.emoji} color={l.color} size={40} />
+                    <Avatar seed={l.id} color={l.color} size={40} />
                     <div>
                       <div className="text-[1.0625rem] font-semibold">{l.name}</div>
                       <div className="text-[0.8125rem] text-mute">{l.status === "paused" ? "Paused" : last?.status === "running" ? "Working now" : last ? `Ran ${timeAgo(last.startedAt)}` : "Not run yet"}</div>
