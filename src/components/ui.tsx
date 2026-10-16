@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import type { Accent } from "@/lib/types";
 
@@ -82,24 +83,64 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
   );
 }
 
-// Blob colours for loopers (Grok Bot style: solid blob, two slanted eye strokes).
-const BLOB: Record<Accent, string> = { green: "#3fbf6f", orange: "#f2793b", lavender: "#b45ad8", blue: "#3b82f6", ink: "#a8724f" };
+// Two-tone glossy loops (pastel pairs); Chief is graphite.
+const LOOPS: [string, string][] = [
+  ["#f7a8c8", "#f4b88a"], // pink → peach
+  ["#8fe0e8", "#4f8ff0"], // aqua → blue
+  ["#f8d66a", "#f0803a"], // yellow → orange
+  ["#a99cf2", "#7fc6ee"], // lavender → sky
+  ["#c9ec8f", "#ece27c"], // lime → butter
+  ["#f06aa0", "#8b4fe6"], // pink → violet
+  ["#93ecc0", "#3fcfb0"], // mint → teal
+];
+const CHIEF_LOOP: [string, string] = ["#6b6b70", "#1d1d1f"];
+// Loopers get their accent in turn when hired, so mapping accent → palette keeps neighbours distinct.
+const ACCENT_LOOP: Record<Accent, number> = { green: 6, orange: 2, lavender: 5, blue: 1, ink: 0 };
 
-/** A looper as a little bot after Grok Bot's mascot: a soft blob with two slanted eyes.
- * `seed` varies tilt and gaze so loopers don't all look alike. Chief is the dark one. */
+// A Bernoulli lemniscate (figure eight), tilted like a resting loop, as an SVG path in a 100×100 box.
+const LOOP_PATH = (() => {
+  const pts: string[] = [];
+  const a = 36;
+  const tilt = (-38 * Math.PI) / 180;
+  for (let i = 0; i <= 96; i++) {
+    const t = (i / 96) * 2 * Math.PI;
+    const d = 1 + Math.sin(t) ** 2;
+    const x = (a * Math.cos(t)) / d;
+    const y = (a * Math.sin(t) * Math.cos(t)) / d;
+    pts.push(`${(50 + x * Math.cos(tilt) - y * Math.sin(tilt)).toFixed(2)},${(50 + x * Math.sin(tilt) + y * Math.cos(tilt)).toFixed(2)}`);
+  }
+  return `M${pts.join("L")}Z`;
+})();
+
+/** A looper's avatar: a glossy figure-eight tube in its own two-tone colour (Chief is graphite).
+ * The palette follows the looper's accent (or `seed` when there is none). */
 export function Bot({ color, size = 40, seed = "", dark = false, className }: { color?: Accent; size?: number; seed?: string; dark?: boolean; className?: string }) {
   const h = [...seed].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
-  const tilt = ((h % 9) - 4) * 3; // degrees
-  const look = (((h >> 4) % 3) - 1) * 1.2; // eyes shift left/right
-  const fill = dark ? "#1d1d1f" : BLOB[color ?? "blue"];
-  const eye = dark ? "#fff" : "rgba(0,0,0,0.78)";
+  const [c1, c2] = dark ? CHIEF_LOOP : LOOPS[color ? ACCENT_LOOP[color] : h % LOOPS.length];
+  // Unique per instance: a gradient defined inside a hidden element (e.g. the phone strip) can't be referenced.
+  const id = `loop${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
-    <svg viewBox="0 0 40 40" width={size} height={size} className={cx("shrink-0", className)} aria-hidden>
-      <g transform={`rotate(${tilt} 20 20)`}>
-        <path d="M20 4.5c8.9 0 15.5 6.4 15.5 15.2S29.2 35.5 20 35.5 4.5 28.6 4.5 19.9 11.1 4.5 20 4.5Z" fill={fill} />
-        <path d="M27.5 9.5c2.3 1.4 3.9 3.3 4.7 5.6" stroke="#fff" strokeOpacity={dark ? 0.18 : 0.35} strokeWidth="2" strokeLinecap="round" fill="none" />
-        <rect x={17.6 + look} y="11.5" width="3.6" height="9.5" rx="1.8" fill={eye} transform={`rotate(-16 ${19.4 + look} 16.2)`} />
-        <rect x={24.6 + look} y="11.5" width="3.6" height="9.5" rx="1.8" fill={eye} transform={`rotate(-16 ${26.4 + look} 16.2)`} />
+    <svg viewBox="0 0 100 100" width={size} height={size} className={cx("shrink-0", className)} aria-hidden>
+      <defs>
+        <linearGradient id={`${id}-g`} x1="0.15" y1="0.1" x2="0.85" y2="0.9">
+          <stop offset="0" stopColor={c1} />
+          <stop offset="1" stopColor={c2} />
+        </linearGradient>
+        <filter id={`${id}-s`} x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="3" stdDeviation="2.6" floodColor={c2} floodOpacity="0.35" />
+        </filter>
+        <filter id={`${id}-b`} x="-10%" y="-10%" width="120%" height="120%">
+          <feGaussianBlur stdDeviation="1.1" />
+        </filter>
+      </defs>
+      <g filter={`url(#${id}-s)`} fill="none" strokeLinecap="round" strokeLinejoin="round">
+        {/* body */}
+        <path d={LOOP_PATH} stroke={`url(#${id}-g)`} strokeWidth="15" />
+        {/* lower shade for depth */}
+        <path d={LOOP_PATH} stroke="#000" strokeOpacity="0.12" strokeWidth="6" transform="translate(1.4 2.4)" />
+        <path d={LOOP_PATH} stroke={`url(#${id}-g)`} strokeWidth="10" />
+        {/* shine along the top of the tube */}
+        <path d={LOOP_PATH} stroke="#fff" strokeOpacity={dark ? 0.3 : 0.55} strokeWidth="3.6" transform="translate(-1.4 -2.4)" filter={`url(#${id}-b)`} />
       </g>
     </svg>
   );
