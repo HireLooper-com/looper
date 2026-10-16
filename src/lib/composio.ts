@@ -48,6 +48,13 @@ export function searchToolkits(q: string, limit = 12) {
   });
 }
 
+/** Find the catalog toolkit for a loosely typed app name ("Google Search Console" → google_search_console). */
+export async function resolveToolkit(name: string) {
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const found = await searchToolkits(name, 8);
+  return found.find((t) => norm(t.name) === norm(name) || norm(t.slug) === norm(name)) ?? null;
+}
+
 export function getToolkit(slug: string) {
   return cached(`toolkit:${slug}`, 60 * 60_000, () => call<Toolkit>("GET", `/toolkits/${encodeURIComponent(slug)}`));
 }
@@ -197,4 +204,17 @@ export async function composioTools(uid: string, slugs: string[]): Promise<{ too
     }),
   );
   return { tools, connected, missing };
+}
+
+/** Replace guessed slugs with real catalog toolkits (keeps the guess when Composio has no match). */
+export async function resolveApps<T extends { slug: string; name: string; via: string; logo?: string }>(apps: T[]): Promise<T[]> {
+  if (!hasComposio()) return apps;
+  const out = await Promise.all(
+    apps.map(async (a) => {
+      if (a.via !== "composio") return a;
+      const tk = await resolveToolkit(a.name).catch(() => null);
+      return tk ? { ...a, slug: tk.slug, name: tk.name, logo: tk.logo ?? a.logo } : a;
+    }),
+  );
+  return out.filter((a, i) => out.findIndex((b) => b.slug === a.slug) === i);
 }

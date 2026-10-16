@@ -19,11 +19,10 @@ export const MCP_APPS: Record<string, { name: string; url: string; deniedTools: 
   },
 };
 
-/** Map loose names Chief or a person types ("Gmail", "bunq bank") to an app reference. */
+/** Best guess at an app reference from a loose name ("Gmail", "bunq bank"). The slug is only a
+ * placeholder for Composio apps: callers resolve it against the catalog (resolveApps). */
 export function appFromName(name: string): AppRef {
   const slug = name.toLowerCase().replace(/\bbank\b|\baccount\b/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
   if (MCP_APPS[slug]) return { slug, name: MCP_APPS[slug].name, via: "mcp" };
-  const aliases: Record<string, string> = { google_sheets: "googlesheets", google_drive: "googledrive", google_calendar: "googlecalendar", x: "twitter" };
-  const s = aliases[slug] ?? slug.replace(/_/g, "");
-  return { slug: s, name: name.trim(), via: "composio" };
+  return { slug, name: name.trim(), via: "composio" };
 }

@@ -3,7 +3,7 @@ import { isStepCount, Output, streamText, tool, type ModelMessage, type ToolSet 
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
-import { composioTools } from "./composio";
+import { composioTools, resolveApps } from "./composio";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
 import { describeSchedule, isDue } from "./schedule";
@@ -205,7 +205,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
 
   const run = await startRun(uid, looper, skill, trigger);
   const ext = await connectTools(integrationsFor(looper, db.settings));
-  const composioSlugs = (looper.apps ?? []).filter((a) => a.via === "composio").map((a) => a.slug);
+  const composioSlugs = (await resolveApps((looper.apps ?? []).filter((a) => a.via === "composio")).catch(() => [])).map((a) => a.slug);
   const apps = await composioTools(uid, composioSlugs).catch((e) => ({ tools: {}, connected: [] as string[], missing: composioSlugs, error: errorText(e) }));
   ext.tools = { ...ext.tools, ...apps.tools };
   ext.connected.push(...apps.connected);
@@ -397,8 +397,9 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         apps: z.array(z.string()).max(8).default([]).describe("apps the looper needs, by name, e.g. ['Stripe', 'Gmail', 'bunq']"),
         starterCards: z.array(z.string()).max(5).default([]),
       }),
-      execute: (input) =>
-        mutate(uid, (db) => {
+      execute: async (input) => {
+        const apps = await resolveApps(dedupeApps(input.apps.map(appFromName)));
+        return mutate(uid, (db) => {
           const looper: Looper = {
             id: nanoid(8),
             name: input.name,
@@ -414,7 +415,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
             },
             skills: [...input.skills.map(toSkill), defaultRetroSkill()],
             integrationIds: "all",
-            apps: dedupeApps(input.apps.map(appFromName)),
+            apps,
             status: "active",
             createdAt: now(),
           };
@@ -424,7 +425,8 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
             db.cards.push({ id: nanoid(8), looperId: looper.id, title, description: "", column: "todo", createdBy: "chief", createdAt: now(), updatedAt: now() });
           actions.push(`Hired ${looper.name}`);
           return { id: looper.id, name: looper.name };
-        }),
+        });
+      },
     }),
     update_looper: tool({
       description: "Change a looper's mission, metric target, status (active/paused) or add skills.",
@@ -436,11 +438,12 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         addSkills: z.array(skillInput).optional(),
         addApps: z.array(z.string()).optional().describe("apps to add, by name"),
       }),
-      execute: (input) =>
-        mutate(uid, (db) => {
+      execute: async (input) => {
+        const added = input.addApps?.length ? await resolveApps(input.addApps.map(appFromName)) : [];
+        return mutate(uid, (db) => {
           const l = findLooper(db, input.looper);
-          if (input.addApps?.length) {
-            l.apps = dedupeApps([...(l.apps ?? []), ...input.addApps.map(appFromName)]);
+          if (added.length) {
+            l.apps = dedupeApps([...(l.apps ?? []), ...added]);
             links.push({ label: `Connect apps for ${l.name}`, href: `/loopers/${l.id}?tab=apps` });
           }
           if (input.mission) l.mission = input.mission;
@@ -449,7 +452,8 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           if (input.addSkills) l.skills.push(...input.addSkills.map(toSkill));
           actions.push(`Updated ${l.name}`);
           return { ok: true };
-        }),
+        });
+      },
     }),
     retire_looper: tool({
       description: "Permanently remove a looper and its board, runs and retros. Only when the user explicitly asks.",

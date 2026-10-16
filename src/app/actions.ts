@@ -163,6 +163,7 @@ export async function checkIntegration(id: string) {
 // — Loopers —
 export async function createLooper(input: { name: string; emoji: string; mission: string; metricName: string; unit: string; direction: "up" | "down"; target: number; current?: number; apps?: string[] }) {
   const uid = await requireUid();
+  const apps = await composioApi.resolveApps((input.apps ?? []).map(appFromName));
   const id = await mutate(uid, (db) => {
     const looper: Looper = {
       id: nanoid(8),
@@ -179,7 +180,7 @@ export async function createLooper(input: { name: string; emoji: string; mission
       },
       skills: [defaultRetroSkill()],
       integrationIds: "all",
-      apps: (input.apps ?? []).map(appFromName).filter((a, i, all) => all.findIndex((b) => b.slug === a.slug) === i),
+      apps: apps.filter((a, i, all) => all.findIndex((b) => b.slug === a.slug) === i),
       status: "active",
       createdAt: now(),
     };
@@ -304,9 +305,11 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
   const composio = composioApi.hasComposio();
   const accounts = composio ? await composioApi.activeAccounts(uid).catch(() => new Map<string, composioApi.Account[]>()) : new Map<string, composioApi.Account[]>();
   const local = isLocalServer();
+  const repairs = new Map<string, { slug: string; name: string; logo?: string }>();
 
   const apps = await Promise.all(
-    (looper.apps ?? []).map(async (app): Promise<AppRow> => {
+    (looper.apps ?? []).map(async (original): Promise<AppRow> => {
+      let app = original;
       if (app.via === "mcp") {
         const preset = MCP_APPS[app.slug];
         const integration = db.settings.integrations.find((i) => i.app === app.slug && i.enabled);
@@ -316,7 +319,16 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
         return { ...app, state: "not_connected", detail: "Runs on your machine through a small MCP server. Payments are blocked.", setup: preset?.setup };
       }
       if (!composio) return { ...app, state: "not_connected", detail: "Needs Composio on the server" };
-      const tk = await composioApi.getToolkit(app.slug).catch(() => null);
+      let tk = await composioApi.getToolkit(app.slug).catch(() => null);
+      if (!tk) {
+        // Older loopers stored a guessed slug ("googlesearchconsole"); look the name up in the catalog.
+        const found = await composioApi.resolveToolkit(app.name).catch(() => null);
+        if (found) {
+          tk = await composioApi.getToolkit(found.slug).catch(() => null);
+          if (tk) repairs.set(app.slug, { slug: tk.slug, name: tk.name, logo: found.logo });
+          app = { ...app, slug: found.slug };
+        }
+      }
       if (!tk) return { ...app, state: "unavailable", detail: "Not found in the app catalog. Remove it or add it through a hub in Settings." };
       const logo = app.logo ?? tk.meta?.logo;
       const list = (accounts.get(app.slug) ?? []).map((a) => ({ id: a.id, label: composioApi.accountLabel(a) }));
@@ -333,12 +345,18 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
     }),
   );
 
-  // Remember logos and canonical names so Chief and tiles can show them.
+  // Remember fixed slugs, logos and canonical names so runs, Chief and tiles use them.
   const known = new Map(apps.map((a) => [a.slug, a]));
-  if (apps.some((a) => a.logo && !looper.apps?.find((x) => x.slug === a.slug)?.logo))
+  if (repairs.size || apps.some((a) => a.logo && !looper.apps?.find((x) => x.slug === a.slug)?.logo))
     await mutate(uid, (d) => {
       const l = d.loopers.find((x) => x.id === looperId);
-      if (l?.apps) l.apps = l.apps.map((a) => ({ ...a, name: known.get(a.slug)?.name ?? a.name, logo: known.get(a.slug)?.logo ?? a.logo }));
+      if (!l?.apps) return;
+      l.apps = l.apps.map((a) => {
+        const fixed = repairs.get(a.slug);
+        const slug = fixed?.slug ?? a.slug;
+        return { ...a, slug, name: fixed?.name ?? known.get(slug)?.name ?? a.name, logo: fixed?.logo ?? known.get(slug)?.logo ?? a.logo };
+      });
+      l.apps = l.apps.filter((a, i, all) => all.findIndex((b) => b.slug === a.slug) === i);
     });
   return { composio, apps };
 }
