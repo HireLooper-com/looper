@@ -29,12 +29,21 @@ function empty(): DB {
   };
 }
 
-/** Fill in fields added after a workspace was first saved. Mutates in place. */
+const STALE_RUN_MS = 8 * 60_000;
+
+/** Fill in fields added after a workspace was first saved, and close runs that died. Mutates in place. */
 function normalize(db: Partial<DB>): DB {
   const base = empty();
   for (const k of Object.keys(base) as (keyof DB)[]) if (db[k] === undefined) (db as Record<string, unknown>)[k] = base[k];
   db.settings = Object.assign(base.settings, db.settings);
   if (db.runs && db.runs.length > 1000) db.runs.splice(0, db.runs.length - 1000);
+  // A run still "running" long after the 5-minute function limit was cut off and never finished.
+  for (const r of db.runs ?? [])
+    if (r.status === "running" && Date.now() - Date.parse(r.startedAt) > STALE_RUN_MS) {
+      r.status = "error";
+      r.finishedAt = new Date(Date.parse(r.startedAt) + 5 * 60_000).toISOString();
+      r.summary = r.summary || "Stopped: the run hit the 5-minute limit before it could finish. Anything it saved (rows, cards) is kept; run it again to continue.";
+    }
   return db as DB;
 }
 

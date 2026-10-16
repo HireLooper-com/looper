@@ -76,6 +76,10 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
   let failure: unknown;
   let writing = false;
   opts.progress?.("Thinking…");
+  // Vercel functions stop at 5 minutes. Past the soft budget the model gets no more tools and must
+  // wrap up; the hard limit aborts just before the platform would kill the run silently.
+  const startedAt = Date.now();
+  let wrappingUp = false;
   const result = streamText({
     model: m.model,
     instructions: opts.instructions,
@@ -83,7 +87,19 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
     tools: Object.keys(all).length ? m.wrapTools(all) : undefined,
     providerOptions: m.providerOptions,
     stopWhen: isStepCount(opts.maxSteps ?? 12),
-    prepareStep: hasExternal ? () => ({ activeTools: [...Object.keys(base), "find_tools", ...discovered] }) : undefined,
+    prepareStep: () => {
+      if (Date.now() - startedAt > SOFT_BUDGET_MS) {
+        if (!wrappingUp) opts.progress?.("Almost out of time, wrapping up…");
+        wrappingUp = true;
+        return {
+          activeTools: [],
+          toolChoice: "none" as const,
+          instructions: `${opts.instructions}\n\nTime is up for this run. Don't call tools. Summarise what you did, what you saved, and exactly what's left for the next run.`,
+        };
+      }
+      return hasExternal ? { activeTools: [...Object.keys(base), "find_tools", ...discovered] } : {};
+    },
+    abortSignal: AbortSignal.timeout(HARD_LIMIT_MS),
     output,
     // Subscription usage errors (limits) shouldn't be retried automatically.
     maxRetries: (settings.authMode[settings.provider] ?? "key") === "oauth" ? 0 : 2,
@@ -104,7 +120,14 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
   return result;
 }
 
-const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const SOFT_BUDGET_MS = 210_000;
+const HARD_LIMIT_MS = 285_000;
+
+const errorText = (e: unknown) => {
+  if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"))
+    return "Stopped at the 5-minute limit. Anything already saved (rows, cards) is kept; run it again to continue.";
+  return e instanceof Error ? e.message : String(e);
+};
 
 // ——— Looper context and built-in tools ———
 

@@ -12,7 +12,7 @@ const LANES = [
   { key: "tryNext", label: "Try next", dot: "bg-lavender", note: "border-l-[3px] border-lavender" },
 ] as const;
 
-export function RetroBoard({ looper, retros, running }: { looper: Looper; retros: Retro[]; running: boolean }) {
+export function RetroBoard({ looper, retros }: { looper: Looper; retros: Retro[]; running?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export function RetroBoard({ looper, retros, running }: { looper: Looper; retros
     });
 
   const holdButton = (
-    <Button onClick={hold} disabled={pending || running}>
+    <Button onClick={hold} disabled={pending}>
       {pending ? `${looper.name} is reflecting…` : "Hold a retro now"}
     </Button>
   );
