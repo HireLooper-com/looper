@@ -137,6 +137,8 @@ export interface Card {
   description: string;
   column: Column;
   createdBy: "looper" | "user" | "chief";
+  /** who has to do it: the looper itself, or the person (approve, connect, decide). Default looper. */
+  assignee?: "looper" | "you";
   createdAt: string;
   updatedAt: string;
 }
@@ -243,4 +245,10 @@ export interface LooperDatabase {
   rowNoun: string;
   columns: DbColumn[];
   rows: DbRow[];
+}
+
+/** Who a card is for. Older Chief starter cards have no assignee; ones asking to review/confirm/connect are the owner's. */
+export function cardAssignee(c: Pick<Card, "assignee" | "createdBy" | "title">): "looper" | "you" {
+  if (c.assignee) return c.assignee;
+  return c.createdBy === "chief" && /^(review|confirm|connect|approve|decide|check|provide|share)\b/i.test(c.title.trim()) ? "you" : "looper";
 }

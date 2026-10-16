@@ -4,12 +4,12 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
 import { composioTools, resolveApps } from "./composio";
-import { columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
+import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
 import { describeSchedule, isDue } from "./schedule";
 import { appFromName } from "./apps";
-import type { AppRef, Card, Column, DB, Looper, Retro, Run, Settings, Skill, ToolCallLog } from "./types";
+import type { AppRef, Card, Column, DB, DbValue, Looper, Retro, Run, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -107,7 +107,7 @@ function looperBrief(db: DB, l: Looper, database = "") {
     `Mission: ${l.mission}`,
     `Your metric — ${metricLine(l)}. Everything you do should move this number.`,
     `Recent metric history: ${l.metric.history.slice(-8).map((p) => `${p.at.slice(0, 10)}=${p.value}`).join(", ") || "none"}.`,
-    `Open kanban cards:\n${cards.map((c) => `- [${c.column}] ${c.id}: ${c.title}`).join("\n") || "- none"}`,
+    `Open kanban cards:\n${cards.map((c) => `- [${c.column}]${c.assignee === "you" ? " (waiting on the owner)" : ""} ${c.id}: ${c.title}`).join("\n") || "- none"}`,
     retro ? `Your last retro said to try next:\n${retro.tryNext.map((t) => `- ${t}`).join("\n")}` : "",
     `Your skills: ${l.skills.map((s) => `${s.name} (${describeSchedule(s.schedule)})`).join("; ")}.`,
     database,
@@ -122,14 +122,20 @@ function boardTools(uid: string, looperId: string, actor: Card["createdBy"]): To
     kanban_list: tool({
       description: "List the cards on your kanban board.",
       inputSchema: z.object({}),
-      execute: async () => (await read(uid)).cards.filter((c) => c.looperId === looperId),
+      execute: async () => (await read(uid)).cards.filter((c) => c.looperId === looperId).map((c) => ({ ...c, assignee: c.assignee ?? "looper" })),
     }),
     kanban_add_card: tool({
-      description: "Add a card to your kanban board.",
-      inputSchema: z.object({ title: z.string(), description: z.string().default(""), column: columnSchema.default("todo") }),
-      execute: ({ title, description, column }) =>
+      description:
+        "Add a card to your kanban board. Most cards are your own work (for: 'looper'). Use for: 'you' only when the owner must act: approve or review something, connect an app, make a decision, or give you information you can't get yourself.",
+      inputSchema: z.object({
+        title: z.string(),
+        description: z.string().default(""),
+        column: columnSchema.default("todo"),
+        for: z.enum(["looper", "you"]).default("looper"),
+      }),
+      execute: ({ title, description, column, for: assignee }) =>
         mutate(uid, (db) => {
-          const card: Card = { id: nanoid(8), looperId, title, description, column, createdBy: actor, createdAt: now(), updatedAt: now() };
+          const card: Card = { id: nanoid(8), looperId, title, description, column, assignee, createdBy: actor, createdAt: now(), updatedAt: now() };
           db.cards.push(card);
           return card;
         }),
@@ -214,7 +220,9 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   if (apps.missing.length) ext.failed.push(...apps.missing.map((slug) => ({ name: `${slug} (not connected yet)`, error: "" })));
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
-    const database = describeDatabase(await readDatabase(uid, looper.id));
+    // A looper without a database designs one before it works, so its results land in rows.
+    const table = (await readDatabase(uid, looper.id)) ?? (await designDatabase(uid, looper.id).catch(() => null));
+    const database = describeDatabase(table);
     const result = await callModel(uid, db.settings, {
       instructions: looperBrief(db, looper, database),
       prompt: [
@@ -298,7 +306,7 @@ export async function runRetro(uid: string, looperId: string, trigger: Run["trig
     await mutate(uid, (d) => {
       d.retros.push(retro);
       for (const c of output.newCards)
-        d.cards.push({ id: nanoid(8), looperId, title: c.title, description: c.description, column: "todo", createdBy: "looper", createdAt: now(), updatedAt: now() });
+        d.cards.push({ id: nanoid(8), looperId, title: c.title, description: c.description, column: "todo", assignee: "looper", createdBy: "looper", createdAt: now(), updatedAt: now() });
     });
     const summary = `Retro: effectiveness ${retro.effectiveness}/5. Next: ${retro.tryNext.join("; ")}`;
     await finishRun(uid, run.id, { status: "success", summary });
@@ -402,7 +410,10 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           .object({ name: z.string(), rowNoun: z.string().describe("what one row is, e.g. 'bank transaction'"), columns: z.array(columnSpec).min(2).max(15) })
           .optional()
           .describe("the looper's database: one row per unit of its work"),
-        starterCards: z.array(z.string()).max(5).default([]),
+        starterCards: z
+          .array(z.object({ title: z.string(), for: z.enum(["looper", "you"]).describe("'you' when the owner must act (connect, approve, decide)") }))
+          .max(5)
+          .default([]),
       }),
       execute: async (input) => {
         const apps = await resolveApps(dedupeApps(input.apps.map(appFromName)));
@@ -428,8 +439,8 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           };
           db.loopers.push(looper);
           if (looper.apps?.length) links.push({ label: `Connect ${looper.apps.map((a) => a.name).join(", ")} for ${looper.name}`, href: `/loopers/${looper.id}?tab=apps` });
-          for (const title of input.starterCards)
-            db.cards.push({ id: nanoid(8), looperId: looper.id, title, description: "", column: "todo", createdBy: "chief", createdAt: now(), updatedAt: now() });
+          for (const c of input.starterCards)
+            db.cards.push({ id: nanoid(8), looperId: looper.id, title: c.title, description: "", column: "todo", assignee: c.for, createdBy: "chief", createdAt: now(), updatedAt: now() });
           actions.push(`Hired ${looper.name}`);
           return { id: looper.id, name: looper.name };
         }).then(async (r) => {
@@ -483,12 +494,12 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         }),
     }),
     assign_card: tool({
-      description: "Put a task on a looper's kanban board.",
-      inputSchema: z.object({ looper: z.string(), title: z.string(), description: z.string().default("") }),
-      execute: ({ looper, title, description }) =>
+      description: "Put a task on a looper's kanban board: for the looper to do, or for the user (for: 'you') when they must act.",
+      inputSchema: z.object({ looper: z.string(), title: z.string(), description: z.string().default(""), for: z.enum(["looper", "you"]).default("looper") }),
+      execute: ({ looper, title, description, for: assignee }) =>
         mutate(uid, (db) => {
           const l = findLooper(db, looper);
-          db.cards.push({ id: nanoid(8), looperId: l.id, title, description, column: "todo", createdBy: "chief", createdAt: now(), updatedAt: now() });
+          db.cards.push({ id: nanoid(8), looperId: l.id, title, description, column: "todo", assignee, createdBy: "chief", createdAt: now(), updatedAt: now() });
           actions.push(`Assigned "${title}" to ${l.name}`);
           return { ok: true };
         }),
@@ -542,4 +553,73 @@ export async function chiefReply(uid: string, userText: string) {
   const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
   await mutate(uid, (d) => void d.chief.push(reply));
   return reply;
+}
+
+// ——— Database design ———
+
+const designSchema = z.object({
+  name: z.string().describe("short table name, e.g. 'Transactions Q4'"),
+  rowNoun: z.string().describe("what ONE row is, singular, e.g. 'bank transaction'"),
+  columns: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.enum(["text", "number", "currency", "date", "select", "checkbox", "url"]),
+        options: z.array(z.string()).describe("for select columns: the allowed values; empty otherwise"),
+      }),
+    )
+    .min(3)
+    .max(12)
+    .describe("first column is the row's title (text)"),
+  rows: z
+    .array(z.array(z.string()).describe("one value per column, in column order; empty string when unknown"))
+    .max(60)
+    .describe("rows you can already fill from your past work below; never invent data"),
+});
+
+/**
+ * Let a looper design its own database from what it knows (mission, metric, skills, apps) and
+ * pre-fill rows it can take from its past runs and cards. No-op when it already has one.
+ */
+export async function designDatabase(uid: string, looperId: string) {
+  const existing = await readDatabase(uid, looperId);
+  if (existing) return existing;
+  const db = await read(uid);
+  const looper = db.loopers.find((l) => l.id === looperId);
+  if (!looper) throw new Error("Looper not found");
+
+  const runs = db.runs.filter((r) => r.looperId === looperId && r.status === "success").slice(-12);
+  const cards = db.cards.filter((c) => c.looperId === looperId);
+  const result = await callModel(
+    uid,
+    db.settings,
+    {
+      instructions: looperBrief(db, looper, ""),
+      prompt: [
+        `Design your database: the table you'll keep current on every run. One row = one unit of your work (for a VAT looper: one bank transaction; for an SEO looper: one blog post or idea; for sales: one lead).`,
+        `Pick 5–10 columns you actually need to move "${looper.metric.name}": a title column first, dates, money as currency, statuses and categories as select columns with sensible options, checkboxes for yes/no facts, links as url.`,
+        `Apps you work with: ${(looper.apps ?? []).map((a) => a.name).join(", ") || "none listed"}.`,
+        runs.length || cards.length
+          ? `Then fill rows you can already take from your past work. Only use facts that appear below; never invent rows.\n\nRecent run summaries:\n${runs.map((r) => `- ${r.startedAt.slice(0, 10)} ${r.skillName}: ${r.summary.slice(0, 2500)}`).join("\n") || "- none"}\n\nCards:\n${cards.map((c) => `- [${c.column}] ${c.title}${c.description ? ` — ${c.description.slice(0, 300)}` : ""}`).join("\n") || "- none"}`
+          : "You have no past work yet, so return no rows.",
+      ].join("\n\n"),
+      maxSteps: 1,
+    },
+    Output.object({ schema: designSchema }),
+  );
+  const design = (await result.output) as z.infer<typeof designSchema>;
+
+  return mutateDatabase(uid, looperId, (box) => {
+    if (box.db) return box.db;
+    const created = newDatabase(design.name, design.rowNoun, design.columns.map((c) => ({ ...c, options: c.type === "select" ? c.options : undefined })));
+    const at = new Date().toISOString();
+    for (const values of design.rows) {
+      if (!values.some((v) => v.trim())) continue;
+      const row = { id: nanoid(8), cells: {} as Record<string, DbValue>, createdBy: "looper" as const, createdAt: at, updatedAt: at };
+      created.columns.forEach((col, i) => (row.cells[col.id] = coerce(col, values[i] ?? "")));
+      created.rows.push(row);
+    }
+    box.db = created;
+    return created;
+  });
 }

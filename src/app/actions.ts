@@ -32,7 +32,21 @@ export async function getState() {
 /** Not a secret: remembers which user last signed in on this browser so ChatGPT reuses their app registration. */
 const HINT_COOKIE = "cl_hint";
 
+/** Production hides thrown server-action messages; actions the UI explains return them instead. */
+type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+async function attempt<T>(fn: () => Promise<T>): Promise<Result<T>> {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function startChatGPTLogin() {
+  return attempt(startChatGPTLoginInner);
+}
+
+async function startChatGPTLoginInner() {
   if (!isLocalServer()) throw new Error("OpenAI only allows ChatGPT sign-in for apps running on your own machine. Use Grok here, or run Chieflooper locally.");
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
@@ -46,8 +60,7 @@ export async function startChatGPTLogin() {
 }
 
 export async function startGrokLogin() {
-  const signedIn = await currentUser();
-  return grok.startDevice(signedIn?.id);
+  return attempt(async () => grok.startDevice((await currentUser())?.id));
 }
 
 export async function pollGrokLogin(flowId: string) {
@@ -255,10 +268,10 @@ export async function holdRetro(looperId: string) {
 }
 
 // — Kanban —
-export async function addCard(looperId: string, title: string, column: Column = "todo") {
+export async function addCard(looperId: string, title: string, column: Column = "todo", assignee: "looper" | "you" = "looper") {
   const uid = await requireUid();
   await mutate(uid, (db) => {
-    const card: Card = { id: nanoid(8), looperId, title: title.trim(), description: "", column, createdBy: "user", createdAt: now(), updatedAt: now() };
+    const card: Card = { id: nanoid(8), looperId, title: title.trim(), description: "", column, assignee, createdBy: "user", createdAt: now(), updatedAt: now() };
     db.cards.push(card);
   });
   return done(true);
@@ -273,7 +286,7 @@ export async function moveCard(cardId: string, column: Column) {
   return done(true);
 }
 
-export async function editCard(cardId: string, patch: { title?: string; description?: string }) {
+export async function editCard(cardId: string, patch: { title?: string; description?: string; assignee?: "looper" | "you" }) {
   const uid = await requireUid();
   await mutate(uid, (db) => {
     const c = db.cards.find((x) => x.id === cardId);
@@ -366,6 +379,10 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
 /** Start Composio's hosted connect page for one app; returns the URL to open.
  * `another` adds a further account of an app that's already connected (e.g. a second Stripe). */
 export async function connectApp(looperId: string, slug: string, another = false) {
+  return attempt(() => connectAppInner(looperId, slug, another));
+}
+
+async function connectAppInner(looperId: string, slug: string, another: boolean) {
   const uid = await requireUid();
   let alias: string | undefined;
   if (another) {

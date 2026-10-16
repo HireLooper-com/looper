@@ -31,7 +31,9 @@ export function ChatGPTButton({ isLocal, label = "Continue with ChatGPT", classN
           start(async () => {
             setError(null);
             try {
-              window.location.assign(await startChatGPTLogin());
+              const r = await startChatGPTLogin();
+              if (r.ok) window.location.assign(r.value);
+              else setError(r.error);
             } catch (e) {
               setError(e instanceof Error ? e.message : String(e));
             }
@@ -51,7 +53,7 @@ export function ChatGPTButton({ isLocal, label = "Continue with ChatGPT", classN
   );
 }
 
-type Device = Awaited<ReturnType<typeof startGrokLogin>>;
+type Device = Extract<Awaited<ReturnType<typeof startGrokLogin>>, { ok: true }>["value"];
 
 /** "Continue with Grok": device code confirmed on x.ai, then polled from here. */
 export function GrokSignIn({ label = "Continue with Grok", onConnected, className }: { label?: string; onConnected?: () => void; className?: string }) {
@@ -89,7 +91,9 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, classNam
     start(async () => {
       setMessage(null);
       try {
-        const d = await startGrokLogin();
+        const r = await startGrokLogin();
+        if (!r.ok) return setMessage(r.error);
+        const d = r.value;
         setDevice(d);
         window.open(d.verificationUriComplete, "_blank", "noopener");
         poll(d);

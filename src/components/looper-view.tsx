@@ -156,13 +156,13 @@ export function LooperView(props: {
         ) : tab === "retro" ? (
           <RetroBoard looper={looper} retros={retros} running={running} />
         ) : tab === "database" ? (
-          <DatabaseView looperId={looper.id} looperName={looper.name} />
+          <DatabaseView looperId={looper.id} looperName={looper.name} color={looper.color} />
         ) : tab === "apps" ? (
           <AppsPanel looperId={looper.id} looperName={looper.name} />
         ) : tab === "skills" ? (
           <SkillsPanel looper={looper} runs={runs} integrations={integrations} />
         ) : (
-          <Kanban looperId={looper.id} cards={cards} />
+          <Kanban looperId={looper.id} cards={cards} looperName={looper.name} color={looper.color} />
         )}
       </main>
     </div>

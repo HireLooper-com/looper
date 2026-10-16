@@ -7,6 +7,7 @@ import {
   createLooperDatabase,
   deleteDbColumn,
   deleteDbRow,
+  generateLooperDatabase,
   getLooperDatabase,
   renameDatabase,
   renameDbColumn,
@@ -14,7 +15,7 @@ import {
 } from "@/app/db-actions";
 import type { DbColumn, DbColumnType, DbRow, DbValue, LooperDatabase } from "@/lib/types";
 import { DB_COLUMN_TYPES } from "@/lib/types";
-import { Button, cx } from "./ui";
+import { Bot, Button, cx } from "./ui";
 
 // Notion's tag palette (background, text).
 const TAGS: [string, string][] = [
@@ -56,12 +57,15 @@ function display(col: DbColumn, v: DbValue) {
   return String(v);
 }
 
-export function DatabaseView({ looperId, looperName }: { looperId: string; looperName: string }) {
+export function DatabaseView({ looperId, looperName, color }: { looperId: string; looperName: string; color?: import("@/lib/types").Accent }) {
   const [db, setDb] = useState<LooperDatabase | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [peek, setPeek] = useState<string | null>(null);
+  const [designing, setDesigning] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const designStarted = useRef(false);
 
   const load = useCallback(() => getLooperDatabase(looperId).then(setDb).catch((e) => setError(String(e?.message ?? e))), [looperId]);
   useEffect(() => {
@@ -70,6 +74,33 @@ export function DatabaseView({ looperId, looperName }: { looperId: string; loope
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
   }, [load]);
+
+  const design = () => {
+    setError(null);
+    setShowTemplates(false);
+    setDesigning(true);
+    generateLooperDatabase(looperId)
+      .then((r) => {
+        if ("db" in r) setDb(r.db);
+        else {
+          setError(r.error);
+          setShowTemplates(true);
+        }
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+        setShowTemplates(true);
+      })
+      .finally(() => setDesigning(false));
+  };
+
+  // No database yet: the looper designs one from what it knows, once per visit.
+  useEffect(() => {
+    if (db !== null || designStarted.current) return;
+    designStarted.current = true;
+    design();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, looperId]);
 
   const run = async (p: Promise<LooperDatabase>) => {
     setError(null);
@@ -108,26 +139,50 @@ export function DatabaseView({ looperId, looperName }: { looperId: string; loope
   if (db === null)
     return (
       <div className="tile p-8">
-        <div className="text-[1.5rem] font-semibold tracking-[-0.02em]">Give {looperName} a database</div>
-        <p className="mt-1 max-w-[60ch] text-[0.9375rem] text-mute">
-          One row is one unit of {looperName}&apos;s work. {looperName} adds and updates rows on every run, and you can edit them like a Notion table.
-        </p>
-        {error && <p className="mt-3 text-[0.875rem] text-red">{error}</p>}
-        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {TEMPLATE_CARDS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => run(createLooperDatabase(looperId, t.id))}
-              className="flex gap-3 rounded-[14px] border border-line p-4 text-left transition-colors hover:border-blue hover:bg-blue/[0.03]"
-            >
-              <span className="text-[1.5rem] leading-none">{t.icon}</span>
-              <span>
-                <span className="block font-semibold">{t.title}</span>
-                <span className="mt-0.5 block text-[0.8125rem] leading-snug text-mute">{t.text}</span>
-              </span>
+        {designing || !showTemplates ? (
+          <div className="flex flex-col items-center gap-4 py-10 text-center">
+            <div className="animate-bounce [animation-duration:1.6s]">
+              <Bot color={color} size={64} seed={looperId} />
+            </div>
+            <div>
+              <div className="text-[1.375rem] font-semibold tracking-[-0.02em]">{looperName} is designing a database</div>
+              <p className="mx-auto mt-1 max-w-[52ch] text-[0.9375rem] text-mute">
+                From the mission, metric, skills and apps, with rows filled in from past runs. This takes a few seconds.
+              </p>
+            </div>
+            <button onClick={() => setShowTemplates(true)} className="text-[0.8125rem] text-blue hover:underline">
+              Or start from a template
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <>
+            <div className="text-[1.5rem] font-semibold tracking-[-0.02em]">Start {looperName}&apos;s database</div>
+            {error && <p className="mt-2 rounded-[10px] bg-red/8 px-3 py-2 text-[0.875rem] text-red">{looperName} couldn&apos;t design it: {error}</p>}
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={design}
+              >
+                Let {looperName} design it
+              </Button>
+            </div>
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {TEMPLATE_CARDS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => run(createLooperDatabase(looperId, t.id))}
+                  className="flex gap-3 rounded-[14px] border border-line p-4 text-left transition-colors hover:border-blue hover:bg-blue/[0.03]"
+                >
+                  <span className="text-[1.5rem] leading-none">{t.icon}</span>
+                  <span>
+                    <span className="block font-semibold">{t.title}</span>
+                    <span className="mt-0.5 block text-[0.8125rem] leading-snug text-mute">{t.text}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     );
 

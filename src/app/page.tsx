@@ -4,7 +4,7 @@ import { getState } from "./actions";
 import { progress } from "@/components/team-list";
 import { Avatar, Bot, Sparkline, accentHex, cx, fmt, timeAgo } from "@/components/ui";
 import { occurrences } from "@/lib/schedule";
-import { PROVIDERS } from "@/lib/types";
+import { cardAssignee, PROVIDERS } from "@/lib/types";
 
 function greeting(d = new Date()) {
   const h = d.getHours();
@@ -93,7 +93,14 @@ export default async function Home() {
                       <div className="text-[0.8125rem] text-mute">{l.status === "paused" ? "Paused" : last?.status === "running" ? "Working now" : last ? `Ran ${timeAgo(last.startedAt)}` : "Not run yet"}</div>
                     </div>
                   </div>
-                  {last?.status === "running" && <span className="pulse-dot mt-2 h-2 w-2 rounded-full bg-green" />}
+                  {(() => {
+                    const waiting = cards.filter((c) => c.looperId === l.id && c.column !== "done" && cardAssignee(c) === "you").length;
+                    return waiting ? (
+                      <span className="rounded-full bg-blue px-2.5 py-1 text-[0.75rem] font-semibold text-white">{waiting} for you</span>
+                    ) : last?.status === "running" ? (
+                      <span className="pulse-dot mt-2 h-2 w-2 rounded-full bg-green" />
+                    ) : null;
+                  })()}
                 </div>
                 <div>
                   <div className="text-[0.8125rem] text-mute">{l.metric.name}</div>

@@ -1,6 +1,7 @@
 "use server";
 
 import { nanoid } from "nanoid";
+import { designDatabase } from "@/lib/agent";
 import { coerce, mutateDatabase, newDatabase, readDatabase, TEMPLATES } from "@/lib/database";
 import { read } from "@/lib/db";
 import { requireUid } from "@/lib/session";
@@ -27,6 +28,17 @@ async function change(looperId: string, fn: (db: LooperDatabase) => void): Promi
 export async function getLooperDatabase(looperId: string) {
   const uid = await owned(looperId);
   return readDatabase(uid, looperId);
+}
+
+/** Let the looper design its own database from its mission, skills, apps and past runs.
+ * Returns the error text instead of throwing: production hides thrown server-action messages. */
+export async function generateLooperDatabase(looperId: string): Promise<{ db: LooperDatabase } | { error: string }> {
+  try {
+    const uid = await owned(looperId);
+    return { db: await designDatabase(uid, looperId) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export async function createLooperDatabase(looperId: string, template: keyof typeof TEMPLATES) {

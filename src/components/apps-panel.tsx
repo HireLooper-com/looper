@@ -35,7 +35,9 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
       setError(null);
       try {
         if (row.via === "composio") {
-          window.location.assign(await connectApp(looperId, row.slug, another));
+          const r = await connectApp(looperId, row.slug, another);
+          if (r.ok) return window.location.assign(r.value);
+          setError(r.error);
           return;
         }
         const r = await connectMcpApp(looperId, row.slug);
