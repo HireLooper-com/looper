@@ -18,7 +18,7 @@ export interface SidebarLooper {
 }
 
 /** Grok Bot–style left rail: Chief on top, then every looper with its latest message. */
-export function Sidebar({ loopers, email, plan }: { loopers: SidebarLooper[]; email?: string; plan?: string }) {
+export function Sidebar({ loopers, email, plan, chiefPreview }: { loopers: SidebarLooper[]; email?: string; plan?: string; chiefPreview?: string }) {
   const path = usePathname();
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -54,7 +54,7 @@ export function Sidebar({ loopers, email, plan }: { loopers: SidebarLooper[]; em
       </div>
 
       <aside className="hidden h-dvh w-[300px] shrink-0 flex-col border-r border-black/[0.06] bg-[#fbfbfd] lg:flex">
-        <div className="flex items-center justify-end gap-1.5 px-4 pt-4">
+        <div className="flex items-center justify-end gap-1.5 px-4 pb-1 pt-4">
           <button onClick={() => setSearching((s) => !s)} aria-label="Search loopers" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-ink-2 hover:bg-black/[0.08]">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
               <circle cx="7" cy="7" r="4.5" />
@@ -66,10 +66,7 @@ export function Sidebar({ loopers, email, plan }: { loopers: SidebarLooper[]; em
           </Link>
         </div>
 
-        <Link href="/chief" className={cx("mx-3 mt-1 flex flex-col items-center gap-2 rounded-[16px] py-3", chiefActive && "bg-black/[0.05]")}>
-          <Bot dark seed="chief" size={68} />
-          <span className="text-[0.9375rem] font-medium">Chief</span>
-        </Link>
+
 
         {searching && (
           <div className="px-4 pt-2">
@@ -78,6 +75,19 @@ export function Sidebar({ loopers, email, plan }: { loopers: SidebarLooper[]; em
         )}
 
         <nav className="mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          {/* Chief sits in the list like a looper; its page is the hiring and management chat. */}
+          {(!q || "chief".includes(q.toLowerCase())) && (
+            <Link href="/chief" className={cx("flex items-center gap-3 rounded-[14px] px-2.5 py-2.5", chiefActive ? "bg-black/[0.06]" : "hover:bg-black/[0.03]")}>
+              <Bot dark seed="chief" size={44} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[0.9375rem] font-medium">Chief</span>
+                  <span className="shrink-0 rounded-[5px] bg-black/[0.05] px-1.5 text-[0.6875rem] text-mute">Hires & manages</span>
+                </span>
+                <span className="block truncate text-[0.8125rem] text-mute">{chiefPreview || "Tell me what number to move"}</span>
+              </span>
+            </Link>
+          )}
           {shown.map((l) => {
             const active = path.startsWith(`/loopers/${l.id}`);
             return (

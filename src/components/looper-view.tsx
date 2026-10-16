@@ -15,7 +15,7 @@ import { Kanban } from "./kanban";
 import { MetricView } from "./metric-view";
 import { RetroBoard } from "./retro-board";
 import { SkillsPanel } from "./skills-panel";
-import { Bot, Button, cx, fmt } from "./ui";
+import { Button, cx, fmt } from "./ui";
 import { useNow } from "./use-now";
 
 const TABS = ["chat", "metric", "board", "calendar", "database", "skills", "retro", "apps"] as const;
@@ -78,32 +78,8 @@ export function LooperView(props: {
 
   return (
     <div className={cx("flex flex-col", tab === "chat" && "h-[calc(100dvh-58px)] lg:h-dvh")}>
-      <header className="sticky top-0 z-20 border-b border-black/[0.05] bg-page/85 px-4 backdrop-blur-xl sm:px-6">
-        <div className="flex items-center justify-between gap-3 pt-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <Bot color={looper.color} size={30} seed={looper.id} />
-            <h1 className="truncate text-[1.0625rem] font-semibold">{looper.name}</h1>
-            {looper.role && <span className="rounded-[5px] bg-black/[0.05] px-1.5 text-[0.75rem] text-mute">{looper.role}</span>}
-            <span className="hidden items-center gap-1.5 text-[0.8125rem] text-mute sm:flex">
-              <span className={cx("h-1.5 w-1.5 rounded-full", running ? "pulse-dot bg-green" : looper.status === "active" ? "bg-green" : "bg-faint")} />
-              {running ? "Working now" : looper.status === "active" ? (next ? `Next run ${when(next.at)}` : "Active") : "Paused"}
-            </span>
-          </div>
-          <Button
-            size="sm"
-            variant="soft"
-            disabled={busy}
-            onClick={() =>
-              start(async () => {
-                await updateLooper(looper.id, { status: looper.status === "active" ? "paused" : "active" });
-                router.refresh();
-              })
-            }
-          >
-            {looper.status === "active" ? "Pause" : "Resume"}
-          </Button>
-        </div>
-        <nav className="-mb-px mt-2 flex gap-1 overflow-x-auto" aria-label="Looper sections">
+      <header className="sticky top-0 z-20 flex items-end gap-3 border-b border-black/[0.05] bg-page/85 px-4 pt-3 backdrop-blur-xl sm:px-6">
+        <nav className="-mb-px flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label={`${looper.name} sections`}>
           {TABS.map((t) => (
             <Link
               key={t}
@@ -122,6 +98,25 @@ export function LooperView(props: {
             </Link>
           ))}
         </nav>
+        <div className="flex shrink-0 items-center gap-3 pb-2">
+          <span className="hidden items-center gap-1.5 text-[0.8125rem] text-mute md:flex">
+            <span className={cx("h-1.5 w-1.5 rounded-full", running ? "pulse-dot bg-green" : looper.status === "active" ? "bg-green" : "bg-faint")} />
+            {running ? "Working now" : looper.status === "active" ? (next ? `Next run ${when(next.at)}` : "Active") : "Paused"}
+          </span>
+          <Button
+            size="sm"
+            variant="soft"
+            disabled={busy}
+            onClick={() =>
+              start(async () => {
+                await updateLooper(looper.id, { status: looper.status === "active" ? "paused" : "active" });
+                router.refresh();
+              })
+            }
+          >
+            {looper.status === "active" ? "Pause" : "Resume"}
+          </Button>
+        </div>
       </header>
 
       {tab === "chat" ? (

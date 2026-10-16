@@ -26,7 +26,12 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   });
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
-      <Sidebar loopers={loopers} email={user.email} plan={PROVIDERS.find((p) => p.id === user.provider)?.plan} />
+      <Sidebar
+        loopers={loopers}
+        chiefPreview={db.chief.filter((m) => m.role === "assistant").at(-1)?.content.replace(/\s+/g, " ").slice(0, 120)}
+        email={user.email}
+        plan={PROVIDERS.find((p) => p.id === user.provider)?.plan}
+      />
       <main className="min-w-0 flex-1 lg:h-dvh lg:overflow-y-auto">{children}</main>
     </div>
   );
