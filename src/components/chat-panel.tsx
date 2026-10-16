@@ -243,18 +243,20 @@ function RunBubble({ r }: { r: RunEvent }) {
         {r.status === "running" ? `Running ${r.skill}…` : `${r.skill} · ${new Date(r.at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })}`}
       </div>
       {r.status === "running" && <LiveSteps target={`run:${r.id}`} since={Date.parse(r.at) - 2000} />}
-      {r.summary && (
+      {r.summary && r.status === "error" ? (
+        <div className="max-w-[85%] pl-4 text-[0.8125rem] leading-relaxed text-mute">{r.summary}</div>
+      ) : r.summary ? (
         <button
           onClick={() => setOpen((o) => !o)}
           className={cx(
             "max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-left text-[0.9375rem] leading-relaxed",
-            r.status === "error" ? "bg-red/[0.07] text-red" : "bg-ink/[0.045] text-ink",
+            "bg-ink/[0.045] text-ink",
           )}
         >
           {long && !open ? `${r.summary.slice(0, 320)}…` : r.summary}
           {long && <span className="ml-1 text-[0.8125rem] text-blue">{open ? "Less" : "More"}</span>}
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

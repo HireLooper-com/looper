@@ -128,3 +128,12 @@ button.tile:hover {
 .pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
 
 ::selection { background: rgba(127, 127, 127, 0.3); }
+
+/* Keyboard focus in ink rather than the browser's blue; mouse clicks don't leave a ring. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-ink) 45%, transparent);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}

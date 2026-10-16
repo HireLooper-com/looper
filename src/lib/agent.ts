@@ -376,26 +376,33 @@ export function defaultRetroSkill(): Skill {
   };
 }
 
-/** Run every user's due skills. Called by the in-process ticker or a cron hitting /api/tick. */
-let ticking = false;
+/**
+ * Start one user's due skills. Each skill is claimed inside the workspace lock (its lastRunAt moves
+ * to now) so two servers ticking at once can't both start it, and loopers that are already working
+ * wait for the next tick instead of stacking runs. Claimed skills run side by side, each with its
+ * own time budget, so a slow one can't eat the others' share of the 5-minute function limit.
+ */
+export async function tickUser(uid: string) {
+  const claimed = await mutate(uid, (db) => {
+    if (!hasCredentials(db.settings)) return [];
+    const at = now();
+    return db.loopers
+      .filter((l) => l.status === "active" && !db.runs.some((r) => r.looperId === l.id && r.status === "running"))
+      .flatMap((l) => {
+        const s = l.skills.find((x) => isDue(x));
+        if (!s) return [];
+        s.lastRunAt = at;
+        return [{ looperId: l.id, skillId: s.id, label: `${l.name}/${s.name}` }];
+      });
+  });
+  await Promise.all(claimed.map((c) => runSkill(uid, c.looperId, c.skillId, "schedule").catch((e) => console.error("[tick]", c.label, e))));
+  return claimed.map((c) => c.label);
+}
+
+/** Run every user's due skills. Called by the local ticker or the daily cron on /api/tick. */
 export async function tick() {
-  if (ticking) return { started: [] as string[] };
-  ticking = true;
-  const started: string[] = [];
-  try {
-    for (const user of await listUsers()) {
-      const db = await read(user.id);
-      if (!hasCredentials(db.settings)) continue;
-      const due = db.loopers.filter((l) => l.status === "active").flatMap((l) => l.skills.filter((s) => isDue(s)).map((s) => ({ l, s })));
-      for (const { l, s } of due) {
-        await runSkill(user.id, l.id, s.id, "schedule");
-        started.push(`${user.id}/${l.name}/${s.name}`);
-      }
-    }
-    return { started };
-  } finally {
-    ticking = false;
-  }
+  const started = await Promise.all((await listUsers()).map((u) => tickUser(u.id).then((l) => l.map((x) => `${u.id}/${x}`))));
+  return { started: started.flat() };
 }
 
 // ——— Chief ———

@@ -1,4 +1,7 @@
+import { after } from "next/server";
+import { tickUser } from "@/lib/agent";
 import { read } from "@/lib/db";
+import { isDue } from "@/lib/schedule";
 import { currentUser } from "@/lib/session";
 import { cardAssignee, PROVIDERS } from "@/lib/types";
 import { Sidebar } from "./sidebar";
@@ -8,6 +11,9 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
   if (!user) return <main className="min-h-dvh">{children}</main>;
   const db = await read(user.id);
+  // Hosted, the cron only fires daily, so opening the app starts anything that came due since.
+  const due = db.loopers.some((l) => l.status === "active" && l.skills.some((s) => isDue(s)) && !db.runs.some((r) => r.looperId === l.id && r.status === "running"));
+  if (due) after(() => tickUser(user.id).catch((e) => console.error("[tick]", e)));
   const loopers = db.loopers.map((l) => {
     const lastMsg = (db.chats?.[l.id] ?? []).at(-1);
     const lastRun = db.runs.filter((r) => r.looperId === l.id && r.summary).at(-1);
