@@ -64,7 +64,7 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
               {apps.length === 0 ? "Add the apps this looper works with." : `${connected} of ${apps.length} connected. Each connection is yours alone and can be removed any time.`}
             </p>
           </div>
-          {apps.length > 0 && connected === apps.length && <Pill tone="green">All set</Pill>}
+          {apps.length > 0 && connected === apps.length && <Pill>All set</Pill>}
         </div>
 
         {status && !status.composio && apps.some((a) => a.via === "composio") && (
@@ -85,7 +85,7 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
                   <div className="truncate text-[0.8125rem] text-mute">{row.detail}</div>
                 </div>
                 {row.state === "connected" ? (
-                  <Pill tone="green">✓ Connected</Pill>
+                  <Pill>✓ Connected</Pill>
                 ) : row.state === "unavailable" ? (
                   <Pill>Unavailable</Pill>
                 ) : (
@@ -95,7 +95,7 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
                 )}
                 <button
                   aria-label={`Remove ${row.name}`}
-                  className="ml-1 text-[1.1rem] leading-none text-faint hover:text-red"
+                  className="ml-1 text-[1.1rem] leading-none text-faint hover:text-ink"
                   onClick={() =>
                     start(async () => {
                       await removeLooperApp(looperId, row.slug);
@@ -112,7 +112,7 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
                     <div key={a.id} className="flex items-center justify-between gap-3 rounded-[10px] bg-well px-3 py-2 text-[0.8125rem]">
                       <span className="truncate">{a.label}</span>
                       <button
-                        className="shrink-0 text-red hover:underline"
+                        className="shrink-0 text-mute hover:text-ink"
                         onClick={() => {
                           if (!confirm(`Disconnect ${a.label}? Loopers will lose access to it.`)) return;
                           start(async () => {
@@ -129,7 +129,7 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
                       </button>
                     </div>
                   ))}
-                  <button className="w-fit text-[0.8125rem] font-medium text-blue hover:underline disabled:opacity-50" disabled={busy === row.slug} onClick={() => connect(row, true)}>
+                  <button className="w-fit text-[0.8125rem] font-medium text-ink-2 hover:text-ink disabled:opacity-50" disabled={busy === row.slug} onClick={() => connect(row, true)}>
                     + Connect another {row.name} account
                   </button>
                 </div>
