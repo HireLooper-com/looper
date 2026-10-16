@@ -39,24 +39,24 @@ function Chart({ looper }: { looper: Looper }) {
       </defs>
       {ticks.map((t) => (
         <g key={t}>
-          <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} stroke="#e5e5ea" />
-          <text x={PAD.l - 10} y={y(t) + 4} textAnchor="end" fontSize="12" fill="#86868b">
+          <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} stroke="var(--color-line)" />
+          <text x={PAD.l - 10} y={y(t) + 4} textAnchor="end" fontSize="12" fill="var(--color-faint)">
             {fmt(Math.round(t))}
           </text>
         </g>
       ))}
-      <line x1={PAD.l} x2={W - PAD.r} y1={y(looper.metric.target)} y2={y(looper.metric.target)} stroke="#86868b" strokeDasharray="5 5" />
-      <text x={W - PAD.r} y={y(looper.metric.target) - 7} textAnchor="end" fontSize="12" fill="#6e6e73">
+      <line x1={PAD.l} x2={W - PAD.r} y1={y(looper.metric.target)} y2={y(looper.metric.target)} stroke="var(--color-faint)" strokeDasharray="5 5" />
+      <text x={W - PAD.r} y={y(looper.metric.target) - 7} textAnchor="end" fontSize="12" fill="var(--color-mute)">
         target {fmt(looper.metric.target)}
       </text>
       {pts.length > 0 && (
         <>
           <polygon points={area} fill={`url(#fill-${looper.id})`} />
           <polyline points={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-          <circle cx={x(pts.length - 1)} cy={y(pts[pts.length - 1].value)} r="5" fill={color} stroke="#fff" strokeWidth="2" />
+          <circle cx={x(pts.length - 1)} cy={y(pts[pts.length - 1].value)} r="5" fill={color} stroke="var(--color-panel)" strokeWidth="2" />
           {pts.map((p, i) =>
             i % labelEvery === 0 || i === pts.length - 1 ? (
-              <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="#86868b">
+              <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="var(--color-faint)">
                 {new Date(p.at).toLocaleDateString([], { month: "short", day: "numeric" })}
               </text>
             ) : null,
@@ -64,7 +64,7 @@ function Chart({ looper }: { looper: Looper }) {
         </>
       )}
       {pts.length === 0 && (
-        <text x={W / 2} y={H / 2} textAnchor="middle" fontSize="14" fill="#86868b">
+        <text x={W / 2} y={H / 2} textAnchor="middle" fontSize="14" fill="var(--color-faint)">
           No readings yet. The looper logs one when it measures the metric, or log one yourself.
         </text>
       )}
@@ -91,7 +91,7 @@ export function MetricView({ looper }: { looper: Looper }) {
       (looper.apps ?? []).length ? (
         <span className="flex flex-wrap justify-end gap-1.5">
           {looper.apps!.map((a) => (
-            <span key={a.slug} className="inline-flex items-center gap-1 rounded-[6px] bg-[#f0f0f3] px-1.5 py-0.5 text-[0.75rem]">
+            <span key={a.slug} className="inline-flex items-center gap-1 rounded-[6px] bg-ink/[0.05] px-1.5 py-0.5 text-[0.75rem]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {a.logo && <img src={a.logo} alt="" className="h-3.5 w-3.5 rounded-[3px]" />}
               {a.name}

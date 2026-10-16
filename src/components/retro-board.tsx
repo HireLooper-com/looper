@@ -60,7 +60,7 @@ export function RetroBoard({ looper, retros, running }: { looper: Looper; retros
             <span className="text-[2.75rem] font-medium leading-none tracking-[-0.04em]">{retro.effectiveness}<span className="text-faint">/5</span></span>
             <div className="mb-1.5 flex gap-1">
               {[1, 2, 3, 4, 5].map((n) => (
-                <span key={n} className={cx("h-2 w-5 rounded-full", n <= retro.effectiveness ? "bg-green" : "bg-[#e3e3e8]")} />
+                <span key={n} className={cx("h-2 w-5 rounded-full", n <= retro.effectiveness ? "bg-green" : "bg-ink/[0.09]")} />
               ))}
             </div>
           </div>
@@ -95,7 +95,7 @@ export function RetroBoard({ looper, retros, running }: { looper: Looper; retros
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {LANES.map((lane) => (
-          <div key={lane.key} className="rounded-[20px] bg-[#ebebf0] p-2">
+          <div key={lane.key} className="rounded-[20px] bg-ink/[0.07] p-2">
             <div className="flex items-center gap-2 px-2 py-2 text-[0.8125rem] font-medium">
               <span className={cx("h-2 w-2 rounded-full", lane.dot)} />
               {lane.label}
@@ -104,7 +104,7 @@ export function RetroBoard({ looper, retros, running }: { looper: Looper; retros
             <div className="flex flex-col gap-2">
               {retro[lane.key].length === 0 && <div className="px-2 py-3 text-[0.8125rem] text-faint">Nothing noted.</div>}
               {retro[lane.key].map((t, i) => (
-                <div key={i} className={cx("rounded-[12px] p-3 text-[0.875rem] leading-snug", lane.note, "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]")}>
+                <div key={i} className={cx("rounded-[12px] p-3 text-[0.875rem] leading-snug", lane.note, "bg-panel shadow-[0_1px_2px_rgba(0,0,0,0.05)]")}>
                   {t}
                 </div>
               ))}

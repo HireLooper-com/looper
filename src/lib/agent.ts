@@ -8,6 +8,7 @@ import { composioTools, resolveApps } from "./composio";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
+import { describeTool, progressWriter } from "./progress";
 import { describeSchedule, isDue } from "./schedule";
 import { appFromName } from "./apps";
 import type { AppRef, Card, Column, DB, DbValue, Looper, Retro, Run, Settings, Skill, ToolCallLog } from "./types";
@@ -45,6 +46,8 @@ interface CallOptions {
   /** integration tools; inactive until the model finds them with find_tools */
   external?: ToolSet;
   maxSteps?: number;
+  /** live steps shown in the UI while this call works */
+  progress?: (text: string) => void;
 }
 
 /**
@@ -71,6 +74,8 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
 
   const all: ToolSet = { ...base, ...(hasExternal ? { find_tools: findTools, ...external } : {}) };
   let failure: unknown;
+  let writing = false;
+  opts.progress?.("Thinking…");
   const result = streamText({
     model: m.model,
     instructions: opts.instructions,
@@ -84,6 +89,14 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
     maxRetries: (settings.authMode[settings.provider] ?? "key") === "oauth" ? 0 : 2,
     onError: ({ error }) => {
       failure = error;
+    },
+    onChunk: ({ chunk }) => {
+      if (!opts.progress) return;
+      if (chunk.type === "tool-call") opts.progress(describeTool(chunk.toolName, chunk.input));
+      else if (chunk.type === "text-delta" && !writing) {
+        writing = true;
+        opts.progress("Writing the reply…");
+      }
     },
   });
   await result.consumeStream();
@@ -224,7 +237,10 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   if (skill.kind === "retro") return runRetro(uid, looperId, trigger, skill);
 
   const run = await startRun(uid, looper, skill, trigger);
+  const live = progressWriter(uid, `run:${run.id}`);
+  live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
+  if (ext.connected.length) live.push(`Connected: ${ext.connected.map((c) => c.split(" (")[0]).join(", ")}`);
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
     // A looper without a database designs one before it works, so its results land in rows.
@@ -241,6 +257,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
       tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id) },
       external: ext.tools,
       maxSteps,
+      progress: live.push,
     });
     const text = await result.text;
     await finishRun(uid, run.id, { status: "success", summary: text, toolCalls: logToolCalls(await result.steps) });
@@ -251,6 +268,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
     return { ...run, status: "error" as const, summary };
   } finally {
     await ext.close();
+    await live.done();
   }
 }
 
@@ -579,10 +597,12 @@ export async function chiefReply(uid: string, userText: string) {
   const history: ModelMessage[] = [...db.chief.slice(-30), userMsg].map((m) => ({ role: m.role, content: m.content }));
   const actions: string[] = [];
   const links: { label: string; href: string }[] = [];
+  const live = progressWriter(uid, "chief");
   let content: string;
   try {
     const team = db.loopers.map((l) => `- ${l.name} (${l.status}): ${metricLine(l)}`).join("\n") || "- nobody hired yet";
     const result = await callModel(uid, db.settings, {
+      progress: live.push,
       instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}.\nCurrent team:\n${team}\nIntegration hubs: ${db.settings.integrations.filter((i) => i.enabled).map((i) => i.name).join(", ") || "none"}`,
       messages: history,
       tools: chiefTools(uid, actions, links),
@@ -592,6 +612,7 @@ export async function chiefReply(uid: string, userText: string) {
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   }
+  await live.done();
   const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
   await mutate(uid, (d) => void d.chief.push(reply));
   return reply;
@@ -721,6 +742,8 @@ export async function looperChatReply(uid: string, looperId: string, userText: s
   const runs = db.runs.filter((r) => r.looperId === looperId && r.status !== "running").slice(-5);
   const actions: string[] = [];
   const links: { label: string; href: string }[] = [];
+  const live = progressWriter(uid, `chat:${looperId}`);
+  live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
   let content: string;
   try {
@@ -776,12 +799,14 @@ export async function looperChatReply(uid: string, looperId: string, userText: s
       tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...own },
       external: ext.tools,
       maxSteps: 20,
+      progress: live.push,
     });
     content = (await result.text) || (actions.length ? "Done." : "…");
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   } finally {
     await ext.close();
+    await live.done();
   }
   const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
   await mutate(uid, (d) => void ((d.chats ??= {})[looperId] = [...(d.chats?.[looperId] ?? []), reply]));

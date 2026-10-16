@@ -8,6 +8,7 @@ import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
 import { kv } from "@/lib/kv";
+import { readProgress } from "@/lib/progress";
 import { deleteDatabase } from "@/lib/database";
 import { testIntegration } from "@/lib/integrations";
 import * as chatgpt from "@/lib/oauth/chatgpt";
@@ -134,6 +135,13 @@ export async function clearLooperChat(looperId: string) {
   const uid = await requireUid();
   await mutate(uid, (db) => void ((db.chats ??= {})[looperId] = []));
   return done(true);
+}
+
+/** Live steps for a reply or run in progress: target is "chief", "chat:<looperId>" or "run:<runId>". */
+export async function getProgress(target: string) {
+  const uid = await requireUid();
+  if (!/^(chief|chat:[\w-]+|run:[\w-]+)$/.test(target)) return [];
+  return readProgress(uid, target);
 }
 
 export async function clearChief() {

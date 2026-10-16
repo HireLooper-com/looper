@@ -64,7 +64,7 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
               const list = byDay.get(k) ?? [];
               const inMonth = d.getMonth() === month.getMonth();
               return (
-                <div key={k} className={cx("min-h-28 border-b border-r border-line p-1.5 [&:nth-child(7n)]:border-r-0", !inMonth && "bg-[#fafafa]")}>
+                <div key={k} className={cx("min-h-28 border-b border-r border-line p-1.5 [&:nth-child(7n)]:border-r-0", !inMonth && "bg-ink/[0.02]")}>
                   <div className={cx("mb-1 flex h-6 w-6 items-center justify-center rounded-full text-[0.75rem]", k === todayKey ? "bg-red font-semibold text-white" : inMonth ? "text-ink-2" : "text-faint")}>
                     {d.getDate()}
                   </div>
@@ -75,7 +75,7 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
                         onClick={() => setSelected(e)}
                         className={cx(
                           "truncate rounded-[6px] px-1.5 py-1 text-left text-[0.6875rem] leading-none",
-                          e.kind === "scheduled" && "border border-dashed border-[#c7c7cc] text-mute",
+                          e.kind === "scheduled" && "border border-dashed border-ink/[0.22] text-mute",
                           e.kind === "success" && "bg-blue/10 text-blue",
                           e.kind === "error" && "bg-orange/15 text-orange",
                           e.kind === "running" && "bg-blue text-white",
@@ -127,7 +127,7 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
             <div className="mt-4 flex flex-col gap-2 text-[0.8125rem]">
               <Legend cls="bg-blue/10" label="Succeeded" />
               <Legend cls="bg-orange/15" label="Failed" />
-              <Legend cls="border border-dashed border-[#c7c7cc]" label="Scheduled" />
+              <Legend cls="border border-dashed border-ink/[0.22]" label="Scheduled" />
             </div>
           </div>
         )}

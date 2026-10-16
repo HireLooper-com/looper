@@ -28,6 +28,7 @@ export function ChiefChat({ messages, ready }: { messages: ChiefMessage[]; ready
       emptyText="Tell Chief a goal. It hires a looper that owns one number, with its own chat, board, calendar, database and retro."
       placeholder="Message Chief"
       send={askChief}
+      progressTarget="chief"
       clear={clearChief}
     />
   );

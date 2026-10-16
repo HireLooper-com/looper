@@ -29,8 +29,8 @@ export function Button({ variant = "primary", size = "md", className, ...props }
         "inline-flex items-center justify-center gap-2 rounded-full font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
         size === "sm" ? "h-8 px-3.5 text-[0.8125rem]" : "h-10 px-5 text-[0.9375rem]",
         variant === "primary" && "bg-blue text-white hover:bg-blue-hover",
-        variant === "light" && "bg-white text-ink hover:bg-well",
-        variant === "soft" && "bg-[#e8e8ed] text-ink hover:bg-[#dcdce1]",
+        variant === "light" && "bg-panel text-ink hover:bg-well",
+        variant === "soft" && "bg-ink/[0.08] text-ink hover:bg-ink/[0.11]",
         variant === "ghost" && "text-blue hover:bg-blue/8",
         variant === "danger" && "text-red hover:bg-red/8",
         className,
@@ -53,7 +53,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   );
 }
 
-const inputCls = "w-full rounded-[10px] border border-[#d2d2d7] bg-white px-3 text-[0.9375rem] text-ink outline-none placeholder:text-faint focus:border-blue focus:ring-4 focus:ring-blue/15";
+const inputCls = "w-full rounded-[10px] border border-ink/[0.18] bg-panel px-3 text-[0.9375rem] text-ink outline-none placeholder:text-faint focus:border-blue focus:ring-4 focus:ring-blue/15";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(inputCls, "h-10", props.className)} />;
@@ -70,11 +70,11 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
     <span
       className={cx(
         "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[0.75rem] font-medium",
-        tone === "grey" && "bg-[#f0f0f3] text-ink-2",
+        tone === "grey" && "bg-ink/[0.05] text-ink-2",
         tone === "green" && "bg-green/15 text-green-deep",
         tone === "orange" && "bg-orange/12 text-orange",
         tone === "lavender" && "bg-lavender/15 text-[#8e3fbf]",
-        tone === "dark" && "bg-ink text-white",
+        tone === "dark" && "bg-ink text-page",
         tone === "blue" && "bg-blue/10 text-blue",
       )}
     >
@@ -93,7 +93,8 @@ const LOOPS: [string, string][] = [
   ["#f06aa0", "#8b4fe6"], // pink → violet
   ["#93ecc0", "#3fcfb0"], // mint → teal
 ];
-const CHIEF_LOOP: [string, string] = ["#6b6b70", "#1d1d1f"];
+// Graphite in light mode, silver in dark (CSS variables in globals.css).
+const CHIEF_LOOP: [string, string] = ["var(--chief-loop-1)", "var(--chief-loop-2)"];
 // Loopers get their accent in turn when hired, so mapping accent → palette keeps neighbours distinct.
 const ACCENT_LOOP: Record<Accent, number> = { green: 6, orange: 2, lavender: 5, blue: 1, ink: 0 };
 

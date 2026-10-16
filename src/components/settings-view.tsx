@@ -106,7 +106,7 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
           {id === "xai" ? (
             <Mark className="h-11 w-11" />
           ) : (
-            <span className="flex h-11 w-11 items-center justify-center rounded-[22%] bg-ink text-white">
+            <span className="flex h-11 w-11 items-center justify-center rounded-[22%] bg-ink text-page">
               <Mark className="h-5 w-5" />
             </span>
           )}

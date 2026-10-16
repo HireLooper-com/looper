@@ -50,7 +50,7 @@ export function TeamList({ state }: { state: PublicState }) {
               const { current, onTrack } = progress(l);
               const lastRun = runs.filter((r) => r.looperId === l.id).at(-1);
               return (
-                <Link key={l.id} href={`/loopers/${l.id}`} className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 hover:bg-black/[0.03]">
+                <Link key={l.id} href={`/loopers/${l.id}`} className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 hover:bg-ink/[0.03]">
                   <Avatar seed={l.id} color={l.color} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

@@ -23,16 +23,51 @@
   --color-lavender: #af52de;
   --color-violet: #5e5ce6;
   --color-teal: #30b0c7;
+  --color-rail: #fbfbfd;
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
+  --chief-loop-1: #6b6b70;
+  --chief-loop-2: #1d1d1f;
+  --tile-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 18px rgba(0, 0, 0, 0.05);
+  --tile-shadow-hover: 0 2px 4px rgba(0, 0, 0, 0.05), 0 10px 30px rgba(0, 0, 0, 0.08);
+  --wash-1: rgba(94, 92, 230, 0.08);
+  --wash-2: rgba(48, 176, 199, 0.08);
+}
+
+/* Dark mode follows the system setting: Apple's dark palette, overlays flip with --color-ink. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-page: #111113;
+    --color-panel: #1c1c1e;
+    --color-well: #232326;
+    --color-line: #38383a;
+    --color-ink: #f5f5f7;
+    --color-ink-2: #d1d1d6;
+    --color-mute: #98989d;
+    --color-faint: #6e6e73;
+    --color-rail: #161618;
+    --color-blue: #0a84ff;
+    --color-blue-hover: #409cff;
+    --color-green: #30d158;
+    --color-green-deep: #30d158;
+    --color-orange: #ff9f0a;
+    --color-red: #ff453a;
+    --color-lavender: #bf5af2;
+    --chief-loop-1: #e5e5ea;
+    --chief-loop-2: #8e8e93;
+    --tile-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --tile-shadow-hover: 0 0 0 1px rgba(255, 255, 255, 0.12);
+    --wash-1: rgba(94, 92, 230, 0.10);
+    --wash-2: rgba(48, 176, 199, 0.06);
+  }
 }
 
 body {
   background:
-    radial-gradient(60rem 30rem at 10% -10%, rgba(94, 92, 230, 0.08), transparent 60%),
-    radial-gradient(50rem 30rem at 100% 0%, rgba(48, 176, 199, 0.08), transparent 60%),
+    radial-gradient(60rem 30rem at 10% -10%, var(--wash-1), transparent 60%),
+    radial-gradient(50rem 30rem at 100% 0%, var(--wash-2), transparent 60%),
     var(--color-page);
   background-attachment: fixed;
   color: var(--color-ink);
@@ -43,21 +78,43 @@ body {
 /* Soft colour wash behind the home and sign-in screens, like iCloud's canvas. */
 .wash {
   background:
-    radial-gradient(60rem 30rem at 10% -10%, rgba(94, 92, 230, 0.10), transparent 60%),
-    radial-gradient(50rem 30rem at 100% 0%, rgba(48, 176, 199, 0.10), transparent 60%),
-    radial-gradient(50rem 40rem at 50% 120%, rgba(255, 149, 0, 0.07), transparent 60%),
+    radial-gradient(60rem 30rem at 10% -10%, var(--wash-1), transparent 60%),
+    radial-gradient(50rem 30rem at 100% 0%, var(--wash-2), transparent 60%),
     var(--color-page);
 }
 
 .tile {
-  background: #fff;
+  background: var(--color-panel);
   border-radius: 20px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 18px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--tile-shadow);
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 a.tile:hover,
 button.tile:hover {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05), 0 10px 30px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--tile-shadow-hover);
+}
+
+/* Notion-style select tags, light and dark. */
+.tag { background: var(--tag-bg); color: var(--tag-fg); }
+.tag[data-c="0"] { --tag-bg: #e3e2e0; --tag-fg: #32302c; }
+.tag[data-c="1"] { --tag-bg: #dbeddb; --tag-fg: #1c3829; }
+.tag[data-c="2"] { --tag-bg: #d3e5ef; --tag-fg: #183347; }
+.tag[data-c="3"] { --tag-bg: #fdecc8; --tag-fg: #402c1b; }
+.tag[data-c="4"] { --tag-bg: #fadec9; --tag-fg: #49290e; }
+.tag[data-c="5"] { --tag-bg: #e8deee; --tag-fg: #412454; }
+.tag[data-c="6"] { --tag-bg: #f5e0e9; --tag-fg: #4c2337; }
+.tag[data-c="7"] { --tag-bg: #ffe2dd; --tag-fg: #5d1715; }
+.tag[data-c="8"] { --tag-bg: #eee0da; --tag-fg: #442a1e; }
+@media (prefers-color-scheme: dark) {
+  .tag[data-c="0"] { --tag-bg: #373737; --tag-fg: #e3e2e0; }
+  .tag[data-c="1"] { --tag-bg: #2b593f; --tag-fg: #dbeddb; }
+  .tag[data-c="2"] { --tag-bg: #28456c; --tag-fg: #d3e5ef; }
+  .tag[data-c="3"] { --tag-bg: #89632a; --tag-fg: #fdecc8; }
+  .tag[data-c="4"] { --tag-bg: #854c1d; --tag-fg: #fadec9; }
+  .tag[data-c="5"] { --tag-bg: #492f64; --tag-fg: #e8deee; }
+  .tag[data-c="6"] { --tag-bg: #69314c; --tag-fg: #f5e0e9; }
+  .tag[data-c="7"] { --tag-bg: #6e3630; --tag-fg: #ffe2dd; }
+  .tag[data-c="8"] { --tag-bg: #603b2c; --tag-fg: #eee0da; }
 }
 
 .display {
@@ -85,4 +142,4 @@ button.tile:hover {
 }
 .pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
 
-::selection { background: rgba(0, 113, 227, 0.2); }
+::selection { background: rgba(10, 132, 255, 0.28); }

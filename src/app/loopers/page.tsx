@@ -48,7 +48,7 @@ export default async function LoopersPage() {
                   </div>
                   <Sparkline values={l.metric.history.map((p) => p.value)} color={accentHex[l.color]} width={90} height={32} />
                 </div>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#e3e3e8]">
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ink/[0.09]">
                   <div className="h-full rounded-full bg-blue" style={{ width: `${pct}%` }} />
                 </div>
               </div>

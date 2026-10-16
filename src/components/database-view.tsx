@@ -19,23 +19,11 @@ import type { DbColumn, DbColumnType, DbRow, DbValue, LooperDatabase } from "@/l
 import { DB_COLUMN_TYPES } from "@/lib/types";
 import { Bot, Button, cx } from "./ui";
 
-// Notion's tag palette (background, text).
-const TAGS: [string, string][] = [
-  ["#E3E2E0", "#32302C"],
-  ["#DBEDDB", "#1C3829"],
-  ["#D3E5EF", "#183347"],
-  ["#FDECC8", "#402C1B"],
-  ["#FADEC9", "#49290E"],
-  ["#E8DEEE", "#412454"],
-  ["#F5E0E9", "#4C2337"],
-  ["#FFE2DD", "#5D1715"],
-  ["#EEE0DA", "#442A1E"],
-];
-
 function Tag({ col, value }: { col: DbColumn; value: string }) {
-  const i = Math.max(0, col.options?.indexOf(value) ?? 0) % TAGS.length;
+  // Colour by option position; light and dark palettes live in globals.css (.tag[data-c]).
+  const i = Math.max(0, col.options?.indexOf(value) ?? 0) % 9;
   return (
-    <span className="inline-flex max-w-full items-center truncate rounded-[4px] px-1.5 py-[1px] text-[0.8125rem] leading-5" style={{ background: TAGS[i][0], color: TAGS[i][1] }}>
+    <span data-c={i} className="tag inline-flex max-w-full items-center truncate rounded-[4px] px-1.5 py-[1px] text-[0.8125rem] leading-5">
       {value}
     </span>
   );
@@ -242,7 +230,7 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search"
-            className="h-8 w-40 rounded-[8px] bg-black/[0.04] px-3 text-[0.8125rem] outline-none placeholder:text-faint focus:bg-white focus:ring-2 focus:ring-blue/30"
+            className="h-8 w-40 rounded-[8px] bg-ink/[0.04] px-3 text-[0.8125rem] outline-none placeholder:text-faint focus:bg-panel focus:ring-2 focus:ring-blue/30"
           />
           <Button size="sm" variant="soft" onClick={startFill} disabled={filling}>
             {filling ? "Filling…" : "Fill from sources"}
@@ -273,7 +261,7 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
         <table className="w-max min-w-full border-collapse text-[0.875rem]">
           <thead>
             <tr className="text-left text-[0.8125rem] text-mute">
-              <th className="sticky left-0 z-10 w-9 border-b border-line bg-white" />
+              <th className="sticky left-0 z-10 w-9 border-b border-line bg-panel" />
               {db.columns.map((col) => (
                 <ColumnHeader
                   key={col.id}
@@ -291,11 +279,11 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="group hover:bg-black/[0.018]">
-                <td className="sticky left-0 z-10 w-9 border-b border-line bg-white px-1 group-hover:bg-[#fafafa]">
+              <tr key={row.id} className="group hover:bg-ink/[0.018]">
+                <td className="sticky left-0 z-10 w-9 border-b border-line bg-panel px-1 group-hover:bg-ink/[0.02]">
                   <button
                     onClick={() => setPeek(row.id)}
-                    className="invisible flex h-6 w-7 items-center justify-center rounded-[5px] text-[0.75rem] text-mute hover:bg-black/[0.06] group-hover:visible"
+                    className="invisible flex h-6 w-7 items-center justify-center rounded-[5px] text-[0.75rem] text-mute hover:bg-ink/[0.06] group-hover:visible"
                     aria-label="Open row"
                     title="Open"
                   >
@@ -313,7 +301,7 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
           </tbody>
         </table>
       </div>
-      <button onClick={() => run(addDbRow(looperId))} className="w-full px-6 py-2.5 text-left text-[0.875rem] text-faint hover:bg-black/[0.02] hover:text-ink">
+      <button onClick={() => run(addDbRow(looperId))} className="w-full px-6 py-2.5 text-left text-[0.875rem] text-faint hover:bg-ink/[0.02] hover:text-ink">
         + New {db.rowNoun}
       </button>
 
@@ -367,22 +355,22 @@ function ColumnHeader({ col, sort, onSort, onRename, onDelete }: { col: DbColumn
   }, [open]);
   return (
     <th ref={ref} className="relative min-w-[150px] border-b border-r border-line font-normal">
-      <button onClick={() => setOpen((o) => !o)} className="flex h-9 w-full items-center gap-1.5 px-2 hover:bg-black/[0.03]">
+      <button onClick={() => setOpen((o) => !o)} className="flex h-9 w-full items-center gap-1.5 px-2 hover:bg-ink/[0.03]">
         <span className="w-4 shrink-0 text-center text-[0.75rem] text-faint">{typeIcon(col.type)}</span>
         <span className="truncate">{col.name}</span>
         {sort !== 0 && <span className="text-blue">{sort === 1 ? "↑" : "↓"}</span>}
       </button>
       {open && (
-        <div className="absolute left-0 top-9 z-30 w-56 rounded-[10px] border border-black/[0.08] bg-white p-1 text-[0.875rem] text-ink shadow-[0_10px_30px_rgba(0,0,0,0.12)]">
+        <div className="absolute left-0 top-9 z-30 w-56 rounded-[10px] border border-ink/[0.08] bg-panel p-1 text-[0.875rem] text-ink shadow-[0_10px_30px_rgba(0,0,0,0.12)]">
           <div className="p-1">
-            <InlineText value={col.name} onCommit={onRename} className="rounded-[6px] bg-black/[0.04] px-2 py-1.5" />
+            <InlineText value={col.name} onCommit={onRename} className="rounded-[6px] bg-ink/[0.04] px-2 py-1.5" />
           </div>
           {[
             ["Sort ascending", () => onSort(1)],
             ["Sort descending", () => onSort(-1)],
             ...(sort !== 0 ? [["Clear sort", () => onSort(0)] as const] : []),
           ].map(([label, fn]) => (
-            <button key={label as string} onClick={() => { (fn as () => void)(); setOpen(false); }} className="block w-full rounded-[6px] px-2 py-1.5 text-left hover:bg-black/[0.04]">
+            <button key={label as string} onClick={() => { (fn as () => void)(); setOpen(false); }} className="block w-full rounded-[6px] px-2 py-1.5 text-left hover:bg-ink/[0.04]">
               {label as string}
             </button>
           ))}
@@ -402,7 +390,7 @@ function AddColumn({ onAdd }: { onAdd: (name: string, type: DbColumnType, option
   const [options, setOptions] = useState("");
   return (
     <div className="relative">
-      <button onClick={() => setOpen((o) => !o)} className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[1rem] text-faint hover:bg-black/[0.05] hover:text-ink" aria-label="Add column">
+      <button onClick={() => setOpen((o) => !o)} className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[1rem] text-faint hover:bg-ink/[0.05] hover:text-ink" aria-label="Add column">
         +
       </button>
       {open && (
@@ -414,18 +402,18 @@ function AddColumn({ onAdd }: { onAdd: (name: string, type: DbColumnType, option
             setName("");
             setOptions("");
           }}
-          className="absolute right-0 top-8 z-30 flex w-64 flex-col gap-2 rounded-[10px] border border-black/[0.08] bg-white p-3 text-ink shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
+          className="absolute right-0 top-8 z-30 flex w-64 flex-col gap-2 rounded-[10px] border border-ink/[0.08] bg-panel p-3 text-ink shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
         >
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Column name" className="rounded-[6px] bg-black/[0.04] px-2 py-1.5 outline-none" />
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Column name" className="rounded-[6px] bg-ink/[0.04] px-2 py-1.5 outline-none" />
           <div className="grid grid-cols-2 gap-1">
             {DB_COLUMN_TYPES.map((t) => (
-              <button type="button" key={t.id} onClick={() => setType(t.id)} className={cx("flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[0.8125rem]", type === t.id ? "bg-blue/10 text-blue" : "hover:bg-black/[0.04]")}>
+              <button type="button" key={t.id} onClick={() => setType(t.id)} className={cx("flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[0.8125rem]", type === t.id ? "bg-blue/10 text-blue" : "hover:bg-ink/[0.04]")}>
                 <span className="w-4 text-center text-faint">{t.icon}</span>
                 {t.label}
               </button>
             ))}
           </div>
-          {type === "select" && <input value={options} onChange={(e) => setOptions(e.target.value)} placeholder="Options, comma-separated" className="rounded-[6px] bg-black/[0.04] px-2 py-1.5 text-[0.8125rem] outline-none" />}
+          {type === "select" && <input value={options} onChange={(e) => setOptions(e.target.value)} placeholder="Options, comma-separated" className="rounded-[6px] bg-ink/[0.04] px-2 py-1.5 text-[0.8125rem] outline-none" />}
           <Button size="sm" type="submit" disabled={!name.trim()}>
             Add column
           </Button>
@@ -461,7 +449,7 @@ function Cell({ col, value, onChange }: { col: DbColumn; value: DbValue; onChang
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           if (e.key === "Escape") setEditing(false);
         }}
-        className="h-7 w-full rounded-[4px] bg-white px-1 outline-none ring-2 ring-blue/40"
+        className="h-7 w-full rounded-[4px] bg-panel px-1 outline-none ring-2 ring-blue/40"
       />
     );
   }
@@ -502,7 +490,7 @@ function SelectCell({ col, value, onChange }: { col: DbColumn; value: string | n
         {value ? <Tag col={col} value={value} /> : <span className="text-transparent">·</span>}
       </div>
       {open && (
-        <div className="absolute left-0 top-0 z-30 w-56 rounded-[10px] border border-black/[0.08] bg-white p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)]">
+        <div className="absolute left-0 top-0 z-30 w-56 rounded-[10px] border border-ink/[0.08] bg-panel p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)]">
           <input
             autoFocus
             value={q}
@@ -512,20 +500,20 @@ function SelectCell({ col, value, onChange }: { col: DbColumn; value: string | n
               if (e.key === "Escape") setOpen(false);
             }}
             placeholder="Search or create"
-            className="mb-1 w-full rounded-[6px] bg-black/[0.04] px-2 py-1.5 text-[0.8125rem] outline-none"
+            className="mb-1 w-full rounded-[6px] bg-ink/[0.04] px-2 py-1.5 text-[0.8125rem] outline-none"
           />
           {options.map((o) => (
-            <button key={o} onClick={() => pick(o)} className="flex w-full items-center rounded-[6px] px-2 py-1 hover:bg-black/[0.04]">
+            <button key={o} onClick={() => pick(o)} className="flex w-full items-center rounded-[6px] px-2 py-1 hover:bg-ink/[0.04]">
               <Tag col={col} value={o} />
             </button>
           ))}
           {q.trim() && !col.options?.some((o) => o.toLowerCase() === q.trim().toLowerCase()) && (
-            <button onClick={() => pick(q.trim())} className="w-full rounded-[6px] px-2 py-1.5 text-left text-[0.8125rem] hover:bg-black/[0.04]">
+            <button onClick={() => pick(q.trim())} className="w-full rounded-[6px] px-2 py-1.5 text-left text-[0.8125rem] hover:bg-ink/[0.04]">
               Create <b>{q.trim()}</b>
             </button>
           )}
           {value && (
-            <button onClick={() => pick(null)} className="w-full rounded-[6px] px-2 py-1.5 text-left text-[0.8125rem] text-mute hover:bg-black/[0.04]">
+            <button onClick={() => pick(null)} className="w-full rounded-[6px] px-2 py-1.5 text-left text-[0.8125rem] text-mute hover:bg-ink/[0.04]">
               Clear
             </button>
           )}
@@ -545,9 +533,9 @@ function RowPeek({ db, row, onClose, onChange, onDelete }: { db: LooperDatabase;
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={onClose}>
-      <aside className="flex h-full w-full max-w-[560px] flex-col overflow-y-auto bg-white shadow-[-20px_0_60px_rgba(0,0,0,0.12)]" onClick={(e) => e.stopPropagation()}>
+      <aside className="flex h-full w-full max-w-[560px] flex-col overflow-y-auto bg-panel shadow-[-20px_0_60px_rgba(0,0,0,0.12)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-3 text-[0.8125rem] text-mute">
-          <button onClick={onClose} className="rounded-[6px] px-2 py-1 hover:bg-black/[0.05]">
+          <button onClick={onClose} className="rounded-[6px] px-2 py-1 hover:bg-ink/[0.05]">
             ⇥ Close
           </button>
           <button onClick={() => confirm("Delete this row?") && onDelete()} className="rounded-[6px] px-2 py-1 text-red hover:bg-red/8">
@@ -566,7 +554,7 @@ function RowPeek({ db, row, onClose, onChange, onDelete }: { db: LooperDatabase;
             {db.columns
               .filter((c) => c !== titleCol)
               .map((col) => (
-                <div key={col.id} className="grid grid-cols-[160px_minmax(0,1fr)] items-center gap-2 rounded-[6px] py-0.5 hover:bg-black/[0.02]">
+                <div key={col.id} className="grid grid-cols-[160px_minmax(0,1fr)] items-center gap-2 rounded-[6px] py-0.5 hover:bg-ink/[0.02]">
                   <div className="flex items-center gap-2 px-1 text-[0.875rem] text-mute">
                     <span className="w-4 text-center text-[0.75rem] text-faint">{typeIcon(col.type)}</span>
                     <span className="truncate">{col.name}</span>

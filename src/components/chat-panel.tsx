@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { getProgress } from "@/app/actions";
 import type { ChiefMessage } from "@/lib/types";
 import { Bot, cx } from "./ui";
 
@@ -14,6 +15,9 @@ export interface RunEvent {
   status: "running" | "success" | "error";
   summary: string;
 }
+
+// Steps newer than this belong to the reply we're waiting for (a little slack for clock skew).
+const stepsFrom = () => Date.now() - 2000;
 
 type Item = { kind: "msg"; m: ChiefMessage } | { kind: "run"; r: RunEvent };
 
@@ -29,11 +33,14 @@ export function ChatPanel(props: {
   placeholder: string;
   send: (text: string) => Promise<unknown>;
   clear?: () => Promise<unknown>;
+  /** progress key for replies: "chief" or "chat:<looperId>" */
+  progressTarget: string;
 }) {
   const { bot, messages, runs = [], ready } = props;
   const router = useRouter();
   const [text, setText] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  const [pendingSince, setPendingSince] = useState(0);
   const [isPending, start] = useTransition();
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -51,6 +58,7 @@ export function ChatPanel(props: {
     if (!t || isPending) return;
     setText("");
     setPending(t);
+    setPendingSince(stepsFrom());
     start(async () => {
       await props.send(t);
       setPending(null);
@@ -76,9 +84,9 @@ export function ChatPanel(props: {
                     key={s}
                     disabled={!ready}
                     onClick={() => send(s)}
-                    className="flex items-center gap-3 rounded-[14px] bg-black/[0.035] px-4 py-3 text-left text-[0.9375rem] transition-colors hover:bg-black/[0.06] disabled:opacity-40"
+                    className="flex items-center gap-3 rounded-[14px] bg-ink/[0.035] px-4 py-3 text-left text-[0.9375rem] transition-colors hover:bg-ink/[0.06] disabled:opacity-40"
                   >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] bg-white text-[0.75rem] font-semibold text-mute shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)]">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] bg-panel text-[0.75rem] font-semibold text-mute shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)]">
                       {String.fromCharCode(65 + i)}
                     </span>
                     {s}
@@ -92,11 +100,7 @@ export function ChatPanel(props: {
               {pending && (
                 <>
                   <Bubble m={{ id: "p", role: "user", content: pending, at: "" }} />
-                  <div className="flex w-fit items-center gap-1 rounded-[18px] bg-black/[0.05] px-4 py-3">
-                    {[0, 1, 2].map((i) => (
-                      <span key={i} className="pulse-dot h-2 w-2 rounded-full bg-faint" style={{ animationDelay: `${i * 0.2}s` }} />
-                    ))}
-                  </div>
+                  <LiveSteps target={props.progressTarget} since={pendingSince} />
                 </>
               )}
             </>
@@ -111,7 +115,7 @@ export function ChatPanel(props: {
         }}
         className="mx-auto w-full max-w-[760px] px-4 pb-4"
       >
-        <div className="flex items-end gap-2 rounded-[26px] border border-black/[0.08] bg-white py-1.5 pl-5 pr-1.5 shadow-[0_2px_12px_rgba(0,0,0,0.05)] focus-within:border-blue/50">
+        <div className="flex items-end gap-2 rounded-[26px] border border-ink/[0.08] bg-panel py-1.5 pl-5 pr-1.5 shadow-[0_2px_12px_rgba(0,0,0,0.05)] focus-within:border-blue/50">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -130,7 +134,7 @@ export function ChatPanel(props: {
             type="submit"
             disabled={!ready || isPending || !text.trim()}
             aria-label="Send"
-            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue text-white disabled:bg-[#d2d2d7]"
+            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue text-white disabled:bg-ink/[0.15]"
           >
             <svg width="15" height="15" viewBox="0 0 14 14" fill="none" aria-hidden>
               <path d="M7 12V2M7 2 2.5 6.5M7 2l4.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -162,7 +166,7 @@ function Bubble({ m }: { m: ChiefMessage }) {
   const mine = m.role === "user";
   return (
     <div className={cx("flex flex-col gap-1.5", mine ? "items-end" : "items-start")}>
-      <div className={cx("max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-relaxed", mine ? "bg-blue text-white" : "bg-black/[0.045] text-ink")}>
+      <div className={cx("max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-relaxed", mine ? "bg-blue text-white" : "bg-ink/[0.045] text-ink")}>
         {m.content}
       </div>
       {m.links && m.links.length > 0 && (
@@ -187,6 +191,48 @@ function Bubble({ m }: { m: ChiefMessage }) {
   );
 }
 
+/** What the bot is doing right now, polled from the server; finished steps are ticked. */
+function LiveSteps({ target, since }: { target: string; since: number }) {
+  const [steps, setSteps] = useState<{ at: number; text: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const poll = () =>
+      getProgress(target)
+        .then((s) => alive && setSteps(s.filter((x) => x.at >= since)))
+        .catch(() => undefined);
+    poll();
+    const t = setInterval(poll, 1000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [target, since]);
+  const shown = steps.slice(-7);
+  const box = useRef<HTMLDivElement>(null);
+  // Keep the newest step in view as they arrive.
+  useEffect(() => {
+    box.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [steps.length]);
+  return (
+    <div ref={box} className="flex w-fit min-w-[220px] max-w-[85%] flex-col gap-1 rounded-[18px] bg-ink/[0.045] px-4 py-3 text-[0.875rem]">
+      {shown.length === 0 && (
+        <div className="flex items-center gap-2 text-mute">
+          <span className="pulse-dot h-2 w-2 rounded-full bg-blue" /> Starting…
+        </div>
+      )}
+      {shown.map((s, i) => {
+        const current = i === shown.length - 1;
+        return (
+          <div key={`${s.at}-${i}`} className={cx("flex items-center gap-2", current ? "text-ink" : "text-mute")}>
+            {current ? <span className="pulse-dot h-2 w-2 shrink-0 rounded-full bg-blue" /> : <span className="w-2 shrink-0 text-center text-[0.75rem] text-green">✓</span>}
+            <span className="truncate">{s.text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function RunBubble({ r }: { r: RunEvent }) {
   const [open, setOpen] = useState(false);
   const long = r.summary.length > 320;
@@ -196,12 +242,13 @@ function RunBubble({ r }: { r: RunEvent }) {
         <span className={cx("h-1.5 w-1.5 rounded-full", r.status === "running" ? "pulse-dot bg-green" : r.status === "error" ? "bg-red" : "bg-faint")} />
         {r.status === "running" ? `Running ${r.skill}…` : `${r.skill} · ${new Date(r.at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })}`}
       </div>
+      {r.status === "running" && <LiveSteps target={`run:${r.id}`} since={Date.parse(r.at) - 2000} />}
       {r.summary && (
         <button
           onClick={() => setOpen((o) => !o)}
           className={cx(
             "max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-left text-[0.9375rem] leading-relaxed",
-            r.status === "error" ? "bg-red/[0.07] text-red" : "bg-black/[0.045] text-ink",
+            r.status === "error" ? "bg-red/[0.07] text-red" : "bg-ink/[0.045] text-ink",
           )}
         >
           {long && !open ? `${r.summary.slice(0, 320)}…` : r.summary}

@@ -78,7 +78,7 @@ export function LooperView(props: {
 
   return (
     <div className={cx("flex flex-col", tab === "chat" && "h-[calc(100dvh-58px)] lg:h-dvh")}>
-      <header className="sticky top-0 z-20 flex items-end gap-3 border-b border-black/[0.05] bg-page/85 px-4 pt-3 backdrop-blur-xl sm:px-6">
+      <header className="sticky top-0 z-20 flex items-end gap-3 border-b border-ink/[0.05] bg-page/85 px-4 pt-3 backdrop-blur-xl sm:px-6">
         <nav className="-mb-px flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label={`${looper.name} sections`}>
           {TABS.map((t) => (
             <Link
@@ -93,7 +93,7 @@ export function LooperView(props: {
             >
               {LABELS[t]}
               {counts[t] !== undefined && (
-                <span className={cx("rounded-full px-1.5 text-[0.6875rem]", t === "board" ? "bg-blue text-white" : "bg-black/[0.06] text-mute")}>{counts[t]}</span>
+                <span className={cx("rounded-full px-1.5 text-[0.6875rem]", t === "board" ? "bg-blue text-white" : "bg-ink/[0.06] text-mute")}>{counts[t]}</span>
               )}
             </Link>
           ))}
@@ -158,6 +158,7 @@ function LooperChat({ looper, messages, runs, ready }: { looper: Looper; message
       emptyText={`I own one number: ${looper.metric.name}. Ask me anything, give me a task, or change how I work. My runs report here too.`}
       placeholder={`Message ${looper.name}`}
       send={(t) => askLooper(looper.id, t)}
+      progressTarget={`chat:${looper.id}`}
       clear={() => clearLooperChat(looper.id)}
     />
   );

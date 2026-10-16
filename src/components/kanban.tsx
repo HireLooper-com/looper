@@ -44,13 +44,13 @@ export function Kanban({ looperId, cards, looperName, color }: { looperId: strin
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-[10px] bg-[#e8e8ed] p-0.5 text-[0.8125rem]">
+        <div className="inline-flex rounded-[10px] bg-ink/[0.08] p-0.5 text-[0.8125rem]">
           {([
             ["all", "All"],
             ["you", `For you${forYou ? ` · ${forYou}` : ""}`],
             ["looper", `For ${looperName}`],
           ] as [Filter, string][]).map(([id, label]) => (
-            <button key={id} onClick={() => setFilter(id)} className={cx("rounded-[8px] px-3 py-1", filter === id ? "bg-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2")}>
+            <button key={id} onClick={() => setFilter(id)} className={cx("rounded-[8px] px-3 py-1", filter === id ? "bg-panel font-medium shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2")}>
               {label}
             </button>
           ))}
@@ -75,7 +75,7 @@ export function Kanban({ looperId, cards, looperName, color }: { looperId: strin
                 setDragging(null);
                 setOver(null);
               }}
-              className={cx("flex min-h-72 flex-col rounded-[20px] bg-[#ebebf0] p-2 transition-colors", over === col.id && "bg-[#dfdfe6]")}
+              className={cx("flex min-h-72 flex-col rounded-[20px] bg-ink/[0.07] p-2 transition-colors", over === col.id && "bg-ink/[0.11]")}
             >
               <div className="flex items-center justify-between px-2 py-2">
                 <div className="flex items-center gap-2 text-[0.8125rem] font-medium">
@@ -93,7 +93,7 @@ export function Kanban({ looperId, cards, looperName, color }: { looperId: strin
                     onDragEnd={() => setDragging(null)}
                     onClick={() => setOpen(c)}
                     className={cx(
-                      "cursor-grab rounded-[12px] bg-white p-3 text-left shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-opacity active:cursor-grabbing",
+                      "cursor-grab rounded-[12px] bg-panel p-3 text-left shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-opacity active:cursor-grabbing",
                       cardAssignee(c) === "you" && c.column !== "done" && "ring-2 ring-blue/50",
                       dragging === c.id && "opacity-40",
                     )}
@@ -148,7 +148,7 @@ function AddCard({ looperId, column, assignee }: { looperId: string; column: Col
         onChange={(e) => setText(e.target.value)}
         onBlur={() => !text && setEditing(false)}
         placeholder="Card title, Enter to add"
-        className="w-full rounded-[12px] border border-blue bg-white px-3 py-2.5 ring-4 ring-blue/15 text-[0.875rem] outline-none"
+        className="w-full rounded-[12px] border border-blue bg-panel px-3 py-2.5 ring-4 ring-blue/15 text-[0.875rem] outline-none"
       />
     </form>
   );
@@ -171,12 +171,12 @@ function CardSheet({ card, looperName, onClose, onMove }: { card: Card; looperNa
         <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={6} placeholder="Notes" className="mt-3" />
         <div className="mt-4 flex items-center gap-3 text-[0.8125rem]">
           <span className="text-mute">For</span>
-          <div className="inline-flex rounded-[10px] bg-[#e8e8ed] p-0.5">
+          <div className="inline-flex rounded-[10px] bg-ink/[0.08] p-0.5">
             {([
               ["you", "You"],
               ["looper", looperName],
             ] as ["looper" | "you", string][]).map(([id, label]) => (
-              <button key={id} onClick={() => setAssignee(id)} className={cx("rounded-[8px] px-3 py-1", assignee === id ? "bg-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2")}>
+              <button key={id} onClick={() => setAssignee(id)} className={cx("rounded-[8px] px-3 py-1", assignee === id ? "bg-panel font-medium shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2")}>
                 {label}
               </button>
             ))}
@@ -187,7 +187,7 @@ function CardSheet({ card, looperName, onClose, onMove }: { card: Card; looperNa
             <button
               key={c.id}
               onClick={() => onMove(c.id)}
-              className={cx("rounded-full px-3 py-1.5 text-[0.8125rem]", card.column === c.id ? "bg-blue text-white" : "bg-[#ebebf0] hover:bg-[#dfdfe6]")}
+              className={cx("rounded-full px-3 py-1.5 text-[0.8125rem]", card.column === c.id ? "bg-blue text-white" : "bg-ink/[0.07] hover:bg-ink/[0.11]")}
             >
               {c.label}
             </button>

@@ -40,7 +40,7 @@ export function ChatGPTButton({ isLocal, label = "Continue with ChatGPT", classN
           })
         }
         className={cx(
-          "flex h-12 w-full items-center justify-center gap-2.5 rounded-full bg-ink px-5 text-[0.9375rem] font-medium text-white transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-40",
+          "flex h-12 w-full items-center justify-center gap-2.5 rounded-full bg-ink px-5 text-[0.9375rem] font-medium text-page transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-40",
           className,
         )}
       >
@@ -104,7 +104,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, classNam
 
   if (device)
     return (
-      <div className="flex flex-col gap-3 rounded-[20px] border border-line bg-white p-4">
+      <div className="flex flex-col gap-3 rounded-[20px] border border-line bg-panel p-4">
         <div className="eyebrow">Confirm on x.ai</div>
         <div className="font-mono text-[1.75rem] font-medium tracking-[0.12em]">{device.userCode}</div>
         <p className="text-[0.8125rem] leading-snug text-mute">A tab opened at x.ai. Check the code matches and approve. This page continues on its own.</p>
@@ -134,7 +134,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, classNam
         onClick={begin}
         disabled={pending}
         className={cx(
-          "flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-ink/15 bg-white px-5 text-[0.9375rem] font-medium text-ink transition-colors hover:border-ink/40 disabled:opacity-50",
+          "flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-ink/15 bg-panel px-5 text-[0.9375rem] font-medium text-ink transition-colors hover:border-ink/40 disabled:opacity-50",
           className,
         )}
       >

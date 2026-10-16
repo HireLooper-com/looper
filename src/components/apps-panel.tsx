@@ -12,8 +12,8 @@ type Row = Status["apps"][number];
 function AppIcon({ app }: { app: Pick<AppRef, "name" | "logo"> }) {
   if (app.logo)
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={app.logo} alt="" className="h-10 w-10 rounded-[22%] bg-white object-contain p-1 shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.08)]" />;
-  return <span className="flex h-10 w-10 items-center justify-center rounded-[22%] bg-[#ebebf0] text-[1rem] font-semibold uppercase text-ink-2">{app.name.slice(0, 1)}</span>;
+    return <img src={app.logo} alt="" className="h-10 w-10 rounded-[22%] bg-panel object-contain p-1 shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.08)]" />;
+  return <span className="flex h-10 w-10 items-center justify-center rounded-[22%] bg-ink/[0.07] text-[1rem] font-semibold uppercase text-ink-2">{app.name.slice(0, 1)}</span>;
 }
 
 /** The "connect what this looper needs" checklist, used right after hiring and on the looper's Apps tab. */
@@ -192,7 +192,7 @@ function AddApp({ looperId, existing, onAdded }: { looperId: string; existing: s
                     onAdded();
                   })
                 }
-                className={cx("flex items-center gap-3 rounded-[12px] p-2 text-left hover:bg-black/[0.04] disabled:opacity-50")}
+                className={cx("flex items-center gap-3 rounded-[12px] p-2 text-left hover:bg-ink/[0.04] disabled:opacity-50")}
               >
                 <AppIcon app={r} />
                 <span className="flex-1 text-[0.9375rem]">{r.name}</span>
