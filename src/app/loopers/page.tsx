@@ -16,7 +16,7 @@ export default async function LoopersPage() {
           <h1 className="display text-[2.5rem] sm:text-[3rem]">Loopers</h1>
           <p className="mt-1 text-[1rem] text-mute">One looper, one metric.</p>
         </div>
-        <Link href="/loopers/new" className="inline-flex h-10 items-center rounded-full bg-blue px-5 text-[0.9375rem] font-medium text-white hover:bg-blue-hover">
+        <Link href="/loopers/new" className="inline-flex h-10 items-center rounded-full bg-blue px-5 text-[0.9375rem] font-medium text-page hover:bg-blue-hover">
           New looper
         </Link>
       </div>

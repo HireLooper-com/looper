@@ -48,7 +48,7 @@ export function ChatGPTButton({ isLocal, label = "Continue with ChatGPT", classN
         {pending ? "Opening ChatGPT…" : label}
       </button>
       {!isLocal && <p className="text-[0.75rem] leading-snug text-mute">OpenAI allows ChatGPT sign-in only for apps running on your own machine. Run Chieflooper locally to use it.</p>}
-      {error && <p className="text-[0.75rem] text-orange">{error}</p>}
+      {error && <p className="text-[0.75rem] text-red">{error}</p>}
     </div>
   );
 }
@@ -141,7 +141,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, classNam
         <GrokMark className="h-5 w-5" />
         {pending ? "Getting a code…" : label}
       </button>
-      {message && <p className="text-[0.75rem] text-orange">{message}</p>}
+      {message && <p className="text-[0.75rem] text-red">{message}</p>}
     </div>
   );
 }

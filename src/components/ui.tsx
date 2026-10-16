@@ -28,7 +28,7 @@ export function Button({ variant = "primary", size = "md", className, ...props }
       className={cx(
         "inline-flex items-center justify-center gap-2 rounded-full font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
         size === "sm" ? "h-8 px-3.5 text-[0.8125rem]" : "h-10 px-5 text-[0.9375rem]",
-        variant === "primary" && "bg-blue text-white hover:bg-blue-hover",
+        variant === "primary" && "bg-blue text-page hover:bg-blue-hover",
         variant === "light" && "bg-panel text-ink hover:bg-well",
         variant === "soft" && "bg-ink/[0.08] text-ink hover:bg-ink/[0.11]",
         variant === "ghost" && "text-blue hover:bg-blue/8",

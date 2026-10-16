@@ -7,9 +7,9 @@ import type { Looper, Retro } from "@/lib/types";
 import { Button, Panel, cx, fmt } from "./ui";
 
 const LANES = [
-  { key: "wentWell", label: "Went well", dot: "bg-green", note: "border-l-[3px] border-green" },
-  { key: "didntGoWell", label: "Didn't go well", dot: "bg-orange", note: "border-l-[3px] border-orange" },
-  { key: "tryNext", label: "Try next", dot: "bg-lavender", note: "border-l-[3px] border-lavender" },
+  { key: "wentWell", label: "Went well", dot: "bg-faint", note: "" },
+  { key: "didntGoWell", label: "Didn't go well", dot: "bg-faint", note: "" },
+  { key: "tryNext", label: "Try next", dot: "bg-faint", note: "" },
 ] as const;
 
 export function RetroBoard({ looper, retros }: { looper: Looper; retros: Retro[]; running?: boolean }) {
@@ -43,7 +43,7 @@ export function RetroBoard({ looper, retros }: { looper: Looper; retros: Retro[]
           {looper.name} reviews its own runs, cards and metric movement, scores its effectiveness from 1 to 5, and turns lessons into new cards. It runs on the retro skill&apos;s schedule, or now.
         </p>
         {holdButton}
-        {error && <p className="text-[0.8125rem] text-orange">{error}</p>}
+        {error && <p className="text-[0.8125rem] text-red">{error}</p>}
       </Panel>
     );
 
@@ -89,7 +89,7 @@ export function RetroBoard({ looper, retros }: { looper: Looper; retros: Retro[]
         </div>
         <div className="flex flex-col items-start justify-center gap-2">
           {holdButton}
-          {error && <p className="max-w-60 text-[0.75rem] text-orange">{error}</p>}
+          {error && <p className="max-w-60 text-[0.75rem] text-red">{error}</p>}
         </div>
       </div>
 

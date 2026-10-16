@@ -134,7 +134,7 @@ export function ChatPanel(props: {
             type="submit"
             disabled={!ready || isPending || !text.trim()}
             aria-label="Send"
-            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue text-white disabled:bg-ink/[0.15]"
+            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue text-page disabled:bg-ink/[0.15]"
           >
             <svg width="15" height="15" viewBox="0 0 14 14" fill="none" aria-hidden>
               <path d="M7 12V2M7 2 2.5 6.5M7 2l4.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -166,13 +166,13 @@ function Bubble({ m }: { m: ChiefMessage }) {
   const mine = m.role === "user";
   return (
     <div className={cx("flex flex-col gap-1.5", mine ? "items-end" : "items-start")}>
-      <div className={cx("max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-relaxed", mine ? "bg-blue text-white" : "bg-ink/[0.045] text-ink")}>
+      <div className={cx("max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-relaxed", mine ? "bg-blue text-page" : "bg-ink/[0.045] text-ink")}>
         {m.content}
       </div>
       {m.links && m.links.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {m.links.map((l, i) => (
-            <Link key={i} href={l.href} className="rounded-full bg-blue px-4 py-2 text-[0.8125rem] font-medium text-white hover:bg-blue-hover">
+            <Link key={i} href={l.href} className="rounded-full bg-blue px-4 py-2 text-[0.8125rem] font-medium text-page hover:bg-blue-hover">
               {l.label}
             </Link>
           ))}

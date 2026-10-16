@@ -19,7 +19,7 @@ export function ChiefChat({ messages, ready }: { messages: ChiefMessage[]; ready
       messages={messages}
       ready={ready}
       notReadyHint={
-        <Link href="/settings" className="rounded-full bg-blue px-5 py-2.5 text-[0.9375rem] font-medium text-white">
+        <Link href="/settings" className="rounded-full bg-blue px-5 py-2.5 text-[0.9375rem] font-medium text-page">
           Connect your plan in Settings
         </Link>
       }

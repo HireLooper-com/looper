@@ -147,7 +147,7 @@ function SkillEditor({ looperId, skill, onClose }: { looperId: string; skill: Pa
                 type="button"
                 key={i}
                 onClick={() => setDays((cur) => (cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i].sort()))}
-                className={cx("h-9 w-9 rounded-full text-[0.8125rem]", days.includes(i) ? "bg-blue text-white" : "bg-ink/[0.07]")}
+                className={cx("h-9 w-9 rounded-full text-[0.8125rem]", days.includes(i) ? "bg-blue text-page" : "bg-ink/[0.07]")}
               >
                 {d}
               </button>

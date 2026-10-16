@@ -43,7 +43,7 @@ export default function NewLooper() {
                 type="button"
                 key={e}
                 onClick={() => setEmoji(e)}
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-[1.1rem] ${emoji === e ? "bg-blue text-white" : "bg-ink/[0.07]"}`}
+                className={`flex h-10 w-10 items-center justify-center rounded-full text-[1.1rem] ${emoji === e ? "bg-blue text-page" : "bg-ink/[0.07]"}`}
               >
                 {e}
               </button>

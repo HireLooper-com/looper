@@ -45,7 +45,7 @@ export function Sidebar({ loopers, email, plan, chiefPreview }: { loopers: Sideb
         {loopers.map((l) => (
           <Link key={l.id} href={`/loopers/${l.id}`} aria-label={l.name} className="relative">
             <Bot color={l.color} seed={l.id} size={38} />
-            {l.forYou > 0 && <span className="absolute -right-1 -top-1 h-3.5 min-w-3.5 rounded-full bg-blue px-1 text-[0.625rem] font-semibold leading-[14px] text-white">{l.forYou}</span>}
+            {l.forYou > 0 && <span className="absolute -right-1 -top-1 h-3.5 min-w-3.5 rounded-full bg-blue px-1 text-[0.625rem] font-semibold leading-[14px] text-page">{l.forYou}</span>}
           </Link>
         ))}
         <Link href="/settings" className="ml-auto shrink-0 rounded-full bg-ink/[0.05] px-3 py-1.5 text-[0.8125rem]">
@@ -100,7 +100,7 @@ export function Sidebar({ loopers, email, plan, chiefPreview }: { loopers: Sideb
                   <span className="flex items-center gap-1.5">
                     <span className="truncate text-[0.9375rem] font-medium">{l.name}</span>
                     {l.role && <span className="shrink-0 rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute">{l.role}</span>}
-                    {l.forYou > 0 && <span className="ml-auto shrink-0 rounded-full bg-blue px-1.5 text-[0.6875rem] font-semibold text-white">{l.forYou}</span>}
+                    {l.forYou > 0 && <span className="ml-auto shrink-0 rounded-full bg-blue px-1.5 text-[0.6875rem] font-semibold text-page">{l.forYou}</span>}
                   </span>
                   <span className="block truncate text-[0.8125rem] text-mute">{l.preview || "No messages yet"}</span>
                 </span>

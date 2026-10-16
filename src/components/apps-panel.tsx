@@ -68,7 +68,7 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
         </div>
 
         {status && !status.composio && apps.some((a) => a.via === "composio") && (
-          <div className="mt-4 rounded-[12px] bg-orange/10 px-4 py-3 text-[0.8125rem] text-orange">
+          <div className="mt-4 rounded-[12px] bg-orange/10 px-4 py-3 text-[0.8125rem] text-red">
             One-click connections need a Composio API key on the server (COMPOSIO_API_KEY). Until it&apos;s set, connect these through an integration hub in Settings.
           </div>
         )}

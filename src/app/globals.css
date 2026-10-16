@@ -14,13 +14,15 @@
   --color-mute: #6e6e73;
   --color-faint: #86868b;
 
-  --color-blue: #0071e3;
-  --color-blue-hover: #0077ed;
-  --color-green: #34c759;
-  --color-green-deep: #248a3d;
-  --color-orange: #f56300;
+  /* Monochrome by design: "blue" is the action colour (black / white), the other hues are greys.
+     Colour is reserved for the loopers' loops and for red errors. */
+  --color-blue: #1d1d1f;
+  --color-blue-hover: #3a3a3c;
+  --color-green: #48484a;
+  --color-green-deep: #1d1d1f;
+  --color-orange: #6e6e73;
   --color-red: #ff3b30;
-  --color-lavender: #af52de;
+  --color-lavender: #8e8e93;
   --color-violet: #5e5ce6;
   --color-teal: #30b0c7;
   --color-rail: #fbfbfd;
@@ -48,13 +50,13 @@
     --color-mute: #98989d;
     --color-faint: #6e6e73;
     --color-rail: #161618;
-    --color-blue: #0a84ff;
-    --color-blue-hover: #409cff;
-    --color-green: #30d158;
-    --color-green-deep: #30d158;
-    --color-orange: #ff9f0a;
+    --color-blue: #f5f5f7;
+    --color-blue-hover: #d1d1d6;
+    --color-green: #c7c7cc;
+    --color-green-deep: #f5f5f7;
+    --color-orange: #98989d;
     --color-red: #ff453a;
-    --color-lavender: #bf5af2;
+    --color-lavender: #8e8e93;
     --chief-loop-1: #e5e5ea;
     --chief-loop-2: #8e8e93;
     --tile-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
@@ -95,26 +97,9 @@ button.tile:hover {
 }
 
 /* Notion-style select tags, light and dark. */
-.tag { background: var(--tag-bg); color: var(--tag-fg); }
-.tag[data-c="0"] { --tag-bg: #e3e2e0; --tag-fg: #32302c; }
-.tag[data-c="1"] { --tag-bg: #dbeddb; --tag-fg: #1c3829; }
-.tag[data-c="2"] { --tag-bg: #d3e5ef; --tag-fg: #183347; }
-.tag[data-c="3"] { --tag-bg: #fdecc8; --tag-fg: #402c1b; }
-.tag[data-c="4"] { --tag-bg: #fadec9; --tag-fg: #49290e; }
-.tag[data-c="5"] { --tag-bg: #e8deee; --tag-fg: #412454; }
-.tag[data-c="6"] { --tag-bg: #f5e0e9; --tag-fg: #4c2337; }
-.tag[data-c="7"] { --tag-bg: #ffe2dd; --tag-fg: #5d1715; }
-.tag[data-c="8"] { --tag-bg: #eee0da; --tag-fg: #442a1e; }
+.tag { background: rgba(0, 0, 0, 0.06); color: var(--color-ink-2); }
 @media (prefers-color-scheme: dark) {
-  .tag[data-c="0"] { --tag-bg: #373737; --tag-fg: #e3e2e0; }
-  .tag[data-c="1"] { --tag-bg: #2b593f; --tag-fg: #dbeddb; }
-  .tag[data-c="2"] { --tag-bg: #28456c; --tag-fg: #d3e5ef; }
-  .tag[data-c="3"] { --tag-bg: #89632a; --tag-fg: #fdecc8; }
-  .tag[data-c="4"] { --tag-bg: #854c1d; --tag-fg: #fadec9; }
-  .tag[data-c="5"] { --tag-bg: #492f64; --tag-fg: #e8deee; }
-  .tag[data-c="6"] { --tag-bg: #69314c; --tag-fg: #f5e0e9; }
-  .tag[data-c="7"] { --tag-bg: #6e3630; --tag-fg: #ffe2dd; }
-  .tag[data-c="8"] { --tag-bg: #603b2c; --tag-fg: #eee0da; }
+  .tag { background: rgba(255, 255, 255, 0.10); }
 }
 
 .display {
@@ -142,4 +127,4 @@ button.tile:hover {
 }
 .pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
 
-::selection { background: rgba(10, 132, 255, 0.28); }
+::selection { background: rgba(127, 127, 127, 0.3); }

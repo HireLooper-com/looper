@@ -93,7 +93,7 @@ export function LooperView(props: {
             >
               {LABELS[t]}
               {counts[t] !== undefined && (
-                <span className={cx("rounded-full px-1.5 text-[0.6875rem]", t === "board" ? "bg-blue text-white" : "bg-ink/[0.06] text-mute")}>{counts[t]}</span>
+                <span className={cx("rounded-full px-1.5 text-[0.6875rem]", t === "board" ? "bg-blue text-page" : "bg-ink/[0.06] text-mute")}>{counts[t]}</span>
               )}
             </Link>
           ))}

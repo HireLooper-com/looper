@@ -11,7 +11,7 @@ type Filter = "all" | "you" | "looper";
 
 function Owner({ card, looperName, color, seed }: { card: Card; looperName: string; color: Accent; seed: string }) {
   return cardAssignee(card) === "you" ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-blue px-2 py-0.5 text-[0.6875rem] font-semibold text-white">For you</span>
+    <span className="inline-flex items-center gap-1 rounded-full bg-blue px-2 py-0.5 text-[0.6875rem] font-semibold text-page">For you</span>
   ) : (
     <span className="inline-flex items-center gap-1 text-[0.6875rem] text-mute">
       <Bot color={color} size={14} seed={seed} />
@@ -187,7 +187,7 @@ function CardSheet({ card, looperName, onClose, onMove }: { card: Card; looperNa
             <button
               key={c.id}
               onClick={() => onMove(c.id)}
-              className={cx("rounded-full px-3 py-1.5 text-[0.8125rem]", card.column === c.id ? "bg-blue text-white" : "bg-ink/[0.07] hover:bg-ink/[0.11]")}
+              className={cx("rounded-full px-3 py-1.5 text-[0.8125rem]", card.column === c.id ? "bg-blue text-page" : "bg-ink/[0.07] hover:bg-ink/[0.11]")}
             >
               {c.label}
             </button>

@@ -25,14 +25,14 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
     apps: "Hundreds of toolkits",
     how: "Create an MCP server in the Composio dashboard, pick the toolkits, then paste its URL. Add your Composio API key as a header if the URL needs one.",
     header: "x-api-key",
-    tone: "bg-green",
+    tone: "bg-ink/[0.08]",
   },
   {
     kind: "zapier",
     name: "Zapier MCP",
     apps: "Thousands of apps",
     how: "Open Zapier MCP, choose the actions you allow, and copy the server URL. The URL carries its own secret.",
-    tone: "bg-orange",
+    tone: "bg-ink/[0.08]",
   },
   {
     kind: "pipedream",
@@ -40,7 +40,7 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
     apps: "Thousands of apps",
     how: "Use Pipedream's remote MCP server URL for your project. Add the auth header Pipedream gives you.",
     header: "Authorization",
-    tone: "bg-lavender",
+    tone: "bg-ink/[0.08]",
   },
   {
     kind: "custom",
@@ -48,7 +48,7 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
     apps: "Your own tools",
     how: "Any Streamable HTTP MCP endpoint: your internal APIs, Linear, Notion, Stripe, GitHub and others.",
     header: "Authorization",
-    tone: "bg-ink",
+    tone: "bg-ink/[0.08]",
   },
 ];
 
@@ -121,7 +121,7 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
       {sub ? (
         <div className="flex flex-col gap-3">
           {id === "openai" && !settings.subscriptions.openai?.sharing && (
-            <p className="text-[0.8125rem] text-orange">Plan usage wasn&apos;t granted. Sign in again and allow plan usage.</p>
+            <p className="text-[0.8125rem] text-red">Plan usage wasn&apos;t granted. Sign in again and allow plan usage.</p>
           )}
           <div className="flex flex-wrap gap-2">
             {mode === "oauth" && hasKey && (
@@ -277,7 +277,7 @@ function Integrations({ settings }: { settings: PublicSettings }) {
                 <Input name="headerValue" type="password" placeholder="optional" autoComplete="off" />
               </Field>
             </div>
-            {error && <p className="text-[0.8125rem] text-orange">{error}</p>}
+            {error && <p className="text-[0.8125rem] text-red">{error}</p>}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setHub(null)}>Cancel</Button>
               <Button type="submit" disabled={pending}>Connect</Button>

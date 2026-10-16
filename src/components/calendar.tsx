@@ -65,7 +65,7 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
               const inMonth = d.getMonth() === month.getMonth();
               return (
                 <div key={k} className={cx("min-h-28 border-b border-r border-line p-1.5 [&:nth-child(7n)]:border-r-0", !inMonth && "bg-ink/[0.02]")}>
-                  <div className={cx("mb-1 flex h-6 w-6 items-center justify-center rounded-full text-[0.75rem]", k === todayKey ? "bg-red font-semibold text-white" : inMonth ? "text-ink-2" : "text-faint")}>
+                  <div className={cx("mb-1 flex h-6 w-6 items-center justify-center rounded-full text-[0.75rem]", k === todayKey ? "bg-ink font-semibold text-page" : inMonth ? "text-ink-2" : "text-faint")}>
                     {d.getDate()}
                   </div>
                   <div className="flex flex-col gap-1">
@@ -77,8 +77,8 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
                           "truncate rounded-[6px] px-1.5 py-1 text-left text-[0.6875rem] leading-none",
                           e.kind === "scheduled" && "border border-dashed border-ink/[0.22] text-mute",
                           e.kind === "success" && "bg-blue/10 text-blue",
-                          e.kind === "error" && "bg-orange/15 text-orange",
-                          e.kind === "running" && "bg-blue text-white",
+                          e.kind === "error" && "bg-red/10 text-red",
+                          e.kind === "running" && "bg-blue text-page",
                         )}
                       >
                         {hhmm(e.at)} {e.label}
@@ -126,7 +126,7 @@ export function CalendarView({ looper, runs }: { looper: Looper; runs: Run[] }) 
             <p className="mt-2 text-[0.875rem] leading-relaxed text-mute">Every skill run lands here. Solid chips are past runs, dashed ones are upcoming. Pick one to read what the looper did.</p>
             <div className="mt-4 flex flex-col gap-2 text-[0.8125rem]">
               <Legend cls="bg-blue/10" label="Succeeded" />
-              <Legend cls="bg-orange/15" label="Failed" />
+              <Legend cls="bg-red/10" label="Failed" />
               <Legend cls="border border-dashed border-ink/[0.22]" label="Scheduled" />
             </div>
           </div>

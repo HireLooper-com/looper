@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { recordMetric } from "@/app/actions";
 import type { Looper } from "@/lib/types";
-import { Button, Input, accentHex, fmt } from "./ui";
+import { Button, Input, fmt } from "./ui";
 
 const W = 760;
 const H = 320;
@@ -13,7 +13,7 @@ const PAD = { l: 52, r: 16, t: 20, b: 32 };
 /** Area chart of the metric with a dashed target line. */
 function Chart({ looper }: { looper: Looper }) {
   const pts = looper.metric.history;
-  const color = looper.color === "ink" ? "#30b0c7" : accentHex[looper.color];
+  const color = "var(--color-ink)";
   const values = [...pts.map((p) => p.value), looper.metric.target];
   // Round axis ticks to 1/2/2.5/5 × 10^n so labels read like 25,000 rather than 19,167.
   const rawMax = Math.max(...values, 1) * 1.1;
