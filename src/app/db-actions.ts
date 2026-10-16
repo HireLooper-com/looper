@@ -1,7 +1,8 @@
 "use server";
 
 import { nanoid } from "nanoid";
-import { designDatabase } from "@/lib/agent";
+import { after } from "next/server";
+import { designDatabase, fillDatabase } from "@/lib/agent";
 import { coerce, mutateDatabase, newDatabase, readDatabase, TEMPLATES } from "@/lib/database";
 import { read } from "@/lib/db";
 import { requireUid } from "@/lib/session";
@@ -32,13 +33,35 @@ export async function getLooperDatabase(looperId: string) {
 
 /** Let the looper design its own database from its mission, skills, apps and past runs.
  * Returns the error text instead of throwing: production hides thrown server-action messages. */
-export async function generateLooperDatabase(looperId: string): Promise<{ db: LooperDatabase } | { error: string }> {
+export async function generateLooperDatabase(looperId: string): Promise<{ db: LooperDatabase; filling: boolean } | { error: string }> {
   try {
     const uid = await owned(looperId);
-    return { db: await designDatabase(uid, looperId) };
+    const db = await designDatabase(uid, looperId);
+    // Nothing to pre-fill from past runs: have the looper pull rows from its sources in the background.
+    const filling = db.rows.length === 0;
+    if (filling) after(() => fillDatabase(uid, looperId, "manual").then(() => undefined).catch(() => undefined));
+    return { db, filling };
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** Start a background run that fills the database from the looper's connected sources. */
+export async function fillLooperDatabase(looperId: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    const uid = await owned(looperId);
+    after(() => fillDatabase(uid, looperId, "manual").then(() => undefined).catch(() => undefined));
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** The latest "Fill database" run, so the UI can show when it finished and what it said. */
+export async function latestFillRun(looperId: string) {
+  const uid = await owned(looperId);
+  const run = (await read(uid)).runs.filter((r) => r.looperId === looperId && r.skillId === "fill-database").at(-1);
+  return run ? { status: run.status, startedAt: run.startedAt, summary: run.summary } : null;
 }
 
 export async function createLooperDatabase(looperId: string, template: keyof typeof TEMPLATES) {

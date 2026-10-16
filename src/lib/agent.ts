@@ -1,6 +1,7 @@
 import "server-only";
 import { isStepCount, Output, streamText, tool, type ModelMessage, type ToolSet } from "ai";
 import { nanoid } from "nanoid";
+import { after } from "next/server";
 import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
 import { composioTools, resolveApps } from "./composio";
@@ -204,10 +205,10 @@ async function finishRun(uid: string, id: string, patch: Partial<Run>) {
   });
 }
 
-export async function runSkill(uid: string, looperId: string, skillId: string, trigger: Run["trigger"] = "manual") {
+export async function runSkill(uid: string, looperId: string, skillId: string, trigger: Run["trigger"] = "manual", adhoc?: Skill, maxSteps = 25) {
   const db = await read(uid);
   const looper = db.loopers.find((l) => l.id === looperId);
-  const skill = looper?.skills.find((s) => s.id === skillId);
+  const skill = adhoc ?? looper?.skills.find((s) => s.id === skillId);
   if (!looper || !skill) throw new Error("Looper or skill not found");
   if (skill.kind === "retro") return runRetro(uid, looperId, trigger, skill);
 
@@ -233,7 +234,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
       ].join("\n\n"),
       tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id) },
       external: ext.tools,
-      maxSteps: 25,
+      maxSteps,
     });
     const text = await result.text;
     await finishRun(uid, run.id, { status: "success", summary: text, toolCalls: logToolCalls(await result.steps) });
@@ -504,6 +505,37 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           return { ok: true };
         }),
     }),
+    read_database: tool({
+      description: "Read a looper's database (its table of work: transactions, posts, leads…). Use this whenever the user asks to see rows. Optional text search.",
+      inputSchema: z.object({ looper: z.string(), search: z.string().optional(), limit: z.number().int().min(1).max(100).default(50) }),
+      execute: async ({ looper, search, limit }) => {
+        const l = findLooper(await read(uid), looper);
+        const table = await readDatabase(uid, l.id);
+        if (!table) return { database: null, note: `${l.name} has no database yet. It's designed when the user opens the Database tab or before the next run.` };
+        const q = search?.toLowerCase();
+        const rows = table.rows.filter((r) => !q || Object.values(r.cells).some((v) => String(v ?? "").toLowerCase().includes(q)));
+        links.push({ label: `Open ${l.name}'s ${table.name}`, href: `/loopers/${l.id}?tab=database` });
+        return {
+          name: table.name,
+          row: table.rowNoun,
+          total: rows.length,
+          columns: table.columns.map((c) => c.name),
+          rows: rows.slice(0, limit).map((r) => Object.fromEntries(table.columns.map((c) => [c.name, r.cells[c.id] ?? null]))),
+          note: table.rows.length === 0 ? "Empty. Offer fill_database to pull rows from the looper's sources." : undefined,
+        };
+      },
+    }),
+    fill_database: tool({
+      description: "Start a background run where the looper fills its database from its connected sources (sheets, Stripe, Gmail…). Takes a few minutes; rows appear on its Database tab.",
+      inputSchema: z.object({ looper: z.string() }),
+      execute: async ({ looper }) => {
+        const l = findLooper(await read(uid), looper);
+        after(() => fillDatabase(uid, l.id, "chief").then(() => undefined).catch(() => undefined));
+        actions.push(`${l.name} is filling the database`);
+        links.push({ label: `Watch ${l.name}'s database`, href: `/loopers/${l.id}?tab=database` });
+        return { started: true };
+      },
+    }),
     run_skill: tool({
       description: "Run one of a looper's skills right now and return its summary.",
       inputSchema: z.object({ looper: z.string(), skill: z.string().describe("skill name") }),
@@ -526,6 +558,8 @@ Your job: turn the user's goals into loopers, manage them, and report on them. W
 Give every looper a database (create_looper.database) whose rows are the unit of its work, with 5–10 useful columns: a VAT looper gets one row per bank transaction (date, amount, counterparty, source, VAT rate, VAT amount, invoice found, status); an SEO looper gets one row per blog post or idea (title, status Idea/Drafting/Published, keyword, URL, clicks); a sales looper one row per lead. Use select columns for statuses.
 
 Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]). The app shows the user one-click Connect buttons for them right after hiring, so say "connect them with the button below" rather than explaining setup.
+
+When the user asks to see a looper's data (transactions, posts, leads), call read_database and show the rows as a short list; if it's empty, offer fill_database.
 
 Be brief and concrete. Use plain text with short lists.`;
 
@@ -622,4 +656,43 @@ export async function designDatabase(uid: string, looperId: string) {
     box.db = created;
     return created;
   });
+}
+
+// ——— Filling the database from the looper's sources ———
+
+const SHEETS_URL = /docs\.google\.com\/spreadsheets\//;
+
+/**
+ * Pull every row the looper can find in its connected sources (sheet, Stripe, Gmail…) into its
+ * database. Designs the table first if needed. Logged as a "Fill database" run on the calendar.
+ */
+export async function fillDatabase(uid: string, looperId: string, trigger: Run["trigger"] = "manual") {
+  // A mission or skill that points at a Google Sheet needs the Google Sheets app.
+  const before = await read(uid);
+  const looper = before.loopers.find((l) => l.id === looperId);
+  if (!looper) throw new Error("Looper not found");
+  const text = [looper.mission, ...looper.skills.map((s) => s.instructions)].join(" ");
+  if (SHEETS_URL.test(text) && !looper.apps?.some((a) => a.slug === "googlesheets")) {
+    const [sheets] = await resolveApps([{ slug: "googlesheets", name: "Google Sheets", via: "composio" as const }]);
+    await mutate(uid, (d) => {
+      const l = d.loopers.find((x) => x.id === looperId);
+      if (l && !l.apps?.some((a) => a.slug === sheets.slug)) l.apps = [...(l.apps ?? []), sheets];
+    });
+  }
+
+  const table = (await readDatabase(uid, looperId)) ?? (await designDatabase(uid, looperId));
+  const skill: Skill = {
+    id: "fill-database",
+    name: "Fill database",
+    kind: "work",
+    schedule: { type: "manual", time: "09:00", days: [] },
+    instructions: [
+      `Fill your database "${table.name}" (one row = one ${table.rowNoun}) from your real sources: every app and file named in your mission and skills.`,
+      `Cover the current period your mission is about (e.g. the current VAT quarter). Read the source in full, page by page.`,
+      `Before adding, run db_query to see what's already there and never add a ${table.rowNoun} twice. Add rows in batches of up to 100 with db_add_rows, filling every column you can; leave unknown values empty rather than guessing.`,
+      `If a source you need isn't connected or can't be read, don't invent rows: add a kanban card for the owner (for: 'you') saying exactly what to connect or share.`,
+      `End with how many rows you added, from which sources, and what's still missing.`,
+    ].join("\n"),
+  };
+  return runSkill(uid, looperId, skill.id, trigger, skill, 60);
 }

@@ -6,6 +6,8 @@ import {
   addDbRow,
   createLooperDatabase,
   deleteDbColumn,
+  fillLooperDatabase,
+  latestFillRun,
   deleteDbRow,
   generateLooperDatabase,
   getLooperDatabase,
@@ -66,14 +68,43 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
   const [designing, setDesigning] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const designStarted = useRef(false);
+  const [fillingUntil, setFillingUntil] = useState(0);
+  const [fillStartedAt, setFillStartedAt] = useState("");
+  const [fillResult, setFillResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const filling = fillingUntil > 0;
 
   const load = useCallback(() => getLooperDatabase(looperId).then(setDb).catch((e) => setError(String(e?.message ?? e))), [looperId]);
   useEffect(() => {
     load();
-    // Loopers write rows while they run; refresh now and then.
-    const t = setInterval(load, 15000);
+    // Loopers write rows while they run; refresh now and then (often while a fill runs).
+    const t = setInterval(() => {
+      load();
+      setFillingUntil((u) => (u && Date.now() > u ? 0 : u));
+      if (filling)
+        latestFillRun(looperId).then((r) => {
+          // Our fill has finished once a fill run started after we asked is no longer running.
+          if (r && r.startedAt >= fillStartedAt && r.status !== "running") {
+            setFillingUntil(0);
+            setFillResult({ ok: r.status === "success", text: r.summary });
+          }
+        });
+    }, filling ? 4000 : 15000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, filling, looperId, fillStartedAt]);
+
+  const beginFilling = () => {
+    setFillResult(null);
+    setFillStartedAt(new Date(Date.now() - 5000).toISOString());
+    setFillingUntil(Date.now() + 5 * 60_000);
+  };
+
+  const startFill = () => {
+    setError(null);
+    fillLooperDatabase(looperId).then((r) => {
+      if ("error" in r) setError(r.error);
+      else beginFilling();
+    });
+  };
 
   const design = () => {
     setError(null);
@@ -81,7 +112,10 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
     setDesigning(true);
     generateLooperDatabase(looperId)
       .then((r) => {
-        if ("db" in r) setDb(r.db);
+        if ("db" in r) {
+          setDb(r.db);
+          if (r.filling) beginFilling();
+        }
         else {
           setError(r.error);
           setShowTemplates(true);
@@ -210,12 +244,30 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
             placeholder="Search"
             className="h-8 w-40 rounded-[8px] bg-black/[0.04] px-3 text-[0.8125rem] outline-none placeholder:text-faint focus:bg-white focus:ring-2 focus:ring-blue/30"
           />
+          <Button size="sm" variant="soft" onClick={startFill} disabled={filling}>
+            {filling ? "Filling…" : "Fill from sources"}
+          </Button>
           <Button size="sm" onClick={() => run(addDbRow(looperId))}>
             New
           </Button>
         </div>
       </div>
       {error && <div className="mx-6 mb-3 rounded-[10px] bg-red/8 px-3 py-2 text-[0.8125rem] text-red">{error}</div>}
+      {fillResult && !filling && (
+        <div className={cx("mx-6 mb-3 whitespace-pre-wrap rounded-[12px] px-3 py-2 text-[0.8125rem]", fillResult.ok ? "bg-green/10 text-green-deep" : "bg-red/8 text-red")}>
+          <div className="mb-0.5 font-semibold">{fillResult.ok ? `${looperName} finished filling` : `${looperName} couldn't fill the database`}</div>
+          {fillResult.text.slice(0, 1200)}
+          <button onClick={() => setFillResult(null)} className="ml-2 underline opacity-70">
+            Dismiss
+          </button>
+        </div>
+      )}
+      {filling && (
+        <div className="mx-6 mb-3 flex items-center gap-3 rounded-[12px] bg-blue/[0.07] px-3 py-2 text-[0.8125rem] text-ink-2">
+          <Bot color={color} size={22} seed={looperId} />
+          {looperName} is reading the sources and adding {db.rowNoun}s. Rows appear here as they&apos;re added; it can take a few minutes. Anything missing lands on the Kanban as a card for you.
+        </div>
+      )}
 
       <div className="overflow-x-auto border-t border-line">
         <table className="w-max min-w-full border-collapse text-[0.875rem]">

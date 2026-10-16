@@ -1,3 +1,6 @@
+// Server actions on this page can run a looper (model calls + tools), so allow the full 5 minutes.
+export const maxDuration = 300;
+
 import Link from "next/link";
 import { connection } from "next/server";
 import { getState } from "./actions";
