@@ -8,6 +8,7 @@ import { occurrences } from "@/lib/schedule";
 import type { Card, ChiefMessage, Looper, PublicSettings, Retro, Run } from "@/lib/types";
 import { cardAssignee } from "@/lib/types";
 import { AppsPanel } from "./apps-panel";
+import { CanvasBoard } from "./canvas-board";
 import { ChatPanel } from "./chat-panel";
 import { CalendarView } from "./calendar";
 import { DatabaseView } from "./database-view";
@@ -18,9 +19,9 @@ import { SkillsPanel } from "./skills-panel";
 import { Button, cx, fmt } from "./ui";
 import { useNow } from "./use-now";
 
-const TABS = ["chat", "metric", "board", "calendar", "database", "skills", "retro", "apps"] as const;
+const TABS = ["chat", "metric", "board", "calendar", "database", "canvas", "skills", "retro", "apps"] as const;
 type Tab = (typeof TABS)[number];
-const LABELS: Record<Tab, string> = { chat: "Chat", metric: "Metric", board: "Kanban", calendar: "Calendar", database: "Database", skills: "Skills", retro: "Retro", apps: "Apps" };
+const LABELS: Record<Tab, string> = { chat: "Chat", metric: "Metric", board: "Kanban", calendar: "Calendar", database: "Database", canvas: "Canvas", skills: "Skills", retro: "Retro", apps: "Apps" };
 
 export function LooperView(props: {
   looper: Looper;
@@ -71,13 +72,14 @@ export function LooperView(props: {
     board: forYou.length ? `${forYou.length} for you: ${forYou[0].title}` : doing ? doing.title : "No open cards",
     calendar: next ? `${next.s.name}, ${when(next.at)}` : looper.status === "paused" ? "Paused" : "Nothing scheduled",
     database: database ? `${database.rows} ${database.rowNoun}${database.rows === 1 ? "" : "s"}` : "Designs itself when opened",
+    canvas: "References, notes and images",
     skills: `Core instructions · ${looper.skills.length} skills`,
     retro: lastRetro ? `Last: ${lastRetro.effectiveness}/5 effective` : "First retro after a week",
     apps: looper.apps?.length ? looper.apps.map((a) => a.name).join(", ") : "No apps yet",
   };
 
   return (
-    <div className={cx("flex flex-col", tab === "chat" && "h-[calc(100dvh-58px)] lg:h-dvh")}>
+    <div className={cx("flex flex-col", (tab === "chat" || tab === "canvas") && "h-[calc(100dvh-58px)] lg:h-dvh")}>
       <header className="sticky top-0 z-20 flex items-end gap-3 border-b border-ink/[0.05] bg-page/85 px-4 pt-3 backdrop-blur-xl sm:px-6">
         <nav className="-mb-px flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label={`${looper.name} sections`}>
           {TABS.map((t) => (
@@ -122,6 +124,10 @@ export function LooperView(props: {
       {tab === "chat" ? (
         <div className="min-h-0 flex-1">
           <LooperChat looper={looper} messages={props.chat} runs={runs} ready={props.ready} />
+        </div>
+      ) : tab === "canvas" ? (
+        <div className="min-h-0 flex-1">
+          <CanvasBoard looper={{ id: looper.id, name: looper.name, color: looper.color }} running={running} />
         </div>
       ) : (
         <div className="min-w-0 px-4 py-6 sm:px-6">

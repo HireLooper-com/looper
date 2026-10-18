@@ -137,3 +137,13 @@ button.tile:hover {
 :focus:not(:focus-visible) {
   outline: none;
 }
+
+/* Infinite canvas: a dot grid that pans and zooms with the content (size/position set inline). */
+.canvas-surface {
+  background-color: var(--color-page);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--color-ink) 16%, transparent) 1px, transparent 1.3px);
+}
+.canvas-note {
+  background: var(--color-panel);
+  box-shadow: var(--tile-shadow), inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 6%, transparent);
+}

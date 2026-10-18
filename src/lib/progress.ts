@@ -68,6 +68,14 @@ export function describeTool(name: string, input: unknown): string {
       return `Updating ${Array.isArray(i.updates) ? i.updates.length : ""} rows in the database`;
     case "db_add_column":
       return `Adding a column “${str(i.name)}”`;
+    case "canvas_read":
+      return "Looking at the canvas";
+    case "canvas_add":
+      return `Pinning ${Array.isArray(i.items) && i.items.length > 1 ? `${i.items.length} items` : "an item"} to the canvas`;
+    case "canvas_update":
+      return "Editing a canvas item";
+    case "canvas_remove":
+      return "Tidying the canvas";
     case "kanban_list":
       return "Looking at the board";
     case "kanban_add_card":

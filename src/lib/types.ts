@@ -256,3 +256,28 @@ export function cardAssignee(c: Pick<Card, "assignee" | "createdBy" | "title">):
   if (c.assignee) return c.assignee;
   return c.createdBy === "chief" && /^(review|confirm|connect|approve|decide|check|provide|share)\b/i.test(c.title.trim()) ? "you" : "looper";
 }
+
+/** An item on a looper's infinite canvas. Coordinates are canvas units; the view pans and zooms over them. */
+export type CanvasItemKind = "note" | "text" | "image" | "link";
+export interface CanvasItem {
+  id: string;
+  kind: CanvasItemKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** note/text body, image caption */
+  text?: string;
+  /** image source: an uploaded image (/api/canvas/…) or a web URL */
+  src?: string;
+  /** link target */
+  url?: string;
+  /** link title and preview image, when the page had them */
+  title?: string;
+  image?: string;
+  by: "you" | "looper";
+  at: string;
+}
+export interface LooperCanvas {
+  items: CanvasItem[];
+}

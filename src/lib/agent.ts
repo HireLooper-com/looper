@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { after } from "next/server";
 import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
+import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
 import { composioTools, resolveApps } from "./composio";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
@@ -268,7 +269,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
     const hasExternal = Object.keys(ext.tools).length > 0;
     // A looper without a database designs one before it works, so its results land in rows.
     const table = (await readDatabase(uid, looper.id)) ?? (await designDatabase(uid, looper.id).catch(() => null));
-    const database = describeDatabase(table);
+    const database = [describeDatabase(table), describeCanvas(await readCanvas(uid, looper.id))].filter(Boolean).join("\n\n");
     const result = await callModel(uid, db.settings, {
       instructions: looperBrief(db, looper, database),
       prompt: [
@@ -277,7 +278,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
         ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Apps tab.` : "",
       ].join("\n\n"),
-      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id) },
+      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id) },
       external: ext.tools,
       maxSteps,
       progress: live.push,
@@ -546,7 +547,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           actions.push(`Retired ${l.name}`);
           return { id: l.id };
         }).then(async ({ id }) => {
-          await deleteDatabase(uid, id);
+          await Promise.all([deleteDatabase(uid, id), deleteCanvas(uid, id)]);
           return { ok: true };
         }),
     }),
@@ -818,7 +819,7 @@ export async function looperChatReply(uid: string, looperId: string, userText: s
     };
     const result = await callModel(uid, db.settings, {
       instructions: [
-        looperBrief(db, looper, describeDatabase(table)),
+        looperBrief(db, looper, [describeDatabase(table), describeCanvas(await readCanvas(uid, looperId))].filter(Boolean).join("\n\n")),
         `You're chatting with your owner. Answer as ${looper.name}, briefly and concretely, in first person. Use your tools to look things up instead of guessing; you can change your own instructions and skills when asked.`,
         runs.length ? `Your latest runs:\n${runs.map((r) => `- ${r.startedAt.slice(0, 16)} ${r.skillName} [${r.status}]: ${r.summary.slice(0, 600)}`).join("\n")}` : "",
         ext.connected.length ? `Connected apps: ${ext.connected.join(", ")}.` : "No apps connected yet.",
@@ -826,7 +827,7 @@ export async function looperChatReply(uid: string, looperId: string, userText: s
         .filter(Boolean)
         .join("\n\n"),
       messages: history.map((m) => ({ role: m.role, content: m.content })),
-      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...own },
+      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...own },
       external: ext.tools,
       maxSteps: 20,
       progress: live.push,
