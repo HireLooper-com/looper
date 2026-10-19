@@ -26,6 +26,7 @@ function empty(): DB {
     retros: [],
     chief: [],
     chats: {},
+    asks: [],
   };
 }
 

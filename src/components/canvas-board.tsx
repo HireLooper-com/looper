@@ -2,6 +2,7 @@
 
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { askLooper } from "@/app/actions";
 import { getCanvas, linkPreview, patchCanvas } from "@/app/canvas-actions";
 import type { Accent, CanvasItem } from "@/lib/types";
 import { Bot, cx } from "./ui";
@@ -9,8 +10,9 @@ import { Bot, cx } from "./ui";
 type View = { x: number; y: number; z: number };
 type Gesture =
   | { type: "pan"; sx: number; sy: number; vx: number; vy: number }
-  | { type: "move"; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean }
-  | { type: "resize"; id: string; sx: number; sy: number; ow: number; oh: number; ratio?: number };
+  | { type: "move"; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; kids: { id: string; ox: number; oy: number }[] }
+  | { type: "resize"; id: string; sx: number; sy: number; ow: number; oh: number; ratio?: number }
+  | { type: "connect"; from: string };
 
 const MIN_Z = 0.1;
 const MAX_Z = 4;
@@ -19,7 +21,23 @@ const SIZES: Record<CanvasItem["kind"], { w: number; h: number }> = {
   text: { w: 320, h: 80 },
   image: { w: 320, h: 240 },
   link: { w: 300, h: 96 },
+  frame: { w: 560, h: 360 },
+  arrow: { w: 0, h: 0 },
 };
+const solid = (i: CanvasItem) => i.kind !== "arrow";
+/** Items lying fully inside a frame move with it. */
+const inside = (f: CanvasItem, i: CanvasItem) => i.id !== f.id && solid(i) && i.kind !== "frame" && i.x >= f.x && i.y >= f.y && i.x + i.w <= f.x + f.w && i.y + i.h <= f.y + f.h;
+
+/** Where the line from a's centre towards b leaves a's box. */
+function edgePoint(a: CanvasItem, b: CanvasItem) {
+  const cx = a.x + a.w / 2;
+  const cy = a.y + a.h / 2;
+  const dx = b.x + b.w / 2 - cx;
+  const dy = b.y + b.h / 2 - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const t = Math.min(Math.abs(a.w / 2 / (dx || 1e-9)), Math.abs(a.h / 2 / (dy || 1e-9)));
+  return { x: cx + dx * t, y: cy + dy * t };
+}
 const clampZ = (z: number) => Math.min(MAX_Z, Math.max(MIN_Z, z));
 const now = () => new Date().toISOString();
 const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim());
@@ -59,7 +77,7 @@ function naturalSize(src: string) {
 /** The nearest spot to `at` (an item's centre) where a w×h item doesn't cover anything. */
 function freeSpot(items: CanvasItem[], at: { x: number; y: number }, w: number, h: number) {
   const gap = 24;
-  const hits = (x: number, y: number) => items.some((i) => x < i.x + i.w + gap && x + w + gap > i.x && y < i.y + i.h + gap && y + h + gap > i.y);
+  const hits = (x: number, y: number) => items.some((i) => solid(i) && x < i.x + i.w + gap && x + w + gap > i.x && y < i.y + i.h + gap && y + h + gap > i.y);
   const x0 = at.x - w / 2;
   const y0 = at.y - h / 2;
   for (let ring = 0; ring < 40; ring++) {
@@ -84,12 +102,14 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
   const [editing, setEditing] = useState<string | null>(null);
   const [linkBox, setLinkBox] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [wire, setWire] = useState<{ from: string; x: number; y: number } | null>(null);
+  const [building, setBuilding] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const itemsRef = useRef<CanvasItem[]>([]);
   const viewRef = useRef(view);
-  const fitted = useRef(false);
+  const fitted = useRef<boolean | "empty">(false);
   // Unsaved edits, sent in one batch shortly after the last change.
   const dirty = useRef(new Set<string>());
   const removed = useRef(new Set<string>());
@@ -159,9 +179,12 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
 
   const remove = useCallback(
     (id: string) => {
-      setItems((prev) => (prev ?? []).filter((i) => i.id !== id));
-      dirty.current.delete(id);
-      removed.current.add(id);
+      const attached = itemsRef.current.filter((i) => i.kind === "arrow" && (i.from === id || i.to === id)).map((i) => i.id);
+      for (const x of [id, ...attached]) {
+        dirty.current.delete(x);
+        removed.current.add(x);
+      }
+      setItems((prev) => (prev ?? []).filter((i) => i.id !== id && !attached.includes(i.id)));
       setSelected((s) => (s === id ? null : s));
       schedule();
     },
@@ -176,14 +199,14 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
         .then((c) => alive && merge(c.items))
         .catch((e) => alive && setNotice(String(e?.message ?? e)));
     load();
-    const t = running ? setInterval(load, 4000) : undefined;
+    const t = running || building ? setInterval(load, 3000) : undefined;
     window.addEventListener("focus", load);
     return () => {
       alive = false;
       if (t) clearInterval(t);
       window.removeEventListener("focus", load);
     };
-  }, [looper.id, running, merge]);
+  }, [looper.id, running, building, merge]);
 
   // Save what's pending when leaving the tab.
   useEffect(() => () => void flush(), [flush]);
@@ -199,7 +222,8 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
     return toCanvas(r.left + r.width / 2, r.top + r.height / 2);
   }, [toCanvas]);
 
-  const fit = useCallback((list: CanvasItem[]) => {
+  const fit = useCallback((all: CanvasItem[]) => {
+    const list = all.filter(solid);
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
     if (!list.length) return setView({ x: r.width / 2 - 110, y: r.height / 2 - 100, z: 1 });
@@ -211,10 +235,10 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
     setView({ x: (r.width - (maxX - minX) * z) / 2 - minX * z, y: (r.height - 60 - (maxY - minY) * z) / 2 - minY * z, z });
   }, []);
 
-  // Frame everything the first time the canvas loads.
+  // Frame everything the first time the canvas loads, and when a board appears on an empty canvas.
   useEffect(() => {
-    if (items && !fitted.current) {
-      fitted.current = true;
+    if (items && (!fitted.current || (fitted.current === "empty" && items.length))) {
+      fitted.current = items.length ? true : "empty";
       fit(items);
     }
   }, [items, fit]);
@@ -283,7 +307,7 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
   );
 
   const addText = useCallback(
-    (kind: "note" | "text", at?: { x: number; y: number }, text = "") => {
+    (kind: "note" | "text" | "frame", at?: { x: number; y: number }, text = "") => {
       const p = at ?? center();
       const s = SIZES[kind];
       const item = add({ kind, x: p.x - s.w / 2, y: p.y - s.h / 2, ...s, text }, !at);
@@ -291,6 +315,20 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
       if (!text) setEditing(item.id);
     },
     [add, center],
+  );
+
+  /** Ask the looper to lay out a board; its pins appear as it works. */
+  const build = useCallback(
+    (what: string) => {
+      setBuilding(true);
+      setNotice(`${looper.name} is building the board…`);
+      askLooper(looper.id, `Build a board on your canvas: ${what}. Use frames to group things and arrows where things relate. Tell me briefly what you pinned.`)
+        .then(() => getCanvas(looper.id).then((c) => merge(c.items)))
+        .then(() => setNotice(null))
+        .catch((e) => setNotice(String(e?.message ?? e)))
+        .finally(() => setBuilding(false));
+    },
+    [looper.id, looper.name, merge],
   );
 
   // Paste images, links or text straight onto the canvas.
@@ -321,14 +359,14 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
       } else if (e.key === "Escape") setSelected(null);
       else if (e.key === "Enter") {
         const it = itemsRef.current.find((i) => i.id === selected);
-        if (it && it.kind !== "link") {
+        if (it && it.kind !== "link" && it.kind !== "arrow") {
           e.preventDefault();
           setEditing(it.id);
         }
       } else if (e.key === "d" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         const it = itemsRef.current.find((i) => i.id === selected);
-        if (it) {
+        if (it && it.kind !== "arrow") {
           setSelected(add({ kind: it.kind, w: it.w, h: it.h, text: it.text, src: it.src, url: it.url, title: it.title, image: it.image, x: it.x + 24, y: it.y + 24 }, false).id);
         }
       }
@@ -342,7 +380,21 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
     const target = e.target as HTMLElement;
     if (target.closest("[data-ui]")) return;
     const handle = target.closest<HTMLElement>("[data-resize]");
+    const connector = target.closest<HTMLElement>("[data-connect]");
+    const arrow = target.closest<SVGElement>("[data-arrow]");
     const el = target.closest<HTMLElement>("[data-item]");
+    if (arrow) {
+      setSelected(arrow.dataset.arrow ?? null);
+      setEditing(null);
+      return;
+    }
+    if (connector && el) {
+      box.current!.setPointerCapture(e.pointerId);
+      gesture.current = { type: "connect", from: el.dataset.item! };
+      const p = toCanvas(e.clientX, e.clientY);
+      setWire({ from: el.dataset.item!, ...p });
+      return;
+    }
     if (el && editing === el.dataset.item && !handle) return; // typing: let the textarea have it
     setLinkBox(null);
     box.current!.setPointerCapture(e.pointerId);
@@ -353,7 +405,16 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
       if (editing && editing !== it.id) setEditing(null);
       gesture.current = handle
         ? { type: "resize", id: it.id, sx: e.clientX, sy: e.clientY, ow: it.w, oh: it.h, ratio: it.kind === "image" ? it.w / it.h : undefined }
-        : { type: "move", id: it.id, sx: e.clientX, sy: e.clientY, ox: it.x, oy: it.y, moved: false };
+        : {
+            type: "move",
+            id: it.id,
+            sx: e.clientX,
+            sy: e.clientY,
+            ox: it.x,
+            oy: it.y,
+            moved: false,
+            kids: it.kind === "frame" ? itemsRef.current.filter((k) => inside(it, k)).map((k) => ({ id: k.id, ox: k.x, oy: k.y })) : [],
+          };
     } else {
       setSelected(null);
       setEditing(null);
@@ -364,6 +425,10 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
   const onPointerMove = (e: React.PointerEvent) => {
     const g = gesture.current;
     if (!g) return;
+    if (g.type === "connect") {
+      const p = toCanvas(e.clientX, e.clientY);
+      return setWire({ from: g.from, ...p });
+    }
     const dx = e.clientX - g.sx;
     const dy = e.clientY - g.sy;
     if (g.type === "pan") return setView((v) => ({ ...v, x: g.vx + dx, y: g.vy + dy }));
@@ -371,7 +436,14 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
     if (g.type === "move") {
       if (!g.moved && Math.hypot(dx, dy) < 3) return;
       g.moved = true;
-      setItems((prev) => (prev ?? []).map((i) => (i.id === g.id ? { ...i, x: g.ox + dx / z, y: g.oy + dy / z } : i)));
+      const kids = new Map(g.kids.map((k) => [k.id, k]));
+      setItems((prev) =>
+        (prev ?? []).map((i) => {
+          if (i.id === g.id) return { ...i, x: g.ox + dx / z, y: g.oy + dy / z };
+          const k = kids.get(i.id);
+          return k ? { ...i, x: k.ox + dx / z, y: k.oy + dy / z } : i;
+        }),
+      );
     } else {
       const w = Math.max(60, g.ow + dx / z);
       const h = g.ratio ? w / g.ratio : Math.max(40, g.oh + dy / z);
@@ -379,11 +451,24 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
     const g = gesture.current;
     gesture.current = null;
+    if (g?.type === "connect") {
+      setWire(null);
+      // Drop on another item to connect them.
+      const hit = document
+        .elementsFromPoint(e.clientX, e.clientY)
+        .map((n) => (n as HTMLElement).closest?.("[data-item]") as HTMLElement | null)
+        .find((n) => n && n.dataset.item !== g.from);
+      const to = hit?.dataset.item;
+      if (to && !itemsRef.current.some((i) => i.kind === "arrow" && i.from === g.from && i.to === to))
+        setSelected(add({ kind: "arrow", x: 0, y: 0, w: 0, h: 0, from: g.from, to }, false).id);
+      return;
+    }
     if (g && (g.type === "resize" || (g.type === "move" && g.moved))) {
       dirty.current.add(g.id);
+      if (g.type === "move") g.kids.forEach((k) => dirty.current.add(k.id));
       schedule();
     }
   };
@@ -395,7 +480,8 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
     if (el) {
       const it = itemsRef.current.find((i) => i.id === el.dataset.item);
       if (it?.kind === "link" && it.url) window.open(it.url, "_blank", "noopener");
-      else if (it) setEditing(it.id);
+      else if (it && it.kind !== "frame") setEditing(it.id);
+      else if (it) addText("note", toCanvas(e.clientX, e.clientY));
       return;
     }
     addText("note", toCanvas(e.clientX, e.clientY));
@@ -428,7 +514,19 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
       onContextMenu={(e) => e.target === box.current && e.preventDefault()}
     >
       <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
-        {(items ?? []).map((it) => (
+        {(items ?? []).filter((i) => i.kind === "frame").map((it) => (
+          <Frame
+            key={it.id}
+            it={it}
+            selected={selected === it.id}
+            editing={editing === it.id}
+            onTitle={(text) => change(it.id, { text })}
+            onEdit={() => setEditing(it.id)}
+            onDone={() => setEditing(null)}
+          />
+        ))}
+        <Arrows items={items ?? []} selected={selected} wire={wire} />
+        {(items ?? []).filter((i) => i.kind !== "frame" && i.kind !== "arrow").map((it) => (
           <Item
             key={it.id}
             it={it}
@@ -445,16 +543,7 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
         ))}
       </div>
 
-      {items && items.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
-          <div className="max-w-sm text-center">
-            <div className="text-[1.125rem] font-semibold tracking-[-0.01em]">{looper.name}&apos;s canvas</div>
-            <p className="mt-2 text-[0.9375rem] leading-relaxed text-mute">
-              Pin references for {looper.name}: notes, links, screenshots, examples. Double-click to write, or paste and drop images and links. {looper.name} reads what you put here and can pin things too.
-            </p>
-          </div>
-        </div>
-      )}
+      {items && items.length === 0 && !building && <EmptyCanvas name={looper.name} onNote={() => addText("note")} onImage={() => fileInput.current?.click()} onLink={() => setLinkBox("")} onBuild={build} />}
 
       {notice && (
         <div data-ui className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full bg-panel px-4 py-2 text-[0.8125rem] shadow-[var(--tile-shadow)]">
@@ -495,6 +584,9 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
         </Tool>
         <Tool label="Text" onClick={() => addText("text")}>
           <path d="M4 5V3.5h12V5 M10 3.5V17 M7.5 17h5" />
+        </Tool>
+        <Tool label="Frame" onClick={() => addText("frame", undefined, "Untitled")}>
+          <path d="M3 5.5h14v11H3z M3 5.5V3.5h6v2" />
         </Tool>
         <Tool label="Image" onClick={() => fileInput.current?.click()}>
           <path d="M3 4h14v12H3z M3 13l4-4 3 3 2-2 5 5" />
@@ -640,8 +732,124 @@ function Item(props: {
       </div>
 
       {selected && !editing && (
-        <div data-resize className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full border-2 border-page bg-ink" />
+        <>
+          <div data-resize className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full border-2 border-page bg-ink" />
+          <div
+            data-connect
+            title="Drag to another item to connect"
+            className="absolute -right-5 top-1/2 flex h-5 w-5 -translate-y-1/2 cursor-crosshair items-center justify-center rounded-full bg-ink text-[0.625rem] text-page shadow"
+          >
+            →
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+/** A titled area behind items; drag it by the title and what's inside comes along. */
+function Frame(props: { it: CanvasItem; selected: boolean; editing: boolean; onTitle: (t: string) => void; onEdit: () => void; onDone: () => void }) {
+  const { it, selected, editing } = props;
+  return (
+    <div className="pointer-events-none absolute" style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
+      <div className={cx("absolute inset-0 rounded-[22px] bg-ink/[0.025] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-ink)_9%,transparent)]", selected && "shadow-[inset_0_0_0_2px_color-mix(in_srgb,var(--color-ink)_45%,transparent)]")} />
+      <div data-item={it.id} className="pointer-events-auto absolute -top-8 left-1 flex h-7 max-w-full cursor-grab items-center rounded-full px-2 active:cursor-grabbing">
+        {editing ? (
+          <input
+            autoFocus
+            defaultValue={it.text ?? ""}
+            onChange={(e) => props.onTitle(e.target.value)}
+            onBlur={props.onDone}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === "Escape") && (e.target as HTMLInputElement).blur()}
+            className="w-64 bg-transparent text-[0.9375rem] font-semibold outline-none"
+          />
+        ) : (
+          <span onDoubleClick={props.onEdit} className="truncate text-[0.9375rem] font-semibold text-ink-2">
+            {it.text || "Untitled"}
+          </span>
+        )}
+      </div>
+      {selected && !editing && (
+        <div data-item={it.id} className="pointer-events-auto absolute -bottom-1.5 -right-1.5">
+          <div data-resize className="h-3.5 w-3.5 cursor-nwse-resize rounded-full border-2 border-page bg-ink" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Arrows between items, plus the one being drawn. Click a line to select it. */
+function Arrows({ items, selected, wire }: { items: CanvasItem[]; selected: string | null; wire: { from: string; x: number; y: number } | null }) {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const lines = items
+    .filter((i) => i.kind === "arrow")
+    .map((a) => {
+      const f = byId.get(a.from ?? "");
+      const t = byId.get(a.to ?? "");
+      if (!f || !t) return null;
+      return { a, p: edgePoint(f, t), q: edgePoint(t, f) };
+    })
+    .filter((x) => x !== null);
+  const src = wire && byId.get(wire.from);
+  const pin = { id: "", kind: "note", x: wire?.x ?? 0, y: wire?.y ?? 0, w: 0, h: 0, by: "you", at: "" } as CanvasItem;
+  return (
+    <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1" aria-hidden>
+      <defs>
+        <marker id="canvas-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 10 5 0 10z" fill="var(--color-mute)" />
+        </marker>
+      </defs>
+      {lines.map(({ a, p, q }) => (
+        <g key={a.id}>
+          <line x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke={selected === a.id ? "var(--color-ink)" : "var(--color-mute)"} strokeWidth={selected === a.id ? 2.25 : 1.5} markerEnd="url(#canvas-arrow)" />
+          <line data-arrow={a.id} x1={p.x} y1={p.y} x2={q.x} y2={q.y} stroke="transparent" strokeWidth="14" className="pointer-events-auto cursor-pointer" />
+          {a.text && (
+            <text x={(p.x + q.x) / 2} y={(p.y + q.y) / 2 - 6} textAnchor="middle" fontSize="12" fill="var(--color-mute)">
+              {a.text}
+            </text>
+          )}
+        </g>
+      ))}
+      {src && (
+        <line x1={edgePoint(src, pin).x} y1={edgePoint(src, pin).y} x2={wire.x} y2={wire.y} stroke="var(--color-ink)" strokeWidth="1.5" strokeDasharray="4 4" markerEnd="url(#canvas-arrow)" />
+      )}
+    </svg>
+  );
+}
+
+/** Two lines and a way in: write, add a reference, or have the looper lay out a board. */
+function EmptyCanvas({ name, onNote, onImage, onLink, onBuild }: { name: string; onNote: () => void; onImage: () => void; onLink: () => void; onBuild: (what: string) => void }) {
+  const [what, setWhat] = useState("");
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
+      <div data-ui className="pointer-events-auto fade-up w-full max-w-md text-center">
+        <div className="text-[1.25rem] font-semibold tracking-[-0.02em]">References for {name}</div>
+        <p className="mt-1 text-[0.9375rem] text-mute">Pin notes, links and screenshots. {name} reads them and can pin things too.</p>
+        <div className="mt-5 flex justify-center gap-2">
+          {[
+            ["Note", onNote],
+            ["Image", onImage],
+            ["Link", onLink],
+          ].map(([label, fn]) => (
+            <button key={label as string} onClick={fn as () => void} className="rounded-full bg-ink/[0.06] px-4 py-2 text-[0.875rem] font-medium hover:bg-ink/[0.1]">
+              {label as string}
+            </button>
+          ))}
+        </div>
+        <form
+          className="mt-6 flex gap-2 rounded-full bg-panel p-1 pl-4 shadow-[var(--tile-shadow)]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (what.trim()) onBuild(what.trim());
+          }}
+        >
+          <input value={what} onChange={(e) => setWhat(e.target.value)} placeholder={`Ask ${name} to map something…`} className="min-w-0 flex-1 bg-transparent text-[0.875rem] outline-none placeholder:text-faint" />
+          <button disabled={!what.trim()} className="rounded-full bg-blue px-4 py-1.5 text-[0.8125rem] font-medium text-page disabled:opacity-40">
+            Build
+          </button>
+        </form>
+        <p className="mt-2 text-[0.75rem] text-faint">e.g. “my top 5 competitors and how they price”</p>
+      </div>
     </div>
   );
 }

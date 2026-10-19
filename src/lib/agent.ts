@@ -12,7 +12,7 @@ import { getModel, hasCredentials } from "./llm";
 import { describeTool, progressWriter } from "./progress";
 import { describeSchedule, isDue } from "./schedule";
 import { appFromName } from "./apps";
-import type { AppRef, Card, Column, DB, DbValue, Looper, Retro, Run, Settings, Skill, ToolCallLog } from "./types";
+import type { AppRef, Ask, Card, Column, DB, DbValue, Looper, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -137,6 +137,18 @@ function metricLine(l: Looper) {
   return `${l.metric.name}: ${last ? `${last.value} ${l.metric.unit}` : "no reading yet"} (target ${l.metric.target} ${l.metric.unit}, ${l.metric.direction === "up" ? "higher is better" : "lower is better"})`;
 }
 
+function asksLine(db: DB, looperId: string) {
+  const asks = db.asks.filter((a) => a.looperId === looperId);
+  const open = asks.filter((a) => a.status === "open");
+  const answered = asks.filter((a) => a.status === "answered").slice(-5);
+  return [
+    open.length ? `Waiting on the owner (don't ask again):\n${open.map((a) => `- ${a.question}`).join("\n")}` : "",
+    answered.length ? `The owner's recent answers:\n${answered.map((a) => `- ${a.question} → ${a.answer}`).join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function looperBrief(db: DB, l: Looper, database = "") {
   const cards = db.cards.filter((c) => c.looperId === l.id && c.column !== "done");
   const retro = db.retros.filter((r) => r.looperId === l.id).at(-1);
@@ -146,10 +158,11 @@ function looperBrief(db: DB, l: Looper, database = "") {
     `Your metric — ${metricLine(l)}. Everything you do should move this number.`,
     `Recent metric history: ${l.metric.history.slice(-8).map((p) => `${p.at.slice(0, 10)}=${p.value}`).join(", ") || "none"}.`,
     `Open kanban cards:\n${cards.map((c) => `- [${c.column}]${c.assignee === "you" ? " (waiting on the owner)" : ""} ${c.id}: ${c.title}`).join("\n") || "- none"}`,
+    asksLine(db, l.id),
     retro ? `Your last retro said to try next:\n${retro.tryNext.map((t) => `- ${t}`).join("\n")}` : "",
     `Your skills: ${l.skills.map((s) => `${s.name} (${describeSchedule(s.schedule)})`).join("; ")}.`,
     database,
-    "Work rules: keep your kanban board current (add cards for work you plan, move them as you go). When you learn the latest metric value from a real source, record it with metric_record. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. Finish with a 2–4 sentence summary of what you did and what changed.",
+    "Work rules: keep your kanban board current (add cards for work you plan, move them as you go). When you learn the latest metric value from a real source, record it with metric_record. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. When only the owner can decide something, ask with ask_owner (tappable options) instead of guessing, and never send, publish, file, pay or delete without an approved ask_owner approval; keep kanban cards for: 'you' for real tasks that take the owner more than a tap. Finish with a 2–4 sentence summary of what you did and what changed.",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -211,6 +224,56 @@ function logToolCalls(steps: { content: { type: string; toolName?: string }[] }[
       .filter((p) => (p.type === "tool-result" || p.type === "tool-error") && p.toolName !== "find_tools")
       .map((p) => ({ name: p.toolName ?? "tool", ok: p.type === "tool-result" })),
   );
+}
+
+type StepLike = { content: { type: string; toolName?: string; input?: unknown }[] };
+
+/** What a run changed, counted from its successful tool calls. */
+function runStats(steps: StepLike[]): RunStats {
+  const stats: RunStats = {};
+  const bump = (k: keyof RunStats, n = 1) => (stats[k] = (stats[k] ?? 0) + n);
+  const results = new Set(steps.flatMap((s) => s.content.filter((p) => p.type === "tool-result").map((p) => (p as { toolCallId?: string }).toolCallId)));
+  for (const s of steps)
+    for (const p of s.content) {
+      if (p.type !== "tool-call" || !results.has((p as { toolCallId?: string }).toolCallId)) continue;
+      const input = (p.input ?? {}) as Record<string, unknown>;
+      const len = (k: string) => (Array.isArray(input[k]) ? (input[k] as unknown[]).length : 1);
+      if (p.toolName === "db_add_rows") bump("rows", len("rows"));
+      else if (p.toolName === "kanban_add_card") bump("cards");
+      else if (p.toolName === "kanban_move_card") bump("moved");
+      else if (p.toolName === "canvas_add") bump("pins", len("items"));
+      else if (p.toolName === "metric_record") stats.metric = Number(input.value);
+      if (p.toolName !== "find_tools") bump("tools");
+    }
+  return stats;
+}
+
+// ——— Asking the owner ———
+
+/** Put a question or an approval to the owner: it shows in the looper's chat and the inbox. */
+function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): ToolSet {
+  return {
+    ask_owner: tool({
+      description:
+        "Ask your owner something only they can decide, as tappable options (kind 'choice', 2–4 short options), or ask approval before anything risky or irreversible: sending, publishing, filing, paying, deleting (kind 'approval', with `detail` saying exactly what will happen). Their answer comes back to you as a chat message. Prefer this over a kanban card for quick decisions. Ask one thing at a time.",
+      inputSchema: z.object({
+        kind: z.enum(["choice", "approval"]),
+        question: z.string().max(300),
+        options: z.array(z.string().max(60)).min(2).max(4).optional(),
+        detail: z.string().max(1200).optional(),
+      }),
+      execute: (input) =>
+        mutate(uid, (d) => {
+          const open = d.asks.find((a) => a.looperId === looperId && a.status === "open" && a.question === input.question);
+          if (open) return { asked: open.id, note: "Already asked; wait for the answer." };
+          const ask: Ask = { id: nanoid(8), looperId, kind: input.kind, question: input.question, options: input.kind === "choice" ? input.options : undefined, detail: input.detail, status: "open", createdAt: now() };
+          d.asks.push(ask);
+          (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "assistant", content: input.question, at: now(), askId: ask.id }];
+          onAsk?.(ask.id);
+          return { asked: ask.id, note: "The owner will see it in chat and their inbox. Carry on with anything that doesn't depend on the answer." };
+        }),
+    }),
+  };
 }
 
 // ——— Runs ———
@@ -278,17 +341,18 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
         ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Apps tab.` : "",
       ].join("\n\n"),
-      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id) },
+      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...askTools(uid, looper.id) },
       external: ext.tools,
       maxSteps,
       progress: live.push,
     });
     const text = await result.text;
-    await finishRun(uid, run.id, { status: "success", summary: text, toolCalls: logToolCalls(await result.steps) });
+    const steps = await result.steps;
+    await finishRun(uid, run.id, { status: "success", summary: text, toolCalls: logToolCalls(steps), stats: runStats(steps), steps: live.trail() });
     return { ...run, status: "success" as const, summary: text };
   } catch (error) {
     const summary = errorText(error);
-    await finishRun(uid, run.id, { status: "error", summary });
+    await finishRun(uid, run.id, { status: "error", summary, steps: live.trail() });
     return { ...run, status: "error" as const, summary };
   } finally {
     await ext.close();
@@ -424,6 +488,75 @@ function dedupeApps(apps: AppRef[]) {
   return apps.filter((a, i) => a.slug && apps.findIndex((b) => b.slug === a.slug) === i);
 }
 
+export const looperSpec = z.object({
+  name: z.string().describe("short, human first name–style, e.g. 'Ivy'"),
+  role: z.string().max(24).optional().describe("one-word role tag, e.g. 'Accounting', 'SEO', 'Sales'"),
+  emoji: z.string().default("◎"),
+  mission: z.string(),
+  metric: z.object({ name: z.string(), unit: z.string(), direction: z.enum(["up", "down"]), target: z.number(), current: z.number().optional() }),
+  skills: z.array(skillInput).min(1).max(4),
+  apps: z.array(z.string()).max(8).default([]).describe("apps the looper needs, by name, e.g. ['Stripe', 'Gmail', 'bunq']"),
+  database: z
+    .object({ name: z.string(), rowNoun: z.string().describe("what one row is, e.g. 'bank transaction'"), columns: z.array(columnSpec).min(2).max(15) })
+    .optional()
+    .describe("the looper's database: one row per unit of its work"),
+  starterCards: z
+    .array(z.object({ title: z.string(), for: z.enum(["looper", "you"]).describe("'you' when the owner must act (connect, approve, decide)") }))
+    .max(5)
+    .default([]),
+});
+export type LooperSpec = z.infer<typeof looperSpec>;
+
+/** Create a looper from a spec (Chief's create_looper and the guided hiring flow). */
+export async function hireLooper(uid: string, input: LooperSpec) {
+  const apps = await resolveApps(dedupeApps(input.apps.map(appFromName)));
+  const r = await mutate(uid, (db) => {
+    const looper: Looper = {
+      id: nanoid(8),
+      name: input.name,
+      emoji: input.emoji,
+      color: ACCENTS[db.loopers.length % ACCENTS.length],
+      mission: input.mission,
+      metric: {
+        name: input.metric.name,
+        unit: input.metric.unit,
+        direction: input.metric.direction,
+        target: input.metric.target,
+        history: input.metric.current === undefined ? [] : [{ at: now(), value: input.metric.current, note: "baseline" }],
+      },
+      skills: [...input.skills.map(toSkill), defaultRetroSkill()],
+      integrationIds: "all",
+      apps,
+      role: input.role,
+      status: "active",
+      createdAt: now(),
+    };
+    db.loopers.push(looper);
+    for (const c of input.starterCards)
+      db.cards.push({ id: nanoid(8), looperId: looper.id, title: c.title, description: "", column: "todo", assignee: c.for, createdBy: "chief", createdAt: now(), updatedAt: now() });
+    return { id: looper.id, name: looper.name, apps, firstSkill: looper.skills[0] };
+  });
+  if (input.database) await mutateDatabase(uid, r.id, (box) => void (box.db ??= newDatabase(input.database!.name, input.database!.rowNoun, input.database!.columns)));
+  return r;
+}
+
+/** Chief drafts a looper for a goal without hiring it, so the owner can review it first. */
+export async function proposeLooper(uid: string, goal: string): Promise<LooperSpec> {
+  const db = await read(uid);
+  const team = db.loopers.map((l) => `- ${l.name}: ${metricLine(l)}`).join("\n") || "- nobody yet";
+  const result = await callModel(
+    uid,
+    db.settings,
+    {
+      instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}. Current team (pick a name that isn't taken):\n${team}`,
+      prompt: `Draft one looper for this goal, ready to hire: ${goal}\n\nInclude the apps it needs, a database (5–10 columns), 1–3 skills on sensible schedules whose instructions name the apps, and up to 3 starter cards. If the goal doesn't say the current value, leave metric.current out.`,
+      maxSteps: 1,
+    },
+    Output.object({ schema: looperSpec }),
+  );
+  return (await result.output) as LooperSpec;
+}
+
 function chiefTools(uid: string, actions: string[], links: { label: string; href: string }[]): ToolSet {
   const findLooper = (db: DB, idOrName: string) => {
     const l = db.loopers.find((x) => x.id === idOrName || x.name.toLowerCase() === idOrName.toLowerCase());
@@ -455,56 +588,12 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
     }),
     create_looper: tool({
       description: "Hire a new looper. Each looper owns exactly ONE business metric. Give it 1–4 work skills on sensible schedules; a weekly retro skill is added automatically.",
-      inputSchema: z.object({
-        name: z.string().describe("short, human first name–style, e.g. 'Ivy'"),
-        role: z.string().max(24).optional().describe("one-word role tag, e.g. 'Accounting', 'SEO', 'Sales'"),
-        emoji: z.string().default("◎"),
-        mission: z.string(),
-        metric: z.object({ name: z.string(), unit: z.string(), direction: z.enum(["up", "down"]), target: z.number(), current: z.number().optional() }),
-        skills: z.array(skillInput).min(1).max(4),
-        apps: z.array(z.string()).max(8).default([]).describe("apps the looper needs, by name, e.g. ['Stripe', 'Gmail', 'bunq']"),
-        database: z
-          .object({ name: z.string(), rowNoun: z.string().describe("what one row is, e.g. 'bank transaction'"), columns: z.array(columnSpec).min(2).max(15) })
-          .optional()
-          .describe("the looper's database: one row per unit of its work"),
-        starterCards: z
-          .array(z.object({ title: z.string(), for: z.enum(["looper", "you"]).describe("'you' when the owner must act (connect, approve, decide)") }))
-          .max(5)
-          .default([]),
-      }),
+      inputSchema: looperSpec,
       execute: async (input) => {
-        const apps = await resolveApps(dedupeApps(input.apps.map(appFromName)));
-        return mutate(uid, (db) => {
-          const looper: Looper = {
-            id: nanoid(8),
-            name: input.name,
-            emoji: input.emoji,
-            color: ACCENTS[db.loopers.length % ACCENTS.length],
-            mission: input.mission,
-            metric: {
-              name: input.metric.name,
-              unit: input.metric.unit,
-              direction: input.metric.direction,
-              target: input.metric.target,
-              history: input.metric.current === undefined ? [] : [{ at: now(), value: input.metric.current, note: "baseline from Chief" }],
-            },
-            skills: [...input.skills.map(toSkill), defaultRetroSkill()],
-            integrationIds: "all",
-            apps,
-            role: input.role,
-            status: "active",
-            createdAt: now(),
-          };
-          db.loopers.push(looper);
-          if (looper.apps?.length) links.push({ label: `Connect ${looper.apps.map((a) => a.name).join(", ")} for ${looper.name}`, href: `/loopers/${looper.id}?tab=apps` });
-          for (const c of input.starterCards)
-            db.cards.push({ id: nanoid(8), looperId: looper.id, title: c.title, description: "", column: "todo", assignee: c.for, createdBy: "chief", createdAt: now(), updatedAt: now() });
-          actions.push(`Hired ${looper.name}`);
-          return { id: looper.id, name: looper.name };
-        }).then(async (r) => {
-          if (input.database) await mutateDatabase(uid, r.id, (box) => void (box.db ??= newDatabase(input.database!.name, input.database!.rowNoun, input.database!.columns)));
-          return r;
-        });
+        const r = await hireLooper(uid, input);
+        if (r.apps.length) links.push({ label: `Connect ${r.apps.map((a) => a.name).join(", ")} for ${r.name}`, href: `/loopers/${r.id}?tab=apps` });
+        actions.push(`Hired ${r.name}`);
+        return { id: r.id, name: r.name };
       },
     }),
     update_looper: tool({
@@ -827,7 +916,7 @@ export async function looperChatReply(uid: string, looperId: string, userText: s
         .filter(Boolean)
         .join("\n\n"),
       messages: history.map((m) => ({ role: m.role, content: m.content })),
-      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...own },
+      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...askTools(uid, looperId), ...own },
       external: ext.tools,
       maxSteps: 20,
       progress: live.push,

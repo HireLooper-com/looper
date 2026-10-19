@@ -17,7 +17,7 @@ function AppIcon({ app }: { app: Pick<AppRef, "name" | "logo"> }) {
 }
 
 /** The "connect what this looper needs" checklist, used right after hiring and on the looper's Apps tab. */
-export function AppsPanel({ looperId, looperName }: { looperId: string; looperName: string }) {
+export function AppsPanel({ looperId, looperName, returnTo }: { looperId: string; looperName: string; returnTo?: "hire" }) {
   const router = useRouter();
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -35,7 +35,7 @@ export function AppsPanel({ looperId, looperName }: { looperId: string; looperNa
       setError(null);
       try {
         if (row.via === "composio") {
-          const r = await connectApp(looperId, row.slug, another);
+          const r = await connectApp(looperId, row.slug, another, returnTo);
           if (r.ok) return window.location.assign(r.value);
           setError(r.error);
           return;

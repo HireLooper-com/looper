@@ -20,6 +20,8 @@ export function progressWriter(uid: string, target: string) {
   };
   return {
     push,
+    /** the trail so far, to keep on the run */
+    trail: () => steps.map((s) => s.text).filter((t) => t !== "Thinking…" && t !== "Writing the reply…").slice(-40),
     /** Keep the trail briefly so the UI can show the last step, then let it expire. */
     done: () => chain.then(() => kv.set(key(uid, target), steps.slice(-40), 120)).catch(() => undefined),
   };
@@ -68,8 +70,12 @@ export function describeTool(name: string, input: unknown): string {
       return `Updating ${Array.isArray(i.updates) ? i.updates.length : ""} rows in the database`;
     case "db_add_column":
       return `Adding a column “${str(i.name)}”`;
+    case "ask_owner":
+      return i.kind === "approval" ? "Asking you to approve" : "Asking you a question";
     case "canvas_read":
       return "Looking at the canvas";
+    case "canvas_look":
+      return "Looking at your images";
     case "canvas_add":
       return `Pinning ${Array.isArray(i.items) && i.items.length > 1 ? `${i.items.length} items` : "an item"} to the canvas`;
     case "canvas_update":

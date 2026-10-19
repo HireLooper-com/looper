@@ -73,7 +73,7 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
         tone === "grey" && "bg-ink/[0.05] text-ink-2",
         tone === "green" && "bg-green/15 text-green-deep",
         tone === "orange" && "bg-orange/12 text-orange",
-        tone === "lavender" && "bg-lavender/15 text-[#8e3fbf]",
+        tone === "lavender" && "bg-ink/[0.05] text-ink-2",
         tone === "dark" && "bg-ink text-page",
         tone === "blue" && "bg-blue/10 text-blue",
       )}

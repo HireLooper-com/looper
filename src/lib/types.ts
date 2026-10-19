@@ -161,6 +161,37 @@ export interface Run {
   finishedAt?: string;
   summary: string;
   toolCalls: ToolCallLog[];
+  /** what the run changed, for the one-line run report */
+  stats?: RunStats;
+  /** the steps it took, as shown live while it worked */
+  steps?: string[];
+  /** hidden from the inbox after the owner dismissed the failure */
+  dismissed?: boolean;
+}
+
+export interface RunStats {
+  rows?: number;
+  cards?: number;
+  moved?: number;
+  pins?: number;
+  metric?: number;
+  tools?: number;
+}
+
+/** A question or approval a looper puts to its owner; answered with one tap in chat or the inbox. */
+export interface Ask {
+  id: string;
+  looperId: string;
+  kind: "choice" | "approval";
+  question: string;
+  /** for choice: the options to tap */
+  options?: string[];
+  /** for approval: what exactly will happen when approved */
+  detail?: string;
+  status: "open" | "answered" | "dismissed";
+  answer?: string;
+  createdAt: string;
+  answeredAt?: string;
 }
 
 export interface Retro {
@@ -186,6 +217,8 @@ export interface ChiefMessage {
   actions?: string[];
   /** follow-up links, e.g. connecting a new looper's apps */
   links?: { label: string; href: string }[];
+  /** a question or approval asked in this message */
+  askId?: string;
 }
 
 /** One user's private workspace. */
@@ -198,6 +231,7 @@ export interface DB {
   chief: ChiefMessage[];
   /** one conversation per looper */
   chats?: Record<string, ChiefMessage[]>;
+  asks: Ask[];
 }
 
 /** Settings with secrets masked, safe to send to the browser. */
@@ -258,7 +292,7 @@ export function cardAssignee(c: Pick<Card, "assignee" | "createdBy" | "title">):
 }
 
 /** An item on a looper's infinite canvas. Coordinates are canvas units; the view pans and zooms over them. */
-export type CanvasItemKind = "note" | "text" | "image" | "link";
+export type CanvasItemKind = "note" | "text" | "image" | "link" | "frame" | "arrow";
 export interface CanvasItem {
   id: string;
   kind: CanvasItemKind;
@@ -275,6 +309,9 @@ export interface CanvasItem {
   /** link title and preview image, when the page had them */
   title?: string;
   image?: string;
+  /** arrow ends: item ids */
+  from?: string;
+  to?: string;
   by: "you" | "looper";
   at: string;
 }

@@ -10,7 +10,7 @@ Hire AI **loopers**. Each one owns exactly one business metric and has:
 
 **Chief** is the main bot. Ask it to hire, brief, pause, retire or run loopers, or to report on the team. You can also chat with every looper directly; its runs report into that chat.
 
-The app is laid out like Grok Bot: Chief and the loopers in a rail on the left, the selected one on the right with Chat first and Metric, Kanban, Calendar, Database, Canvas, Skills, Retro and Apps as tabs. Each looper's core instructions live in its Skills tab. The Canvas is an infinite whiteboard for references (notes, headings, links, images); the looper reads what you pin there and can pin things too. Uploaded images are downsized in the browser and stored in the same Postgres KV.
+The app is laid out like Grok Bot: a rail on the left with **Needs you** (one inbox of questions, approvals, tasks for you, apps to connect and runs that didn't finish), **Chief** (a daily brief plus the hiring chat) and every looper with its number and weekly trend. Each looper has five places: Chat, Work (Kanban, Calendar), Knowledge (Database, Canvas), Retro and Setup (Skills, Apps, pause), with its metric always in the header. Loopers ask quick questions and approvals inline with ask_owner; runs report as one line with what they changed. ⌘K jumps anywhere, runs skills and searches chats, rows, cards and canvas notes. /hire is a guided flow: goal or starter role → Chief's draft → review → connect apps → watch the first run. The Canvas is an infinite whiteboard with notes, headings, links, images, frames and arrows; loopers read it, look at your images and can build boards there.
 
 ## Sign in with your plan
 

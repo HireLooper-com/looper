@@ -19,16 +19,18 @@ export async function getCanvas(looperId: string): Promise<LooperCanvas> {
 const num = z.number().finite();
 const itemSchema = z.object({
   id: z.string().min(1).max(40),
-  kind: z.enum(["note", "text", "image", "link"]),
+  kind: z.enum(["note", "text", "image", "link", "frame", "arrow"]),
   x: num,
   y: num,
-  w: num.min(40).max(4000),
-  h: num.min(30).max(4000),
+  w: num.min(0).max(20000),
+  h: num.min(0).max(20000),
   text: z.string().max(20_000).optional(),
   src: z.string().max(2000).optional(),
   url: z.string().max(2000).optional(),
   title: z.string().max(500).optional(),
   image: z.string().max(2000).optional(),
+  from: z.string().max(40).optional(),
+  to: z.string().max(40).optional(),
   by: z.enum(["you", "looper"]),
   at: z.string().max(40),
 });
@@ -44,7 +46,7 @@ export async function patchCanvas(looperId: string, patch: { upsert: CanvasItem[
     const remove = z.array(z.string()).max(500).parse(patch.remove);
     const { canvas, gone } = await mutateCanvas(uid, looperId, (c) => {
       const gone = c.items.filter((i) => remove.includes(i.id));
-      c.items = c.items.filter((i) => !remove.includes(i.id));
+      c.items = c.items.filter((i) => !remove.includes(i.id) && !(i.kind === "arrow" && (remove.includes(i.from ?? "") || remove.includes(i.to ?? ""))));
       for (const u of upsert) {
         const at = c.items.findIndex((i) => i.id === u.id);
         // Keep who made it: an edited looper note is still the looper's.

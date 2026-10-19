@@ -24,6 +24,7 @@ export default async function LooperPage({ params, searchParams }: PageProps<"/l
       cards={state.cards.filter((c) => c.looperId === id)}
       runs={state.runs.filter((r) => r.looperId === id)}
       retros={state.retros.filter((r) => r.looperId === id)}
+      asks={state.asks.filter((a) => a.looperId === id)}
       integrations={state.settings.integrations}
       database={table && { name: table.name, rows: table.rows.length, rowNoun: table.rowNoun }}
       chat={state.chats?.[id] ?? []}
