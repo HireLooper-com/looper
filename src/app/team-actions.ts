@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { hireLooper, looperChatReply, looperSpec, proposeLooper, runSkill, type LooperSpec } from "@/lib/agent";
+import { beginLooperReply, hireLooper, looperSpec, proposeLooper, runSkill, type LooperSpec } from "@/lib/agent";
 import { readCanvas } from "@/lib/canvas";
 import { readDatabase } from "@/lib/database";
 import { mutate, read } from "@/lib/db";
@@ -42,8 +42,9 @@ export async function answerAsk(askId: string, answer: string, note?: string) {
       ask.kind === "approval"
         ? `${answer === "Approve" ? "Approved" : "Not approved"}: ${ask.question}${note?.trim() ? `\n${note.trim()}` : ""}`
         : `${ask.question}\n→ ${answer}${note?.trim() ? `\n${note.trim()}` : ""}`;
-    after(() => looperChatReply(uid, ask.looperId, text).then(() => undefined).catch(() => undefined));
-    return ask.looperId;
+    const reply = await beginLooperReply(uid, ask.looperId, text);
+    after(reply);
+    return { looperId: ask.looperId, since: reply.since };
   });
 }
 

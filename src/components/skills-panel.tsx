@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { deleteLooper, deleteSkill, runLooperSkill, saveSkill, updateLooper } from "@/app/actions";
 import { describeSchedule } from "@/lib/schedule";
 import type { Looper, PublicSettings, Run, ScheduleType, Skill } from "@/lib/types";
+import { refreshActivity } from "./live";
 import { Button, Field, Input, Panel, Pill, Select, Textarea, cx, timeAgo } from "./ui";
 
 const WEEK = ["S", "M", "T", "W", "T", "F", "S"];
@@ -12,18 +13,18 @@ const WEEK = ["S", "M", "T", "W", "T", "F", "S"];
 export function SkillsPanel({ looper, runs }: { looper: Looper; runs: Run[]; integrations?: PublicSettings["integrations"] }) {
   const router = useRouter();
   const [editing, setEditing] = useState<Partial<Skill> | null>(null);
-  const [busy, start] = useTransition();
-  const [runningId, setRunningId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<{ skillId: string; status: string; summary: string } | null>(null);
+  const [, start] = useTransition();
+  // Runs start in the background: the button flips at once, the chat and Working tray follow it.
+  const [startedId, setStartedId] = useState<string | null>(null);
+  const runningSkill = new Set(runs.filter((r) => r.status === "running").map((r) => r.skillId));
 
   const runNow = (s: Skill) => {
-    setRunningId(s.id);
-    setLastResult(null);
+    setStartedId(s.id);
     start(async () => {
-      const run = await runLooperSkill(looper.id, s.id);
-      setLastResult({ skillId: s.id, status: run.status, summary: run.summary });
-      setRunningId(null);
+      await runLooperSkill(looper.id, s.id);
+      refreshActivity();
       router.refresh();
+      setTimeout(() => setStartedId(null), 8000);
     });
   };
 
@@ -54,16 +55,16 @@ export function SkillsPanel({ looper, runs }: { looper: Looper; runs: Run[]; int
                 </div>
                 <div className="flex gap-1.5">
                   <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>Edit</Button>
-                  <Button size="sm" disabled={busy} onClick={() => runNow(s)}>
-                    {runningId === s.id ? "Running…" : "Run now"}
+                  <Button size="sm" disabled={runningSkill.has(s.id) || startedId === s.id} onClick={() => runNow(s)}>
+                    {runningSkill.has(s.id) || startedId === s.id ? "Running…" : "Run now"}
                   </Button>
                 </div>
               </div>
               <p className="mt-3 whitespace-pre-wrap text-[0.875rem] leading-relaxed text-ink-2">{s.instructions}</p>
-              {lastResult?.skillId === s.id && (
-                <div className={cx("mt-4 whitespace-pre-wrap rounded-[12px] p-3 text-[0.8125rem] leading-relaxed", lastResult.status === "error" ? "bg-orange/10 text-orange" : "bg-green/15 text-green-deep")}>
-                  {lastResult.summary}
-                </div>
+              {(runningSkill.has(s.id) || startedId === s.id) && (
+                <a href={`/loopers/${looper.id}?tab=chat`} className="mt-3 inline-block text-[0.8125rem] text-mute hover:text-ink">
+                  Follow it in chat →
+                </a>
               )}
             </Panel>
           );

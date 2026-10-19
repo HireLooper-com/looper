@@ -17,6 +17,7 @@ import {
 } from "@/app/db-actions";
 import type { DbColumn, DbColumnType, DbRow, DbValue, LooperDatabase } from "@/lib/types";
 import { DB_COLUMN_TYPES } from "@/lib/types";
+import { refreshActivity, useProgress } from "./live";
 import { Bot, Button, cx } from "./ui";
 
 function Tag({ col, value }: { col: DbColumn; value: string }) {
@@ -94,27 +95,44 @@ export function DatabaseView({ looperId, looperName, color }: { looperId: string
     });
   };
 
+  // Designing happens in the background; follow it, then load the table it made.
+  const [designSince, setDesignSince] = useState(0);
   const design = () => {
     setError(null);
     setShowTemplates(false);
     setDesigning(true);
     generateLooperDatabase(looperId)
       .then((r) => {
-        if ("db" in r) {
-          setDb(r.db);
-          if (r.filling) beginFilling();
-        }
-        else {
+        if ("since" in r) {
+          setDesignSince(r.since);
+          refreshActivity();
+        } else {
           setError(r.error);
           setShowTemplates(true);
+          setDesigning(false);
         }
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
         setShowTemplates(true);
+        setDesigning(false);
+      });
+  };
+  useProgress(designSince ? `design:${looperId}` : null, designSince, (p) => {
+    setDesignSince(0);
+    if (p.error) {
+      setDesigning(false);
+      setError(p.error);
+      setShowTemplates(true);
+      return;
+    }
+    getLooperDatabase(looperId)
+      .then((next) => {
+        setDb(next);
+        if (next && next.rows.length === 0) beginFilling();
       })
       .finally(() => setDesigning(false));
-  };
+  });
 
   // No database yet: the looper designs one from what it knows, once per visit.
   useEffect(() => {

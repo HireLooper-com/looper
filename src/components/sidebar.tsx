@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { signOutApp } from "@/app/actions";
 import type { Accent } from "@/lib/types";
+import { WorkingTray } from "./activity";
 import { openPalette } from "./command-palette";
 import { Bot, cx } from "./ui";
 
@@ -112,6 +113,8 @@ export function Sidebar({ loopers, email, plan, chiefPreview, inboxCount }: { lo
               <span className="block truncate text-[0.8125rem] text-mute">{chiefPreview || "Tell me what number to move"}</span>
             </span>
           </Link>
+
+          <WorkingTray loopers={loopers} />
 
           <div className="eyebrow px-3 pb-1 pt-4">Team</div>
           {loopers.map((l) => (

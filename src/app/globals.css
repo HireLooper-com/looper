@@ -197,3 +197,11 @@ textarea:focus-visible,
 select:focus-visible {
   outline: none;
 }
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+.caret {
+  animation: caret 1s steps(1) infinite;
+}

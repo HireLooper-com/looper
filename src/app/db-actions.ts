@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { designDatabase, fillDatabase } from "@/lib/agent";
 import { coerce, mutateDatabase, newDatabase, readDatabase, TEMPLATES } from "@/lib/database";
 import { read } from "@/lib/db";
+import { progressWriter, readProgress } from "@/lib/progress";
 import { requireUid } from "@/lib/session";
 import type { DbColumnType, DbRow, LooperDatabase } from "@/lib/types";
 
@@ -33,14 +34,26 @@ export async function getLooperDatabase(looperId: string) {
 
 /** Let the looper design its own database from its mission, skills, apps and past runs.
  * Returns the error text instead of throwing: production hides thrown server-action messages. */
-export async function generateLooperDatabase(looperId: string): Promise<{ db: LooperDatabase; filling: boolean } | { error: string }> {
+export async function generateLooperDatabase(looperId: string): Promise<{ since: number } | { error: string }> {
   try {
     const uid = await owned(looperId);
-    const db = await designDatabase(uid, looperId);
-    // Nothing to pre-fill from past runs: have the looper pull rows from its sources in the background.
-    const filling = db.rows.length === 0;
-    if (filling) after(() => fillDatabase(uid, looperId, "manual").then(() => undefined).catch(() => undefined));
-    return { db, filling };
+    // Designing takes a model call; do it in the background and let the page follow design:<id>.
+    const running = await readProgress(uid, `design:${looperId}`);
+    if (running && !running.done && Date.now() - running.since < 5 * 60_000) return { since: running.since };
+    const name = (await read(uid)).loopers.find((l) => l.id === looperId)?.name ?? "The looper";
+    const live = progressWriter(uid, `design:${looperId}`, { label: `${name}'s database`, href: `/loopers/${looperId}?tab=database`, done: "is designed", failed: "couldn't be designed" });
+    live.push("Choosing what one row is and which columns it needs…");
+    after(async () => {
+      try {
+        const db = await designDatabase(uid, looperId);
+        // Nothing to pre-fill from past runs: have the looper pull rows from its sources next.
+        await live.done({ ok: true, note: db.rows.length ? `${db.rows.length} rows from past work` : "Filling it from its sources next" });
+        if (db.rows.length === 0) await fillDatabase(uid, looperId, "manual").catch(() => undefined);
+      } catch (e) {
+        await live.done({ error: e instanceof Error ? e.message : String(e) });
+      }
+    });
+    return { since: live.since };
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }

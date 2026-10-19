@@ -102,9 +102,18 @@ export interface Account {
   updated_at?: string;
 }
 
-export async function listAccounts(uid: string): Promise<Account[]> {
-  const res = await call<{ items: Account[] }>("GET", `/connected_accounts?user_ids=${encodeURIComponent(uid)}&limit=100&order_by=updated_at`);
-  return res.items;
+// Every chat turn and run checks the user's connections; a short cache saves a round trip each
+// time. Connecting or disconnecting clears it.
+export async function listAccounts(uid: string, fresh = false): Promise<Account[]> {
+  if (fresh) forgetAccounts(uid);
+  return cached(`accounts:${uid}`, 60_000, async () => {
+    const res = await call<{ items: Account[] }>("GET", `/connected_accounts?user_ids=${encodeURIComponent(uid)}&limit=100&order_by=updated_at`);
+    return res.items;
+  });
+}
+
+export function forgetAccounts(uid: string) {
+  cache.delete(`accounts:${uid}`);
 }
 
 export function getAccount(id: string) {
@@ -115,9 +124,9 @@ export function getAccount(id: string) {
 export const accountLabel = (a: Account) => a.state?.val?.displayName || a.alias || a.id;
 
 /** Usable accounts per toolkit, newest first. */
-export async function activeAccounts(uid: string) {
+export async function activeAccounts(uid: string, fresh = false) {
   const map = new Map<string, Account[]>();
-  for (const a of await listAccounts(uid)) {
+  for (const a of await listAccounts(uid, fresh)) {
     if (a.status !== "ACTIVE" || a.is_disabled) continue;
     map.set(a.toolkit.slug, [...(map.get(a.toolkit.slug) ?? []), a]);
   }

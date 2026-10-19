@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { holdRetro } from "@/app/actions";
 import type { Looper, Retro } from "@/lib/types";
+import { refreshActivity, useProgress } from "./live";
 import { Button, Panel, cx, fmt } from "./ui";
 
 const LANES = [
@@ -12,26 +13,37 @@ const LANES = [
   { key: "tryNext", label: "Try next", dot: "bg-faint", note: "" },
 ] as const;
 
-export function RetroBoard({ looper, retros }: { looper: Looper; retros: Retro[]; running?: boolean }) {
+export function RetroBoard({ looper, retros, reflecting, lastError }: { looper: Looper; retros: Retro[]; reflecting?: { runId: string }; lastError?: string }) {
   const router = useRouter();
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [index, setIndex] = useState(retros.length - 1);
-  const retro = retros[Math.min(index, retros.length - 1)];
+  const [, start] = useTransition();
+  const [starting, setStarting] = useState(false);
+  // null follows the newest retro, so one that arrives while you watch shows up by itself.
+  const [index, setIndex] = useState<number | null>(null);
+  const retro = retros[Math.min(index ?? retros.length - 1, retros.length - 1)];
+  const { progress } = useProgress(reflecting ? `run:${reflecting.runId}` : null);
+  const busy = !!reflecting || starting;
+  const error = !busy ? lastError : undefined;
 
-  const hold = () =>
+
+  const hold = () => {
+    setStarting(true);
+    setIndex(null);
     start(async () => {
-      setError(null);
-      const run = await holdRetro(looper.id);
-      if (run.status === "error") setError(run.summary);
-      setIndex(Number.MAX_SAFE_INTEGER);
+      await holdRetro(looper.id);
+      refreshActivity();
       router.refresh();
     });
+    // The run shows up within a few seconds; stop claiming it if it never does.
+    setTimeout(() => setStarting(false), 15_000);
+  };
 
   const holdButton = (
-    <Button onClick={hold} disabled={pending}>
-      {pending ? `${looper.name} is reflecting…` : "Hold a retro now"}
-    </Button>
+    <div className="flex flex-col items-center gap-1.5">
+      <Button onClick={hold} disabled={busy}>
+        {busy ? `${looper.name} is reflecting…` : "Hold a retro now"}
+      </Button>
+      {busy && <span className="max-w-[220px] truncate text-[0.75rem] text-mute">{progress?.steps.at(-1)?.text ?? "Starting…"}</span>}
+    </div>
   );
 
   if (!retro)
@@ -84,7 +96,7 @@ export function RetroBoard({ looper, retros }: { looper: Looper; retros: Retro[]
           <div className="mt-2 flex items-center gap-1">
             <Button size="sm" variant="ghost" disabled={pos <= 0} onClick={() => setIndex(pos - 1)}>← Older</Button>
             <span className="text-[0.75rem] text-faint">{pos + 1} of {retros.length}</span>
-            <Button size="sm" variant="ghost" disabled={pos >= retros.length - 1} onClick={() => setIndex(pos + 1)}>Newer →</Button>
+            <Button size="sm" variant="ghost" disabled={pos >= retros.length - 1} onClick={() => setIndex(pos + 1 >= retros.length - 1 ? null : pos + 1)}>Newer →</Button>
           </div>
         </div>
         <div className="flex flex-col items-start justify-center gap-2">

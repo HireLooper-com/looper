@@ -8,6 +8,7 @@ import { dismissAsk, dismissRuns, retryFailed } from "@/app/team-actions";
 import type { InboxItem } from "@/lib/inbox";
 import type { Accent } from "@/lib/types";
 import { AskBubble } from "./chat-panel";
+import { refreshActivity } from "./live";
 import { Bot, cx, timeAgo } from "./ui";
 
 export interface AppTodo {
@@ -50,7 +51,10 @@ export function InboxView({ items, apps, loopers }: { items: InboxItem[]; apps: 
         <Section title="Questions and approvals">
           {asks.map((i) =>
             i.kind === "ask" ? (
-              <Row key={i.key} looper={byId.get(i.looperId)!} at={i.at} onDismiss={async () => (await dismissAsk(i.ask.id)).ok && hide(i.key)}>
+              <Row key={i.key} looper={byId.get(i.looperId)!} at={i.at} onDismiss={() => {
+                  hide(i.key);
+                  void dismissAsk(i.ask.id);
+                }}>
                 <AskBubble ask={i.ask} compact onAnswered={() => hide(i.key)} />
               </Row>
             ) : null,
@@ -130,12 +134,14 @@ function CardRow({ item, looper, onDone }: { item: Extract<InboxItem, { kind: "c
   const router = useRouter();
   const [busy, start] = useTransition();
   const c = item.card;
-  const act = (fn: () => Promise<unknown>) =>
+  // Clear it from the list at once; the save happens behind it.
+  const act = (fn: () => Promise<unknown>) => {
+    onDone();
     start(async () => {
       await fn();
-      onDone();
       router.refresh();
     });
+  };
   return (
     <div className={cx("flex items-start gap-3 px-4 py-3", busy && "opacity-50")}>
       <button
@@ -167,11 +173,14 @@ function FailedRow({ item, looper, onDone }: { item: Extract<InboxItem, { kind: 
   const router = useRouter();
   const [busy, start] = useTransition();
   const r = item.run;
-  const act = (fn: () => Promise<{ ok: boolean }>) =>
+  const act = (fn: () => Promise<{ ok: boolean }>) => {
+    onDone();
     start(async () => {
-      if ((await fn()).ok) onDone();
+      await fn();
+      refreshActivity();
       router.refresh();
     });
+  };
   return (
     <div className={cx("flex items-start gap-3 px-4 py-3", busy && "opacity-50")}>
       <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-red" />

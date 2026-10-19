@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { askLooper } from "@/app/actions";
 import { getCanvas, linkPreview, patchCanvas } from "@/app/canvas-actions";
 import type { Accent, CanvasItem } from "@/lib/types";
+import { refreshActivity, useProgress } from "./live";
 import { Bot, cx } from "./ui";
 
 type View = { x: number; y: number; z: number };
@@ -103,7 +104,9 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
   const [linkBox, setLinkBox] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [wire, setWire] = useState<{ from: string; x: number; y: number } | null>(null);
-  const [building, setBuilding] = useState(false);
+  // "Build a board" runs as a chat reply in the background; follow it and pull pins in as they land.
+  const [buildSince, setBuildSince] = useState(0);
+  const { working: building, progress: buildProgress } = useProgress(buildSince ? `chat:${looper.id}` : null, buildSince);
   const box = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const gesture = useRef<Gesture | null>(null);
@@ -320,16 +323,22 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
   /** Ask the looper to lay out a board; its pins appear as it works. */
   const build = useCallback(
     (what: string) => {
-      setBuilding(true);
-      setNotice(`${looper.name} is building the board…`);
       askLooper(looper.id, `Build a board on your canvas: ${what}. Use frames to group things and arrows where things relate. Tell me briefly what you pinned.`)
-        .then(() => getCanvas(looper.id).then((c) => merge(c.items)))
-        .then(() => setNotice(null))
-        .catch((e) => setNotice(String(e?.message ?? e)))
-        .finally(() => setBuilding(false));
+        .then((r) => {
+          setBuildSince((r as { since?: number }).since || Date.now() - 1000);
+          refreshActivity();
+        })
+        .catch((e) => setNotice(String(e?.message ?? e)));
     },
-    [looper.id, looper.name, merge],
+    [looper.id],
   );
+
+  // Pull the finished board in when the reply is saved.
+  const wasBuilding = useRef(false);
+  useEffect(() => {
+    if (wasBuilding.current && !building) getCanvas(looper.id).then((c) => merge(c.items)).catch(() => undefined);
+    wasBuilding.current = building;
+  }, [building, looper.id, merge]);
 
   // Paste images, links or text straight onto the canvas.
   useEffect(() => {
@@ -545,7 +554,14 @@ export function CanvasBoard({ looper, running }: { looper: { id: string; name: s
 
       {items && items.length === 0 && !building && <EmptyCanvas name={looper.name} onNote={() => addText("note")} onImage={() => fileInput.current?.click()} onLink={() => setLinkBox("")} onBuild={build} />}
 
-      {notice && (
+      {building && (
+        <div data-ui className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-2.5 rounded-full bg-panel px-4 py-2 text-[0.8125rem] shadow-[var(--tile-shadow)]">
+          <Bot size={18} color={looper.color} seed={looper.id} className="looping" />
+          <span className="font-medium">{looper.name} is building the board</span>
+          <span className="max-w-[260px] truncate text-mute">{buildProgress?.steps.at(-1)?.text ?? "Starting…"}</span>
+        </div>
+      )}
+      {notice && !building && (
         <div data-ui className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full bg-panel px-4 py-2 text-[0.8125rem] shadow-[var(--tile-shadow)]">
           {notice}
           <button onClick={() => setNotice(null)} className="text-mute hover:text-ink" aria-label="Dismiss">

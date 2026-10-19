@@ -49,6 +49,20 @@ interface CallOptions {
   maxSteps?: number;
   /** live steps shown in the UI while this call works */
   progress?: (text: string) => void;
+  /** the reply so far, as it streams */
+  onText?: (soFar: string) => void;
+  /** quick back-and-forth (chat): ask for less reasoning where the model allows it */
+  fast?: boolean;
+}
+
+// Models that refused a reasoning-effort setting; we stop sending it to them.
+const noEffort = new Set<string>();
+
+function fastOptions(settings: Settings, base: Record<string, Record<string, unknown>> | undefined) {
+  const key = `${settings.provider}:${settings.models[settings.provider]}`;
+  if (noEffort.has(key)) return base;
+  const provider = settings.provider === "openai" ? "openai" : "xai";
+  return { ...base, [provider]: { ...base?.[provider], reasoningEffort: "low" } };
 }
 
 /**
@@ -57,6 +71,19 @@ interface CallOptions {
  * so a hub with thousands of tools costs a handful of definitions per step.
  */
 async function callModel(uid: string, settings: Settings, opts: CallOptions, output?: Parameters<typeof streamText>[0]["output"]) {
+  try {
+    return await callModelOnce(uid, settings, opts, output, !!opts.fast);
+  } catch (e) {
+    // Some models don't take a reasoning effort; remember and retry without it.
+    if (opts.fast && /reasoning/i.test(e instanceof Error ? e.message : String(e))) {
+      noEffort.add(`${settings.provider}:${settings.models[settings.provider]}`);
+      return callModelOnce(uid, settings, opts, output, false);
+    }
+    throw e;
+  }
+}
+
+async function callModelOnce(uid: string, settings: Settings, opts: CallOptions, output: Parameters<typeof streamText>[0]["output"], fast: boolean) {
   const m = await getModel(uid, settings);
   const base = opts.tools ?? {};
   const external = opts.external ?? {};
@@ -76,6 +103,7 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
   const all: ToolSet = { ...base, ...(hasExternal ? { find_tools: findTools, ...external } : {}) };
   let failure: unknown;
   let writing = false;
+  let soFar = "";
   opts.progress?.("Thinking…");
   // Vercel functions stop at 5 minutes. Past the soft budget the model gets no more tools and must
   // wrap up; the hard limit aborts just before the platform would kill the run silently.
@@ -86,7 +114,7 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
     instructions: opts.instructions,
     ...(opts.messages ? { messages: opts.messages } : { prompt: opts.prompt ?? "" }),
     tools: Object.keys(all).length ? m.wrapTools(all) : undefined,
-    providerOptions: m.providerOptions,
+    providerOptions: (fast ? fastOptions(settings, m.providerOptions as Record<string, Record<string, unknown>>) : m.providerOptions) as typeof m.providerOptions,
     stopWhen: isStepCount(opts.maxSteps ?? 12),
     prepareStep: () => {
       if (Date.now() - startedAt > SOFT_BUDGET_MS) {
@@ -110,10 +138,16 @@ async function callModel(uid: string, settings: Settings, opts: CallOptions, out
     onChunk: ({ chunk }) => {
       if (!opts.progress) return;
       if (chunk.type === "tool-call") opts.progress(describeTool(chunk.toolName, chunk.input));
-      else if (chunk.type === "text-delta" && !writing) {
-        writing = true;
-        opts.progress("Writing the reply…");
-      }
+      else if (chunk.type === "text-delta") {
+        if (!writing) {
+          writing = true;
+          opts.progress("Writing the reply…");
+        }
+        if (opts.onText && !output) {
+          soFar += chunk.text;
+          opts.onText(soFar);
+        }
+      } else if (chunk.type === "tool-result") soFar = ""; // a new step starts a new reply
     },
   });
   await result.consumeStream();
@@ -324,10 +358,11 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   if (skill.kind === "retro") return runRetro(uid, looperId, trigger, skill);
 
   const run = await startRun(uid, looper, skill, trigger);
-  const live = progressWriter(uid, `run:${run.id}`);
+  const live = progressWriter(uid, `run:${run.id}`, { label: `${looper.name} · ${skill.name}`, href: `/loopers/${looper.id}?tab=chat`, done: "finished" });
   live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
   if (ext.connected.length) live.push(`Connected: ${ext.connected.map((c) => c.split(" (")[0]).join(", ")}`);
+  let outcome: { ok?: boolean; note?: string; error?: string } = {};
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
     // A looper without a database designs one before it works, so its results land in rows.
@@ -345,19 +380,28 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
       external: ext.tools,
       maxSteps,
       progress: live.push,
+      onText: live.text,
     });
     const text = await result.text;
     const steps = await result.steps;
     await finishRun(uid, run.id, { status: "success", summary: text, toolCalls: logToolCalls(steps), stats: runStats(steps), steps: live.trail() });
+    outcome = { ok: true, note: firstSentence(text) };
     return { ...run, status: "success" as const, summary: text };
   } catch (error) {
     const summary = errorText(error);
     await finishRun(uid, run.id, { status: "error", summary, steps: live.trail() });
+    outcome = { error: summary };
     return { ...run, status: "error" as const, summary };
   } finally {
     await ext.close();
-    await live.done();
+    await live.done(outcome);
   }
+}
+
+function firstSentence(s: string) {
+  const flat = s.replace(/\s+/g, " ").trim();
+  const m = flat.match(/^(.{20,160}?[.!?])(\s|$)/);
+  return m ? m[1] : flat.slice(0, 140);
 }
 
 const retroSchema = z.object({
@@ -374,6 +418,8 @@ export async function runRetro(uid: string, looperId: string, trigger: Run["trig
   if (!looper) throw new Error("Looper not found");
   const retroSkill = skill ?? looper.skills.find((s) => s.kind === "retro") ?? defaultRetroSkill();
   const run = await startRun(uid, looper, retroSkill, trigger);
+  const live = progressWriter(uid, `run:${run.id}`, { label: `${looper.name}'s retro`, href: `/loopers/${looper.id}?tab=retro`, done: "is ready" });
+  live.push("Reading the week's runs, cards and metric…");
 
   const last = db.retros.filter((r) => r.looperId === looperId).at(-1);
   const periodStart = last?.periodEnd ?? new Date(Math.max(Date.parse(looper.createdAt), Date.now() - 7 * DAY)).toISOString();
@@ -386,11 +432,13 @@ export async function runRetro(uid: string, looperId: string, trigger: Run["trig
   const after = points.at(-1);
 
   try {
+    live.push(`Reviewing ${runs.length} run${runs.length === 1 ? "" : "s"} and ${cards.length} card${cards.length === 1 ? "" : "s"}…`);
     const result = await callModel(
       uid,
       db.settings,
       {
         instructions: looperBrief(db, looper),
+        progress: live.push,
         prompt: [
           `Hold your retrospective for ${periodStart.slice(0, 10)} → ${periodEnd.slice(0, 10)}. Be honest and specific about whether your work actually moved ${looper.metric.name}; separate activity from impact.`,
           `Metric: ${before ? before.value : "unknown"} → ${after ? after.value : "unknown"} ${looper.metric.unit}. Readings: ${points.map((p) => `${p.at.slice(0, 16)} ${p.value}${p.note ? ` (${p.note})` : ""}`).join("; ") || "none"}.`,
@@ -402,6 +450,7 @@ export async function runRetro(uid: string, looperId: string, trigger: Run["trig
       Output.object({ schema: retroSchema }),
     );
     const output = (await result.output) as z.infer<typeof retroSchema>;
+    live.push("Writing the retro…");
 
     const retro: Retro = {
       id: nanoid(8),
@@ -423,10 +472,12 @@ export async function runRetro(uid: string, looperId: string, trigger: Run["trig
     });
     const summary = `Retro: effectiveness ${retro.effectiveness}/5. Next: ${retro.tryNext.join("; ")}`;
     await finishRun(uid, run.id, { status: "success", summary });
+    await live.done({ ok: true, note: `Effectiveness ${retro.effectiveness}/5` });
     return { ...run, status: "success" as const, summary };
   } catch (error) {
     const summary = errorText(error);
     await finishRun(uid, run.id, { status: "error", summary });
+    await live.done({ error: summary });
     return { ...run, status: "error" as const, summary };
   }
 }
@@ -709,15 +760,23 @@ When the user asks to see a looper's data (transactions, posts, leads), call rea
 
 Be brief and concrete. Use plain text with short lists.`;
 
-export async function chiefReply(uid: string, userText: string) {
-  const db = await read(uid);
+/**
+ * Save the owner's message and mark Chief as working, then hand back the slow part to run in the
+ * background, so the request returns at once and the UI follows the live progress.
+ */
+export async function beginChiefReply(uid: string, userText: string) {
   const userMsg = { id: nanoid(8), role: "user" as const, content: userText, at: now() };
   await mutate(uid, (d) => void d.chief.push(userMsg));
+  const live = progressWriter(uid, "chief", { label: "Chief", href: "/chief", done: "replied", failed: "couldn't reply" });
+  await live.ready();
+  return Object.assign(() => chiefReply(uid, live).then(() => undefined), { since: live.since });
+}
 
-  const history: ModelMessage[] = [...db.chief.slice(-30), userMsg].map((m) => ({ role: m.role, content: m.content }));
+async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) {
+  const db = await read(uid);
+  const history: ModelMessage[] = db.chief.slice(-31).map((m) => ({ role: m.role, content: m.content }));
   const actions: string[] = [];
   const links: { label: string; href: string }[] = [];
-  const live = progressWriter(uid, "chief");
   let content: string;
   try {
     const team = db.loopers.map((l) => `- ${l.name} (${l.status}): ${metricLine(l)}`).join("\n") || "- nobody hired yet";
@@ -727,14 +786,16 @@ export async function chiefReply(uid: string, userText: string) {
       messages: history,
       tools: chiefTools(uid, actions, links),
       maxSteps: 12,
+      onText: live.text,
+      fast: true,
     });
     content = (await result.text) || (actions.length ? "Done." : "…");
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   }
-  await live.done();
   const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
   await mutate(uid, (d) => void d.chief.push(reply));
+  await live.done({ ok: !content.startsWith("I couldn't"), note: firstSentence(content) });
   return reply;
 }
 
@@ -850,24 +911,35 @@ export async function fillDatabase(uid: string, looperId: string, trigger: Run["
 
 /** Talk to one looper directly. It answers with its own tools: board, database, apps; it can also
  * edit its core instructions and skills, and start one of its skills in the background. */
-export async function looperChatReply(uid: string, looperId: string, userText: string) {
+export async function beginLooperReply(uid: string, looperId: string, userText: string) {
+  const name = await mutate(uid, (d) => {
+    const l = d.loopers.find((x) => x.id === looperId);
+    if (!l) throw new Error("Looper not found");
+    (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "user", content: userText, at: now() }];
+    return l.name;
+  });
+  const live = progressWriter(uid, `chat:${looperId}`, { label: name, href: `/loopers/${looperId}?tab=chat`, done: "replied", failed: "couldn't reply" });
+  await live.ready();
+  return Object.assign(() => looperChatReply(uid, looperId, live).then(() => undefined), { since: live.since });
+}
+
+async function looperChatReply(uid: string, looperId: string, live: ReturnType<typeof progressWriter>) {
   const db = await read(uid);
   const looper = db.loopers.find((l) => l.id === looperId);
-  if (!looper) throw new Error("Looper not found");
-  const userMsg = { id: nanoid(8), role: "user" as const, content: userText, at: now() };
-  await mutate(uid, (d) => void ((d.chats ??= {})[looperId] = [...(d.chats?.[looperId] ?? []), userMsg]));
-
+  if (!looper) {
+    await live.done({ error: "Looper not found" });
+    return;
+  }
   // Recent runs are part of the conversation: the looper reports there.
-  const history = [...(db.chats?.[looperId] ?? []).slice(-30), userMsg];
+  const history = (db.chats?.[looperId] ?? []).slice(-31);
   const runs = db.runs.filter((r) => r.looperId === looperId && r.status !== "running").slice(-5);
   const actions: string[] = [];
   const links: { label: string; href: string }[] = [];
-  const live = progressWriter(uid, `chat:${looperId}`);
   live.push("Connecting apps…");
-  const ext = await looperApps(uid, looper, db);
+  // Apps, database and canvas load side by side.
+  const [ext, table, canvas] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId)]);
   let content: string;
   try {
-    const table = await readDatabase(uid, looperId);
     const own: ToolSet = {
       update_core_instructions: tool({
         description: "Rewrite your core instructions (mission, sources, rules) when the owner asks to change how you work.",
@@ -908,7 +980,7 @@ export async function looperChatReply(uid: string, looperId: string, userText: s
     };
     const result = await callModel(uid, db.settings, {
       instructions: [
-        looperBrief(db, looper, [describeDatabase(table), describeCanvas(await readCanvas(uid, looperId))].filter(Boolean).join("\n\n")),
+        looperBrief(db, looper, [describeDatabase(table), describeCanvas(canvas)].filter(Boolean).join("\n\n")),
         `You're chatting with your owner. Answer as ${looper.name}, briefly and concretely, in first person. Use your tools to look things up instead of guessing; you can change your own instructions and skills when asked.`,
         runs.length ? `Your latest runs:\n${runs.map((r) => `- ${r.startedAt.slice(0, 16)} ${r.skillName} [${r.status}]: ${r.summary.slice(0, 600)}`).join("\n")}` : "",
         ext.connected.length ? `Connected apps: ${ext.connected.join(", ")}.` : "No apps connected yet.",
@@ -920,15 +992,18 @@ export async function looperChatReply(uid: string, looperId: string, userText: s
       external: ext.tools,
       maxSteps: 20,
       progress: live.push,
+      onText: live.text,
+      fast: true,
     });
     content = (await result.text) || (actions.length ? "Done." : "…");
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   } finally {
     await ext.close();
-    await live.done();
   }
   const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
   await mutate(uid, (d) => void ((d.chats ??= {})[looperId] = [...(d.chats?.[looperId] ?? []), reply]));
+  // Done only once the reply is saved, so a refresh at "done" always shows it.
+  await live.done({ ok: !content.startsWith("I couldn't"), note: firstSentence(content) });
   return reply;
 }

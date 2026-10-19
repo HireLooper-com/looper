@@ -3,12 +3,12 @@
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
-import { chiefReply, defaultRetroSkill, looperChatReply, runRetro, runSkill } from "@/lib/agent";
+import { after } from "next/server";
+import { beginChiefReply, beginLooperReply, defaultRetroSkill, runRetro, runSkill } from "@/lib/agent";
 import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
 import { kv } from "@/lib/kv";
-import { readProgress } from "@/lib/progress";
 import { deleteCanvas } from "@/lib/canvas";
 import { deleteDatabase } from "@/lib/database";
 import { testIntegration } from "@/lib/integrations";
@@ -122,27 +122,27 @@ export async function listPlanModels(provider: Provider) {
 }
 
 // — Chief —
+// Replies run in the background: the request returns once the message is saved, and the chat
+// follows the reply through /api/progress. (Server actions run one at a time per tab, so a long one
+// would hold up every other click.)
 export async function askChief(text: string) {
   const uid = await requireUid();
-  return done(await chiefReply(uid, text));
+  const reply = await beginChiefReply(uid, text);
+  after(reply);
+  return done({ since: reply.since });
 }
 
 export async function askLooper(looperId: string, text: string) {
   const uid = await requireUid();
-  return done(await looperChatReply(uid, looperId, text));
+  const reply = await beginLooperReply(uid, looperId, text);
+  after(reply);
+  return done({ since: reply.since });
 }
 
 export async function clearLooperChat(looperId: string) {
   const uid = await requireUid();
   await mutate(uid, (db) => void ((db.chats ??= {})[looperId] = []));
   return done(true);
-}
-
-/** Live steps for a reply or run in progress: target is "chief", "chat:<looperId>" or "run:<runId>". */
-export async function getProgress(target: string) {
-  const uid = await requireUid();
-  if (!/^(chief|chat:[\w-]+|run:[\w-]+)$/.test(target)) return [];
-  return readProgress(uid, target);
 }
 
 export async function clearChief() {
@@ -277,14 +277,17 @@ export async function deleteSkill(looperId: string, skillId: string) {
   return done(true);
 }
 
+/** Start a skill in the background; the looper's chat and the Working tray follow it. */
 export async function runLooperSkill(looperId: string, skillId: string) {
   const uid = await requireUid();
-  return done(await runSkill(uid, looperId, skillId, "manual"));
+  after(() => runSkill(uid, looperId, skillId, "manual").then(() => undefined).catch(() => undefined));
+  return done(true);
 }
 
 export async function holdRetro(looperId: string) {
   const uid = await requireUid();
-  return done(await runRetro(uid, looperId, "manual"));
+  after(() => runRetro(uid, looperId, "manual").then(() => undefined).catch(() => undefined));
+  return done(true);
 }
 
 // — Kanban —
@@ -338,7 +341,8 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
   const looper = db.loopers.find((l) => l.id === looperId);
   if (!looper) throw new Error("Looper not found");
   const composio = composioApi.hasComposio();
-  const accounts = composio ? await composioApi.activeAccounts(uid).catch(() => new Map<string, composioApi.Account[]>()) : new Map<string, composioApi.Account[]>();
+  // The Apps tab must show a connection made a moment ago, so skip the short cache here.
+  const accounts = composio ? await composioApi.activeAccounts(uid, true).catch(() => new Map<string, composioApi.Account[]>()) : new Map<string, composioApi.Account[]>();
   const local = isLocalServer();
   const repairs = new Map<string, { slug: string; name: string; logo?: string }>();
 
@@ -474,5 +478,6 @@ export async function disconnectAccount(accountId: string) {
   const mine = (await composioApi.listAccounts(uid)).some((a) => a.id === accountId);
   if (!mine) throw new Error("That connection isn't yours.");
   await composioApi.deleteAccount(accountId);
+  composioApi.forgetAccounts(uid);
   return done(true);
 }

@@ -5,6 +5,7 @@ import { inboxItems, metricDelta, metricNow, trend } from "@/lib/inbox";
 import { isDue } from "@/lib/schedule";
 import { currentUser } from "@/lib/session";
 import { PROVIDERS } from "@/lib/types";
+import { Notices } from "./activity";
 import { CommandPalette } from "./command-palette";
 import { Sidebar } from "./sidebar";
 import { fmt } from "./ui";
@@ -41,6 +42,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
       <Sidebar loopers={loopers} chiefPreview={lastChief} inboxCount={inbox.length} email={user.email} plan={PROVIDERS.find((p) => p.id === user.provider)?.plan} />
       <main className="min-w-0 flex-1 lg:h-dvh lg:overflow-y-auto">{children}</main>
       <CommandPalette loopers={loopers.map(({ id, name, color, skills }) => ({ id, name, color, skills }))} />
+      <Notices loopers={loopers.map(({ id, color }) => ({ id, color }))} />
     </div>
   );
 }

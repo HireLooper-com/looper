@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { getProgress } from "@/app/actions";
 import { answerAsk, dismissRuns, retryFailed } from "@/app/team-actions";
-import type { Ask, ChiefMessage, Run } from "@/lib/types";
+import type { Progress } from "@/lib/progress";
+import type { Accent, Ask, ChiefMessage, Run } from "@/lib/types";
+import { refreshActivity, useProgress } from "./live";
 import { Bot, cx } from "./ui";
-
-// Steps newer than this belong to the reply we're waiting for (a little slack for clock skew).
-const stepsFrom = () => Date.now() - 2000;
 
 type Item = { kind: "msg"; at: string; m: ChiefMessage } | { kind: "run"; at: string; r: Run } | { kind: "failed"; at: string; runs: Run[] };
 
@@ -49,7 +47,8 @@ export function ChatPanel(props: {
   emptyTitle: string;
   emptyText: string;
   placeholder: string;
-  send: (text: string) => Promise<unknown>;
+  /** saves the message and starts the reply in the background; returns when it started (server time) */
+  send: (text: string) => Promise<{ since: number } | unknown>;
   clear?: () => Promise<unknown>;
   /** progress key for replies: "chief" or "chat:<looperId>" */
   progressTarget: string;
@@ -59,50 +58,54 @@ export function ChatPanel(props: {
   const { bot, messages, runs = [], asks = [], ready } = props;
   const router = useRouter();
   const [text, setText] = useState("");
+  // Your message shows at once; the reply is followed live until it's saved.
   const [pending, setPending] = useState<string | null>(null);
-  const [pendingSince, setPendingSince] = useState(0);
-  // After tapping an answer the looper replies in the background; watch for it.
-  const [waiting, setWaiting] = useState<{ since: number; count: number } | null>(null);
-  const [isPending, start] = useTransition();
+  const [expect, setExpect] = useState(0);
+  const [, start] = useTransition();
   const scroller = useRef<HTMLDivElement>(null);
+  const { progress, working } = useProgress(props.progressTarget, expect);
   const items = timeline(messages, runs);
   const askById = new Map(asks.map((a) => [a.id, a]));
-  const replied = waiting && messages.length > waiting.count;
+  const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content;
+  const showPending = pending !== null && pending !== lastUser;
+
+  // When the reply is saved, pull it in.
+  const wasWorking = useRef(false);
+  useEffect(() => {
+    if (wasWorking.current && !working) {
+      start(() => router.refresh());
+      setExpect(0);
+    }
+    wasWorking.current = working;
+  }, [working, router]);
 
   // Follow the conversation; with nothing said yet, stay at the top (Chief's brief lives there).
+  const stepCount = progress?.steps.length ?? 0;
+  const draftLength = progress?.draft?.length ?? 0;
   useEffect(() => {
-    if (items.length || pending) scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
-  }, [items.length, pending, waiting]);
-
-  useEffect(() => {
-    if (!waiting || replied) return;
-    const t = setInterval(() => router.refresh(), 2500);
-    const stop = setTimeout(() => setWaiting(null), 5 * 60_000);
-    return () => {
-      clearInterval(t);
-      clearTimeout(stop);
-    };
-  }, [waiting, replied, router]);
+    if (items.length || showPending) scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+  }, [items.length, showPending, working, stepCount, draftLength]);
 
   const send = (value: string) => {
     const t = value.trim();
-    if (!t || isPending) return;
+    if (!t || working) return;
     setText("");
     setPending(t);
-    setPendingSince(stepsFrom());
-    start(async () => {
-      await props.send(t);
-      setPending(null);
-      router.refresh();
+    void Promise.resolve(props.send(t)).then((r) => {
+      const since = (r as { value?: { since?: number }; since?: number } | undefined)?.since;
+      setExpect(since || Date.now() - 1000);
+      refreshActivity();
+      start(() => router.refresh());
     });
   };
 
-  const onAnswered = () => {
-    setWaiting({ since: stepsFrom(), count: messages.length + 1 });
-    router.refresh();
+  const onAnswered = (since?: number) => {
+    setExpect(since || Date.now() - 1000);
+    refreshActivity();
+    start(() => router.refresh());
   };
 
-  const empty = items.length === 0 && !pending;
+  const empty = items.length === 0 && !showPending && !working;
 
   return (
     <section className="flex h-full min-h-0 flex-col">
@@ -159,13 +162,8 @@ export function ChatPanel(props: {
                   <FailedGroup key={i.runs[0].id} runs={i.runs} />
                 ),
               )}
-              {pending && (
-                <>
-                  <Bubble m={{ id: "p", role: "user", content: pending, at: "" }} />
-                  <LiveSteps target={props.progressTarget} since={pendingSince} />
-                </>
-              )}
-              {waiting && !replied && !pending && <LiveSteps target={props.progressTarget} since={waiting.since} />}
+              {showPending && <Bubble m={{ id: "p", role: "user", content: pending!, at: "" }} />}
+              {working && <LiveSteps progress={progress} bot={bot} />}
             </>
           )}
         </div>
@@ -195,7 +193,7 @@ export function ChatPanel(props: {
           />
           <button
             type="submit"
-            disabled={!ready || isPending || !text.trim()}
+            disabled={!ready || working || !text.trim()}
             aria-label="Send"
             className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue text-page transition-colors disabled:bg-ink/[0.15]"
           >
@@ -255,20 +253,28 @@ function Bubble({ m }: { m: ChiefMessage }) {
 }
 
 /** A looper's question (tap an option) or approval (approve, decline, or reply in your words). */
-export function AskBubble({ ask, onAnswered, compact }: { ask: Ask; onAnswered?: () => void; compact?: boolean }) {
+export function AskBubble({ ask: saved, onAnswered, compact }: { ask: Ask; onAnswered?: (since?: number) => void; compact?: boolean }) {
   const [busy, start] = useTransition();
   const [replying, setReplying] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Show the answer the moment you tap; undo if the server says no.
+  const [mine, setMine] = useState<string | null>(null);
+  const ask: Ask = mine && saved.status === "open" ? { ...saved, status: "answered", answer: mine } : saved;
   const open = ask.status === "open";
 
-  const answer = (value: string, withNote?: string) =>
+  const answer = (value: string, withNote?: string) => {
+    setError(null);
+    setMine(withNote?.trim() ? `${value} — ${withNote.trim()}` : value);
     start(async () => {
-      setError(null);
       const r = await answerAsk(ask.id, value, withNote);
-      if (r.ok) onAnswered?.();
-      else setError(r.error);
+      if (r.ok) onAnswered?.(r.value.since);
+      else {
+        setMine(null);
+        setError(r.error);
+      }
     });
+  };
 
   const options = ask.kind === "approval" ? ["Approve", "Not now"] : (ask.options ?? []);
   return (
@@ -335,44 +341,36 @@ export function AskBubble({ ask, onAnswered, compact }: { ask: Ask; onAnswered?:
   );
 }
 
-/** What the bot is doing right now, polled from the server; finished steps are ticked. */
-function LiveSteps({ target, since }: { target: string; since: number }) {
-  const [steps, setSteps] = useState<{ at: number; text: string }[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const poll = () =>
-      getProgress(target)
-        .then((s) => alive && setSteps(s.filter((x) => x.at >= since)))
-        .catch(() => undefined);
-    poll();
-    const t = setInterval(poll, 1000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [target, since]);
-  const shown = steps.slice(-7);
-  const box = useRef<HTMLDivElement>(null);
-  // Keep the newest step in view as they arrive.
-  useEffect(() => {
-    box.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [steps.length]);
+/** What the bot is doing right now: ticked steps, then the reply itself as it's written. */
+function LiveSteps({ progress, bot }: { progress: Progress | null; bot?: { color?: Accent; dark?: boolean; seed: string } }) {
+  const steps = progress?.steps ?? [];
+  const shown = steps.slice(-6);
+  const draft = progress?.draft?.trim();
   return (
-    <div ref={box} className="fade-up flex w-fit min-w-[220px] max-w-[85%] flex-col gap-1 rounded-[18px] bg-ink/[0.045] px-4 py-3 text-[0.875rem]">
-      {shown.length === 0 && (
-        <div className="flex items-center gap-2 text-mute">
-          <span className="pulse-dot h-2 w-2 rounded-full bg-ink" /> Starting…
+    <div className="flex flex-col items-start gap-2">
+      <div className={cx("fade-up flex w-fit min-w-[220px] max-w-[85%] flex-col gap-1 rounded-[18px] px-4 py-3 text-[0.875rem]", draft ? "py-1.5 text-[0.8125rem]" : "bg-ink/[0.045]")}>
+        {shown.length === 0 && (
+          <div className="flex items-center gap-2 text-mute">
+            {bot ? <Bot size={16} color={bot.color} dark={bot.dark} seed={bot.seed} className="looping" /> : <span className="pulse-dot h-2 w-2 rounded-full bg-ink" />}
+            On it…
+          </div>
+        )}
+        {(draft ? shown.slice(-1) : shown).map((s, i, all) => {
+          const current = !draft && i === all.length - 1;
+          return (
+            <div key={`${s.at}-${i}`} className={cx("flex items-center gap-2", current ? "text-ink" : "text-mute")}>
+              {current ? <span className="pulse-dot h-2 w-2 shrink-0 rounded-full bg-ink" /> : <span className="w-2 shrink-0 text-center text-[0.75rem]">✓</span>}
+              <span className="truncate">{s.text}</span>
+            </div>
+          );
+        })}
+      </div>
+      {draft && (
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-[18px] bg-ink/[0.045] px-4 py-2.5 text-[0.9375rem] leading-relaxed">
+          {draft}
+          <span className="caret ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[3px] bg-ink" />
         </div>
       )}
-      {shown.map((s, i) => {
-        const current = i === shown.length - 1;
-        return (
-          <div key={`${s.at}-${i}`} className={cx("flex items-center gap-2", current ? "text-ink" : "text-mute")}>
-            {current ? <span className="pulse-dot h-2 w-2 shrink-0 rounded-full bg-ink" /> : <span className="w-2 shrink-0 text-center text-[0.75rem]">✓</span>}
-            <span className="truncate">{s.text}</span>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -387,15 +385,7 @@ function statsLine(r: Run) {
 /** One line per run; open it for the steps it took and the full report. */
 function RunLine({ r }: { r: Run }) {
   const [open, setOpen] = useState(false);
-  if (r.status === "running")
-    return (
-      <div className="flex flex-col items-start gap-1">
-        <div className="flex items-center gap-1.5 pl-1 text-[0.75rem] text-mute">
-          <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-ink" /> Running {r.skillName}…
-        </div>
-        <LiveSteps target={`run:${r.id}`} since={Date.parse(r.startedAt) - 2000} />
-      </div>
-    );
+  if (r.status === "running") return <RunningLine r={r} />;
   if (r.status === "error") return <FailedGroup runs={[r]} />;
   const chips = statsLine(r);
   return (
@@ -425,6 +415,18 @@ function RunLine({ r }: { r: Run }) {
   );
 }
 
+function RunningLine({ r }: { r: Run }) {
+  const { progress } = useProgress(`run:${r.id}`);
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <div className="flex items-center gap-1.5 pl-1 text-[0.75rem] text-mute">
+        <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-ink" /> Running {r.skillName}…
+      </div>
+      <LiveSteps progress={progress} />
+    </div>
+  );
+}
+
 /** Failed runs, folded: one quiet line with Retry, details on demand. */
 function FailedGroup({ runs }: { runs: Run[] }) {
   const router = useRouter();
@@ -434,12 +436,15 @@ function FailedGroup({ runs }: { runs: Run[] }) {
   const last = runs.at(-1)!;
   const many = runs.length > 1;
   const settled = runs.every((r) => r.dismissed);
-  const act = (fn: () => Promise<{ ok: boolean }>, msg: string) =>
+  const act = (fn: () => Promise<{ ok: boolean }>, msg: string) => {
+    setDone(msg);
     start(async () => {
       const r = await fn();
-      if (r.ok) setDone(msg);
+      if (!r.ok) setDone(null);
+      refreshActivity();
       router.refresh();
     });
+  };
   return (
     <div className="fade-up flex flex-col items-start">
       <div className="w-full max-w-[85%] rounded-[18px] px-4 py-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.07)]">

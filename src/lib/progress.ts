@@ -1,34 +1,116 @@
 import "server-only";
 import { kv } from "./kv";
 
-// Live "what am I doing" steps for a chat reply or a run, polled by the UI while it waits.
+// Live "what am I doing" for a chat reply or a run: steps, the reply as it's written, and whether
+// it's finished. Polled by the UI through GET routes (never server actions, which queue).
 export interface Step {
   at: number;
   text: string;
 }
 
-const key = (uid: string, target: string) => `progress:${uid}:${target}`;
+export interface Progress {
+  since: number;
+  steps: Step[];
+  /** the reply so far, while the model writes it */
+  draft?: string;
+  done: boolean;
+  error?: string;
+}
 
-export function progressWriter(uid: string, target: string) {
-  const steps: Step[] = [];
+/** A piece of background work shown in the rail's Working tray, and as a notice when it ends. */
+export interface Job {
+  target: string;
+  label: string;
+  href: string;
+  /** notice wording: "Max replied" / "Max couldn't reply" */
+  done?: string;
+  failed?: string;
+  since: number;
+  finishedAt?: number;
+  ok?: boolean;
+  /** what it said when it finished, for the notice */
+  note?: string;
+}
+
+const key = (uid: string, target: string) => `progress:${uid}:${target}`;
+const jobsKey = (uid: string) => `jobs:${uid}`;
+const KEEP_FINISHED_MS = 10 * 60_000;
+const STALE_MS = 6 * 60_000;
+
+function updateJobs(uid: string, fn: (jobs: Job[]) => Job[]) {
+  return kv
+    .update<{ jobs: Job[] }, void>(jobsKey(uid), () => ({ jobs: [] }), (box) => {
+      const now = Date.now();
+      // Drop old notices, and work that died without saying so (the function was cut off).
+      box.jobs = fn(box.jobs).filter((j) => (j.finishedAt ? now - j.finishedAt < KEEP_FINISHED_MS : now - j.since < STALE_MS));
+    })
+    .catch(() => undefined);
+}
+
+export function progressWriter(uid: string, target: string, job?: { label: string; href: string; done?: string; failed?: string }) {
+  const since = Date.now();
+  const state: Progress = { since, steps: [], done: false };
   let chain: Promise<unknown> = Promise.resolve();
-  const push = (text: string) => {
-    if (!text || steps.at(-1)?.text === text) return;
-    steps.push({ at: Date.now(), text });
-    const snapshot = steps.slice(-40);
-    chain = chain.then(() => kv.set(key(uid, target), snapshot, 3600)).catch(() => undefined);
+  let lastDraftWrite = 0;
+  const save = (ttl = 3600) => {
+    const snapshot: Progress = { ...state, steps: state.steps.slice(-40) };
+    chain = chain.then(() => kv.set(key(uid, target), snapshot, ttl)).catch(() => undefined);
   };
+  const push = (text: string) => {
+    if (!text || state.steps.at(-1)?.text === text) return;
+    state.steps.push({ at: Date.now(), text });
+    save();
+  };
+  save();
+  if (job) chain = chain.then(() => updateJobs(uid, (jobs) => [...jobs.filter((j) => j.target !== target), { target, ...job, since }]));
   return {
+    since,
+    /** resolves once the "working" record and the tray entry are saved */
+    ready: () => chain,
     push,
+    /** The reply as it's being written; saved a few times a second so the UI can show it growing. */
+    text: (soFar: string) => {
+      state.draft = soFar;
+      if (Date.now() - lastDraftWrite > 350) {
+        lastDraftWrite = Date.now();
+        save();
+      }
+    },
     /** the trail so far, to keep on the run */
-    trail: () => steps.map((s) => s.text).filter((t) => t !== "Thinking…" && t !== "Writing the reply…").slice(-40),
-    /** Keep the trail briefly so the UI can show the last step, then let it expire. */
-    done: () => chain.then(() => kv.set(key(uid, target), steps.slice(-40), 120)).catch(() => undefined),
+    trail: () => state.steps.map((s) => s.text).filter((t) => t !== "Thinking…" && t !== "Writing the reply…").slice(-40),
+    /** Mark finished; keep the trail briefly so the UI can catch the end, then let it expire. */
+    done: (result?: { ok?: boolean; note?: string; error?: string }) => {
+      state.done = true;
+      state.draft = undefined;
+      if (result?.error) state.error = result.error;
+      save(600);
+      if (job)
+        chain = chain.then(() =>
+          updateJobs(uid, (jobs) => jobs.map((j) => (j.target === target ? { ...j, finishedAt: Date.now(), ok: result?.ok ?? !result?.error, note: result?.note ?? result?.error } : j))),
+        );
+      return chain.catch(() => undefined);
+    },
   };
 }
 
-export async function readProgress(uid: string, target: string): Promise<Step[]> {
-  return (await kv.get<Step[]>(key(uid, target))) ?? [];
+export async function readProgress(uid: string, target: string): Promise<Progress | null> {
+  const v = await kv.get<Progress | Step[]>(key(uid, target));
+  if (!v) return null;
+  // Older records were a bare list of steps.
+  return Array.isArray(v) ? { since: v[0]?.at ?? 0, steps: v, done: true } : v;
+}
+
+/** Background work in progress, plus recently finished work for notices. Each active job carries its latest step. */
+export async function readJobs(uid: string) {
+  const now = Date.now();
+  const jobs = ((await kv.get<{ jobs: Job[] }>(jobsKey(uid)))?.jobs ?? []).filter((j) => (j.finishedAt ? now - j.finishedAt < KEEP_FINISHED_MS : now - j.since < STALE_MS));
+  return Promise.all(
+    jobs.map(async (j) => {
+      if (j.finishedAt) return { ...j, step: undefined };
+      const p = await readProgress(uid, j.target);
+      return { ...j, step: p?.draft ? "Writing…" : p?.steps.at(-1)?.text };
+    }),
+  );
 }
 
 const APPS: Record<string, string> = {

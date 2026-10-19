@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getAccount } from "@/lib/composio";
+import { forgetAccounts, getAccount } from "@/lib/composio";
 import { kv } from "@/lib/kv";
 import { currentUser } from "@/lib/session";
 
@@ -22,5 +22,6 @@ export async function GET(request: NextRequest) {
   await kv.delete(`composio-link:${accountId}`);
   if (q.get("status") !== "success") return back(`connect_error=${encodeURIComponent(app)}`);
   const account = await getAccount(accountId).catch(() => null);
+  forgetAccounts(user.id);
   return back(account?.status === "ACTIVE" ? `connected=${encodeURIComponent(app)}` : `connect_error=${encodeURIComponent(app)}`);
 }

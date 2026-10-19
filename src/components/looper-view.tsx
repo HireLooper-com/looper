@@ -154,7 +154,15 @@ export function LooperView(props: {
           ) : view === "database" ? (
             <DatabaseView looperId={looper.id} looperName={looper.name} color={looper.color} />
           ) : view === "retro" ? (
-            <RetroBoard looper={looper} retros={retros} running={!!running} />
+            <RetroBoard
+              looper={looper}
+              retros={retros}
+              reflecting={running && looper.skills.find((s) => s.id === running.skillId)?.kind === "retro" ? { runId: running.id } : undefined}
+              lastError={(() => {
+                const last = runs.filter((r) => looper.skills.find((s) => s.id === r.skillId)?.kind === "retro").at(-1);
+                return last?.status === "error" && now - Date.parse(last.startedAt) < 10 * 60_000 ? last.summary : undefined;
+              })()}
+            />
           ) : view === "apps" ? (
             <AppsPanel looperId={looper.id} looperName={looper.name} />
           ) : view === "skills" ? (
@@ -208,15 +216,18 @@ function MetricStrip({ looper, active, now }: { looper: Looper; active: boolean;
 function PausedPill({ looper }: { looper: Looper }) {
   const router = useRouter();
   const [busy, start] = useTransition();
+  const [resumed, setResumed] = useState(false);
+  if (resumed) return null;
   return (
     <button
       disabled={busy}
-      onClick={() =>
+      onClick={() => {
+        setResumed(true);
         start(async () => {
           await updateLooper(looper.id, { status: "active" });
           router.refresh();
-        })
-      }
+        });
+      }}
       className="shrink-0 rounded-full bg-ink/[0.05] px-3 py-1 text-[0.8125rem] text-mute hover:text-ink"
     >
       Paused · <span className="font-medium text-ink">Resume</span>
@@ -225,9 +236,12 @@ function PausedPill({ looper }: { looper: Looper }) {
 }
 
 /** Setup's first card: is it on, and when does it work next. */
-function StatusCard({ looper, now }: { looper: Looper; now: number }) {
+function StatusCard({ looper: saved, now }: { looper: Looper; now: number }) {
   const router = useRouter();
   const [busy, start] = useTransition();
+  // Flip at once; the server catches up.
+  const [status, setStatus] = useState<Looper["status"] | null>(null);
+  const looper = status && status !== saved.status && busy ? { ...saved, status } : saved;
   const next =
     now && looper.status === "active"
       ? looper.skills
@@ -250,12 +264,14 @@ function StatusCard({ looper, now }: { looper: Looper; now: number }) {
         size="sm"
         variant={looper.status === "active" ? "soft" : "primary"}
         disabled={busy}
-        onClick={() =>
+        onClick={() => {
+          const next = looper.status === "active" ? "paused" : "active";
+          setStatus(next);
           start(async () => {
-            await updateLooper(looper.id, { status: looper.status === "active" ? "paused" : "active" });
+            await updateLooper(looper.id, { status: next });
             router.refresh();
-          })
-        }
+          });
+        }}
       >
         {looper.status === "active" ? "Pause" : "Resume"}
       </Button>
