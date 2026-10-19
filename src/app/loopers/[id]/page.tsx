@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { getState } from "../../actions";
 import { LooperView } from "@/components/looper-view";
+import { readCanvas } from "@/lib/canvas";
 import { readDatabase } from "@/lib/database";
 import { requireUser } from "@/lib/session";
 
@@ -16,7 +17,7 @@ export default async function LooperPage({ params, searchParams }: PageProps<"/l
   const state = await getState();
   const looper = state.loopers.find((l) => l.id === id);
   if (!looper) notFound();
-  const table = await readDatabase(user.id, id);
+  const [table, canvas] = await Promise.all([readDatabase(user.id, id), readCanvas(user.id, id).catch(() => null)]);
 
   return (
     <LooperView
@@ -27,6 +28,7 @@ export default async function LooperPage({ params, searchParams }: PageProps<"/l
       asks={state.asks.filter((a) => a.looperId === id)}
       integrations={state.settings.integrations}
       database={table && { name: table.name, rows: table.rows.length, rowNoun: table.rowNoun }}
+      canvasItems={canvas?.items.filter((i) => i.kind !== "arrow").length ?? 0}
       chat={state.chats?.[id] ?? []}
       ready={(() => {
         const s = state.settings;

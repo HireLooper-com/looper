@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { askLooper, clearLooperChat, updateLooper } from "@/app/actions";
 import { occurrences } from "@/lib/schedule";
 import type { Ask, Card, ChiefMessage, Looper, PublicSettings, Retro, Run } from "@/lib/types";
@@ -40,6 +40,7 @@ export function LooperView(props: {
   asks: Ask[];
   integrations: PublicSettings["integrations"];
   database: { name: string; rows: number; rowNoun: string } | null;
+  canvasItems: number;
   chat: ChiefMessage[];
   ready: boolean;
   tab: string;
@@ -65,13 +66,41 @@ export function LooperView(props: {
     apps: looper.apps?.length || undefined,
   };
 
+  // What's in each view, shown in the tab menus so you know the other one is worth a look.
+  const open = cards.filter((c) => c.column !== "done").length;
+  const nextRun =
+    now && looper.status === "active"
+      ? looper.skills
+          .flatMap((sk) => occurrences(sk.schedule, new Date(now), new Date(now + 8 * 864e5)).slice(0, 1).map((at) => ({ at, sk })))
+          .sort((a, b) => a.at.getTime() - b.at.getTime())[0]
+      : undefined;
+  const scheduled = looper.skills.filter((sk) => sk.schedule.type !== "manual").length;
+  const previews: Partial<Record<View, string>> = {
+    board: open ? `${open} open card${open === 1 ? "" : "s"}${forYou ? ` · ${forYou} for you` : ""}` : "No open cards",
+    calendar: nextRun
+      ? `Next: ${nextRun.sk.name}, ${nextRun.at.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })}`
+      : looper.status === "paused"
+        ? `Paused · ${scheduled} scheduled skill${scheduled === 1 ? "" : "s"}`
+        : "Nothing scheduled",
+    database: database ? `${database.name} · ${database.rows} row${database.rows === 1 ? "" : "s"}` : "Not set up yet",
+    canvas: props.canvasItems ? `${props.canvasItems} item${props.canvasItems === 1 ? "" : "s"} on the board` : "Empty board",
+    skills: `${looper.skills.length} skill${looper.skills.length === 1 ? "" : "s"} · ${scheduled} on a schedule`,
+    apps: looper.apps?.length ? `${looper.apps.length} connected` : "None connected yet",
+  };
+  const [menu, setMenu] = useState<{ id: string; left: number; top: number } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const openMenu = (id: string, el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setMenu((m) => (m?.id === id ? null : { id, left: r.left, top: r.bottom }));
+  };
+
   // Sliding underline under the active place.
   const nav = useRef<HTMLElement>(null);
   const [bar, setBar] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const el = nav.current?.querySelector<HTMLElement>('[data-active="true"]');
     setBar(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
-  }, [group?.id]);
+  }, [group?.id, view]);
 
   return (
     <div className={cx("flex flex-col", FULL_HEIGHT.has(view) && "h-[calc(100dvh-58px)] lg:h-dvh")}>
@@ -80,40 +109,62 @@ export function LooperView(props: {
           {GROUPS.map((g) => {
             const active = g.id === group?.id;
             const n = counts[g.id];
-            return (
-              <Link
-                key={g.id}
-                data-active={active}
-                href={`/loopers/${looper.id}?tab=${active ? view : g.views[0]}`}
-                scroll={false}
-                className={cx(
-                  "flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-3 pt-3.5 text-[0.875rem] outline-none transition-colors focus-visible:text-ink",
-                  active ? "font-medium text-ink" : "text-mute hover:text-ink",
-                  active && !bar ? "border-ink" : "border-transparent",
-                )}
-              >
+            const multi = g.views.length > 1;
+            const tab = cx(
+              "flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-3 pt-3.5 text-[0.875rem] transition-colors focus-visible:text-ink focus-visible:outline-none",
+              active ? "font-medium text-ink" : "text-mute hover:text-ink",
+              active && !bar ? "border-ink" : "border-transparent",
+            );
+            const inner = (
+              <>
                 {g.label}
-                {n !== undefined && <span className="rounded-full bg-ink/[0.07] px-1.5 text-[0.6875rem] tabular-nums text-ink">{n}</span>}
-              </Link>
+                {multi && active && <span className="font-normal text-mute">· {VIEW_LABEL[view]}</span>}
+                {n !== undefined && <span className="rounded-full bg-ink/[0.07] px-1.5 text-[0.6875rem] font-normal tabular-nums text-ink">{n}</span>}
+              </>
+            );
+            if (!multi)
+              return (
+                <Link key={g.id} data-active={active} href={`/loopers/${looper.id}?tab=${g.views[0]}`} scroll={false} className={tab}>
+                  {inner}
+                </Link>
+              );
+            // Two views in one place: the tab opens a menu that says what's in each.
+            return (
+              <div key={g.id} data-active={active} className={cx(tab, "gap-0 px-0")}>
+                {active ? (
+                  <button onClick={(e) => openMenu(g.id, e.currentTarget.parentElement!)} aria-haspopup="menu" aria-expanded={menu?.id === g.id} className="flex items-center gap-1.5 pl-3 focus-visible:outline-none">
+                    {inner}
+                  </button>
+                ) : (
+                  <Link href={`/loopers/${looper.id}?tab=${g.views[0]}`} scroll={false} className="flex items-center gap-1.5 pl-3 focus-visible:outline-none">
+                    {inner}
+                  </Link>
+                )}
+                <button
+                  aria-label={`${g.label} views`}
+                  aria-haspopup="menu"
+                  aria-expanded={menu?.id === g.id}
+                  onClick={(e) => openMenu(g.id, e.currentTarget.parentElement!)}
+                  className={cx("ml-0.5 mr-1.5 flex h-5 w-5 items-center justify-center rounded-full text-mute transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:bg-ink/[0.08]", menu?.id === g.id && "bg-ink/[0.06] text-ink")}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={cx("transition-transform", menu?.id === g.id && "rotate-180")}>
+                    <path d="m2.5 4 2.5 2.5L7.5 4" />
+                  </svg>
+                </button>
+              </div>
             );
           })}
           {bar && <span className="absolute bottom-0 h-0.5 rounded-full bg-ink transition-all duration-300 ease-out" style={{ left: bar.left, width: bar.width }} />}
         </nav>
 
-        {group && group.views.length > 1 && (
-          <div className="hidden shrink-0 rounded-full bg-ink/[0.05] p-0.5 sm:flex">
-            {group.views.map((v) => (
-              <Link
-                key={v}
-                href={`/loopers/${looper.id}?tab=${v}`}
-                scroll={false}
-                className={cx("rounded-full px-3 py-1 text-[0.8125rem] transition-colors", v === view ? "bg-panel font-medium text-ink shadow-[0_1px_3px_rgba(0,0,0,0.08)]" : "text-mute hover:text-ink")}
-              >
-                {VIEW_LABEL[v]}
-                {counts[v] !== undefined && <span className="ml-1 text-[0.6875rem] tabular-nums text-mute">{counts[v]}</span>}
-              </Link>
-            ))}
-          </div>
+        {menu && (
+          <ViewMenu
+            at={menu}
+            views={GROUPS.find((g) => g.id === menu.id)!.views.map((v) => ({ v, label: VIEW_LABEL[v]!, preview: previews[v] ?? "" }))}
+            current={view}
+            href={(v) => `/loopers/${looper.id}?tab=${v}`}
+            onClose={closeMenu}
+          />
         )}
 
         <div className="ml-auto flex min-w-0 items-center gap-2 py-2">
@@ -180,6 +231,91 @@ export function LooperView(props: {
 }
 
 /** The looper's one number, always in view: value, trend, target. Opens the chart. */
+const VIEW_ICON: Partial<Record<View, React.ReactNode>> = {
+  board: <path d="M3 4h4v12H3zM8 4h4v8H8zM13 4h4v5h-4z" />,
+  calendar: (
+    <>
+      <rect x="3" y="4.5" width="14" height="12" rx="2" />
+      <path d="M3 8.5h14M7 3v3M13 3v3" />
+    </>
+  ),
+  database: (
+    <>
+      <rect x="3" y="4" width="14" height="12" rx="2" />
+      <path d="M3 8h14M3 12h14M8 4v12" />
+    </>
+  ),
+  canvas: (
+    <>
+      <rect x="3" y="3.5" width="7" height="6" rx="1.2" />
+      <rect x="11" y="10.5" width="6" height="6" rx="1.2" />
+      <path d="M6.5 9.5v4.5H11" />
+    </>
+  ),
+  skills: <path d="M10 3l1.8 4.2L16 9l-4.2 1.8L10 15l-1.8-4.2L4 9l4.2-1.8z" />,
+  apps: (
+    <>
+      <rect x="3" y="3" width="6" height="6" rx="1.5" />
+      <rect x="11" y="3" width="6" height="6" rx="1.5" />
+      <rect x="3" y="11" width="6" height="6" rx="1.5" />
+      <rect x="11" y="11" width="6" height="6" rx="1.5" />
+    </>
+  ),
+};
+
+/** The menu under a tab that holds two views: each with what's in it right now. */
+function ViewMenu({ at, views, current, href, onClose }: { at: { left: number; top: number }; views: { v: View; label: string; preview: string }[]; current: View; href: (v: View) => string; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>('[aria-current="page"], a')?.focus();
+    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest("[aria-haspopup]") && onClose();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const items = [...(ref.current?.querySelectorAll<HTMLElement>("a") ?? [])];
+      const i = items.indexOf(document.activeElement as HTMLElement);
+      items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+    };
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      window.removeEventListener("scroll", onClose, true);
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [onClose]);
+  return (
+    <div ref={ref} role="menu" style={{ left: Math.max(8, at.left), top: at.top + 6 }} className="pop-in fixed z-50 w-[300px] rounded-[16px] border border-ink/[0.06] bg-panel p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.22)]">
+      {views.map(({ v, label, preview }) => (
+        <Link
+          key={v}
+          role="menuitem"
+          href={href(v)}
+          scroll={false}
+          onClick={onClose}
+          aria-current={v === current ? "page" : undefined}
+          className={cx("flex items-center gap-3 rounded-[11px] px-2.5 py-2 outline-none transition-colors hover:bg-ink/[0.05] focus-visible:bg-ink/[0.05]", v === current && "bg-ink/[0.04]")}
+        >
+          <span className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]", v === current ? "bg-ink text-page" : "bg-ink/[0.06] text-ink")}>
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" aria-hidden>
+              {VIEW_ICON[v]}
+            </svg>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[0.875rem] font-medium">{label}</span>
+            <span className="block truncate text-[0.75rem] text-mute">{preview}</span>
+          </span>
+          {v === current && <span className="text-[0.75rem] text-mute">✓</span>}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 function MetricStrip({ looper, active, now }: { looper: Looper; active: boolean; now: number }) {
   const h = looper.metric.history;
   const last = h.at(-1);
