@@ -20,17 +20,17 @@ import { SkillsPanel } from "./skills-panel";
 import { Button, Sparkline, cx, fmt } from "./ui";
 import { useNow } from "./use-now";
 
-// Five places per looper. Work, Knowledge and Setup each hold two views of the same thing.
+// Five places per looper. Work, Results, Memory and Setup each hold two views of the same thing.
 type View = "chat" | "board" | "calendar" | "database" | "canvas" | "retro" | "skills" | "apps" | "metric";
 const GROUPS: { id: string; label: string; views: View[] }[] = [
   { id: "chat", label: "Chat", views: ["chat"] },
   { id: "work", label: "Work", views: ["board", "calendar"] },
-  { id: "knowledge", label: "Knowledge", views: ["database", "canvas"] },
-  { id: "retro", label: "Retro", views: ["retro"] },
+  { id: "results", label: "Results", views: ["metric", "retro"] },
+  { id: "memory", label: "Memory", views: ["database", "canvas"] },
   { id: "setup", label: "Setup", views: ["skills", "apps"] },
 ];
 const VIEWS = new Set<string>(["chat", "board", "calendar", "database", "canvas", "retro", "skills", "apps", "metric"]);
-const VIEW_LABEL: Partial<Record<View, string>> = { board: "Kanban", calendar: "Calendar", database: "Database", canvas: "Canvas", skills: "Skills", apps: "Apps" };
+const VIEW_LABEL: Partial<Record<View, string>> = { metric: "Metric", retro: "Retros", board: "Kanban", calendar: "Calendar", database: "Database", canvas: "Canvas", skills: "Skills", apps: "Apps" };
 const FULL_HEIGHT = new Set<View>(["chat", "canvas"]);
 
 export function LooperView(props: {
@@ -76,7 +76,11 @@ export function LooperView(props: {
           .sort((a, b) => a.at.getTime() - b.at.getTime())[0]
       : undefined;
   const scheduled = looper.skills.filter((sk) => sk.schedule.type !== "manual").length;
+  const lastValue = looper.metric.history.at(-1)?.value;
+  const lastRetro = retros.at(-1);
   const previews: Partial<Record<View, string>> = {
+    metric: lastValue === undefined ? "No reading yet" : `${fmt(lastValue)} now · target ${fmt(looper.metric.target)}`,
+    retro: lastRetro ? `${retros.length} retro${retros.length === 1 ? "" : "s"} · last scored ${lastRetro.effectiveness}/5` : "No retro yet",
     board: open ? `${open} open card${open === 1 ? "" : "s"}${forYou ? ` · ${forYou} for you` : ""}` : "No open cards",
     calendar: nextRun
       ? `Next: ${nextRun.sk.name}, ${nextRun.at.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })}`
@@ -234,6 +238,8 @@ export function LooperView(props: {
 
 /** The looper's one number, always in view: value, trend, target. Opens the chart. */
 const VIEW_ICON: Partial<Record<View, React.ReactNode>> = {
+  metric: <path d="M3 15l4.5-5 3 3L17 5M13 5h4v4" />,
+  retro: <path d="M4 10a6 6 0 1 0 2-4.5M4 3.5V6h2.5M10 7v3.5l2.5 1.5" />,
   board: <path d="M3 4h4v12H3zM8 4h4v8H8zM13 4h4v5h-4z" />,
   calendar: (
     <>

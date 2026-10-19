@@ -13,11 +13,14 @@ type Entry = { id: string; primary?: boolean; section: "Go to" | "Do" | "Found";
 
 const SECTIONS = [
   ["chat", "Chat"],
-  ["board", "Work"],
-  ["database", "Knowledge"],
-  ["retro", "Retro"],
-  ["skills", "Setup"],
+  ["board", "Kanban"],
+  ["calendar", "Calendar"],
   ["metric", "Metric"],
+  ["retro", "Retros"],
+  ["database", "Database"],
+  ["canvas", "Canvas"],
+  ["skills", "Skills"],
+  ["apps", "Apps"],
 ] as const;
 
 /** ⌘K: jump anywhere, run a skill, hire, or search what the loopers know. */
