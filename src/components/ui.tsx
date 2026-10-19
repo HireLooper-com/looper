@@ -82,8 +82,8 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
   );
 }
 
-// Rendered glossy loops from hirelooper.com, one per colour (public/avatars/loop-N.webp):
-// pink→peach, aqua→blue, yellow→orange, lavender→sky, lime→butter, pink→violet, mint→teal.
+// Rendered glossy loops with two equal lobes, one per colour (public/avatars/loop-N.webp):
+// pink→peach, aqua→blue, yellow→orange, lavender→sky, lime→butter, pink→violet, mint→teal; 7 is Chief's silver.
 const LOOP_COUNT = 7;
 // Loopers get their accent in turn when hired, so mapping accent → loop keeps neighbours distinct.
 const ACCENT_LOOP: Record<Accent, number> = { green: 6, orange: 2, lavender: 5, blue: 1, ink: 0 };
@@ -92,7 +92,7 @@ const ACCENT_LOOP: Record<Accent, number> = { green: 6, orange: 2, lavender: 5, 
  * The colour follows the looper's accent (or `seed` when there is none). */
 export function Bot({ color, size = 40, seed = "", dark = false, className }: { color?: Accent; size?: number; seed?: string; dark?: boolean; className?: string }) {
   const h = [...seed].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
-  const n = dark ? 3 : color ? ACCENT_LOOP[color] : h % LOOP_COUNT;
+  const n = dark ? 7 : color ? ACCENT_LOOP[color] : h % LOOP_COUNT;
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -101,6 +101,8 @@ export function Bot({ color, size = 40, seed = "", dark = false, className }: { 
       aria-hidden
       width={size}
       height={size}
+      // Inline size: the base `img { height: auto }` would otherwise let a tall flex row stretch it.
+      style={{ width: size, height: size }}
       draggable={false}
       className={cx("shrink-0 select-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.22)]", dark && "loop-chief", className)}
     />
