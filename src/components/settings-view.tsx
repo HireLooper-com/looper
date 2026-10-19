@@ -52,7 +52,15 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
   },
 ];
 
-export function SettingsView({ settings, notice }: { settings: PublicSettings; notice?: string }) {
+export interface ConnectedApp {
+  slug: string;
+  name: string;
+  logo?: string;
+  accounts: string[];
+  loopers: { id: string; name: string }[];
+}
+
+export function SettingsView({ settings, apps, notice }: { settings: PublicSettings; apps: ConnectedApp[]; notice?: string }) {
   return (
     <div className="mx-auto max-w-5xl px-6 pb-16 pt-10">
       <h1 className="display text-[2.5rem] sm:text-[3rem]">Settings</h1>
@@ -69,8 +77,36 @@ export function SettingsView({ settings, notice }: { settings: PublicSettings; n
       </section>
 
       <section className="mt-12">
-        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Integrations</h2>
-        <p className="mb-4 text-[0.875rem] text-mute">Each hub is one MCP link that reaches hundreds or thousands of apps. Loopers search for the tool they need while they work.</p>
+        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Connected apps</h2>
+        <p className="mb-4 text-[0.875rem] text-mute">Connect an app once and every looper can use it. Add or remove them from a looper&apos;s Setup → Apps.</p>
+        {apps.length ? (
+          <div className="tile divide-y divide-line overflow-hidden">
+            {apps.map((a) => (
+              <div key={a.slug} className="flex items-center gap-3 px-4 py-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {a.logo ? <img src={a.logo} alt="" className="h-8 w-8 rounded-[8px] object-contain" /> : <span className="h-8 w-8 rounded-[8px] bg-ink/[0.06]" />}
+                <div className="min-w-0 flex-1">
+                  <div className="text-[0.9375rem] font-medium">{a.name}</div>
+                  <div className="truncate text-[0.8125rem] text-mute">{a.accounts.join(", ")}</div>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {a.loopers.map((l) => (
+                    <a key={l.id} href={`/loopers/${l.id}?tab=apps`} className="rounded-full bg-ink/[0.05] px-2.5 py-0.5 text-[0.75rem] text-mute hover:text-ink">
+                      {l.name}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="tile px-4 py-4 text-[0.875rem] text-mute">No apps connected yet. Each looper lists the apps it needs under Setup → Apps.</p>
+        )}
+      </section>
+
+      <section className="mt-12">
+        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Hubs <span className="text-[0.875rem] font-normal text-mute">optional</span></h2>
+        <p className="mb-4 text-[0.875rem] text-mute">A hub is one MCP link that reaches hundreds or thousands of apps, for apps you&apos;d rather connect through Zapier, Pipedream or your own server.</p>
         <Integrations settings={settings} />
       </section>
     </div>

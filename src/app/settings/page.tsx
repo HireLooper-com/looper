@@ -1,6 +1,8 @@
 import { connection } from "next/server";
 import { getState } from "../actions";
-import { SettingsView } from "@/components/settings-view";
+import { SettingsView, type ConnectedApp } from "@/components/settings-view";
+import { accountLabel, activeAccounts, getToolkit, hasComposio } from "@/lib/composio";
+import { requireUid } from "@/lib/session";
 
 const NOTICES: Record<string, string> = {
   connected: "ChatGPT plan connected. Your loopers now run on it.",
@@ -11,7 +13,23 @@ const NOTICES: Record<string, string> = {
 
 export default async function SettingsPage({ searchParams }: PageProps<"/settings">) {
   await connection();
-  const { settings } = await getState();
+  const { settings, loopers } = await getState();
   const { chatgpt } = await searchParams;
-  return <SettingsView settings={settings} notice={typeof chatgpt === "string" ? NOTICES[chatgpt] : undefined} />;
+  const uid = await requireUid();
+  // Every app account the user has connected, and which loopers use it.
+  const accounts = hasComposio() ? await activeAccounts(uid, true).catch(() => new Map()) : new Map();
+  const apps: ConnectedApp[] = await Promise.all(
+    [...accounts].map(async ([slug, list]) => {
+      const known = loopers.flatMap((l) => l.apps ?? []).find((a) => a.slug === slug);
+      const tk = known ? null : await getToolkit(slug).catch(() => null);
+      return {
+        slug,
+        name: known?.name ?? tk?.name ?? slug,
+        logo: known?.logo ?? tk?.meta?.logo,
+        accounts: list.map(accountLabel),
+        loopers: loopers.filter((l) => l.apps?.some((a) => a.slug === slug)).map((l) => ({ id: l.id, name: l.name })),
+      };
+    }),
+  );
+  return <SettingsView settings={settings} apps={apps} notice={typeof chatgpt === "string" ? NOTICES[chatgpt] : undefined} />;
 }

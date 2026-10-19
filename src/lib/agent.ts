@@ -5,7 +5,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
-import { composioTools, resolveApps } from "./composio";
+import { activeAccounts, composioTools, hasComposio, resolveApps } from "./composio";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
@@ -633,18 +633,29 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
       },
     }),
     list_integrations: tool({
-      description: "List connected integration hubs (MCP servers) that loopers can use.",
+      description: "List what the user has connected: app accounts (Gmail, Stripe…, usable by every looper), MCP hubs, and which apps each looper still misses.",
       inputSchema: z.object({}),
-      execute: async () => (await read(uid)).settings.integrations.map((i) => ({ id: i.id, name: i.name, kind: i.kind, enabled: i.enabled })),
+      execute: async () => {
+        const db = await read(uid);
+        const c = await appConnections(uid, db);
+        return {
+          connectedApps: c.connected,
+          hubs: c.hubs,
+          loopers: db.loopers.map((l) => ({ name: l.name, missing: (l.apps ?? []).filter((a) => !c.isConnected(a)).map((a) => a.name) })),
+        };
+      },
     }),
     create_looper: tool({
       description: "Hire a new looper. Each looper owns exactly ONE business metric. Give it 1–4 work skills on sensible schedules; a weekly retro skill is added automatically.",
       inputSchema: looperSpec,
       execute: async (input) => {
         const r = await hireLooper(uid, input);
-        if (r.apps.length) links.push({ label: `Connect ${r.apps.map((a) => a.name).join(", ")} for ${r.name}`, href: `/loopers/${r.id}?tab=apps` });
+        const c = await appConnections(uid, await read(uid));
+        const missing = r.apps.filter((a) => !c.isConnected(a));
+        // Only offer Connect for what isn't connected yet.
+        if (missing.length) links.push({ label: `Connect ${missing.map((a) => a.name).join(", ")} for ${r.name}`, href: `/loopers/${r.id}?tab=apps` });
         actions.push(`Hired ${r.name}`);
-        return { id: r.id, name: r.name };
+        return { id: r.id, name: r.name, appsAlreadyConnected: r.apps.filter((a) => c.isConnected(a)).map((a) => a.name), appsToConnect: missing.map((a) => a.name) };
       },
     }),
     update_looper: tool({
@@ -659,18 +670,20 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
       }),
       execute: async (input) => {
         const added = input.addApps?.length ? await resolveApps(input.addApps.map(appFromName)) : [];
+        const c = await appConnections(uid, await read(uid));
+        const missing = added.filter((a) => !c.isConnected(a));
         return mutate(uid, (db) => {
           const l = findLooper(db, input.looper);
           if (added.length) {
             l.apps = dedupeApps([...(l.apps ?? []), ...added]);
-            links.push({ label: `Connect apps for ${l.name}`, href: `/loopers/${l.id}?tab=apps` });
+            if (missing.length) links.push({ label: `Connect ${missing.map((a) => a.name).join(", ")} for ${l.name}`, href: `/loopers/${l.id}?tab=apps` });
           }
           if (input.mission) l.mission = input.mission;
           if (input.target !== undefined) l.metric.target = input.target;
           if (input.status) l.status = input.status;
           if (input.addSkills) l.skills.push(...input.addSkills.map(toSkill));
           actions.push(`Updated ${l.name}`);
-          return { ok: true };
+          return { ok: true, appsToConnect: missing.map((a) => a.name) };
         });
       },
     }),
@@ -748,13 +761,29 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
   };
 }
 
+/**
+ * What the owner has actually connected: their app accounts (shared by every looper) and any MCP
+ * hubs. Chief reads this so it only asks for apps that are still missing.
+ */
+async function appConnections(uid: string, db: DB) {
+  const accounts = hasComposio() ? await activeAccounts(uid).catch(() => new Map<string, unknown[]>()) : new Map<string, unknown[]>();
+  const hubs = db.settings.integrations.filter((i) => i.enabled);
+  const names = new Map(db.loopers.flatMap((l) => (l.apps ?? []).map((a) => [a.slug, a.name] as const)));
+  const isConnected = (a: AppRef) => (a.via === "mcp" ? hubs.some((h) => h.app === a.slug) : accounts.has(a.slug));
+  const connected = [...accounts].map(([slug, list]) => `${names.get(slug) ?? slug}${list.length > 1 ? ` (${list.length} accounts)` : ""}`);
+  const appsLine = (l: Looper) => (l.apps ?? []).map((a) => `${a.name} ${isConnected(a) ? "✓" : "(not connected)"}`).join(", ");
+  return { isConnected, connected, hubs: hubs.map((h) => h.name), appsLine };
+}
+
 const CHIEF_INSTRUCTIONS = `You are Chief, the head of a team of loopers. A looper is an AI operator hired to move exactly one business metric. It has one kanban board, a calendar of scheduled skills, and a retro board where it judges its own effectiveness.
 
 Your job: turn the user's goals into loopers, manage them, and report on them. When the user wants something done repeatedly, propose a looper (name, one metric with unit/direction/target, 1–4 scheduled skills that name the apps to use) and hire it with create_looper — don't ask more than one clarifying question first. One metric per looper, always; split goals that have two metrics into two loopers.
 
 Give every looper a database (create_looper.database) whose rows are the unit of its work, with 5–10 useful columns: a VAT looper gets one row per bank transaction (date, amount, counterparty, source, VAT rate, VAT amount, invoice found, status); an SEO looper gets one row per blog post or idea (title, status Idea/Drafting/Published, keyword, URL, clicks); a sales looper one row per lead. Use select columns for statuses.
 
-Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]). The app shows the user one-click Connect buttons for them right after hiring, so say "connect them with the button below" rather than explaining setup.
+Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]).
+
+Connections: the user connects each app once (Gmail, Stripe, Google Sheets…) and every looper can use it. "Connected apps" below is the live list. Never ask the user to connect an app that is already there. create_looper and update_looper return appsToConnect: only those still need connecting, and the app shows a Connect button for exactly those, so say "connect X with the button below". If appsToConnect is empty, say everything is already connected. MCP hubs (Composio, Zapier…) are optional extras; an empty hub list does not mean apps aren't connected.
 
 When the user asks to see a looper's data (transactions, posts, leads), call read_database and show the rows as a short list; if it's empty, offer fill_database.
 
@@ -779,10 +808,11 @@ async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) 
   const links: { label: string; href: string }[] = [];
   let content: string;
   try {
-    const team = db.loopers.map((l) => `- ${l.name} (${l.status}): ${metricLine(l)}`).join("\n") || "- nobody hired yet";
+    const conn = await appConnections(uid, db);
+    const team = db.loopers.map((l) => `- ${l.name} (${l.status}): ${metricLine(l)}${l.apps?.length ? `; apps: ${conn.appsLine(l)}` : ""}`).join("\n") || "- nobody hired yet";
     const result = await callModel(uid, db.settings, {
       progress: live.push,
-      instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}.\nCurrent team:\n${team}\nIntegration hubs: ${db.settings.integrations.filter((i) => i.enabled).map((i) => i.name).join(", ") || "none"}`,
+      instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}.\nCurrent team:\n${team}\nConnected apps: ${conn.connected.join(", ") || "none yet"}\nMCP hubs: ${conn.hubs.join(", ") || "none (optional)"}`,
       messages: history,
       tools: chiefTools(uid, actions, links),
       maxSteps: 12,
