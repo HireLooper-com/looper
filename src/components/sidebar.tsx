@@ -13,9 +13,10 @@ export interface SidebarLooper {
   id: string;
   name: string;
   color: Accent;
-  role?: string;
+  /** "missing invoices", shown next to the name */
+  metricName: string;
   paused: boolean;
-  /** "26 missing invoices" */
+  /** "26 now · target 0" */
   metric: string;
   /** "▼3" over the last week, or "" */
   trend: string;
@@ -122,8 +123,8 @@ export function Sidebar({ loopers, email, plan, chiefPreview, inboxCount }: { lo
               <Bot color={l.color} seed={l.id} size={44} className={cx(l.running && "looping", l.paused && "opacity-40 grayscale")} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate text-[0.9375rem] font-medium">{l.name}</span>
-                  {l.role && <span className="shrink-0 truncate rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute">{l.role}</span>}
+                  <span className="shrink-0 text-[0.9375rem] font-medium">{l.name}</span>
+                  <span className="min-w-0 truncate rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute" title={l.metricName}>{l.metricName}</span>
                   <Count n={l.needsYou} />
                 </span>
                 <span className="flex items-center gap-2 text-[0.8125rem] text-mute">
