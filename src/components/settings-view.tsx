@@ -78,7 +78,7 @@ export function SettingsView({ settings, apps, notice }: { settings: PublicSetti
 
       <section className="mt-12">
         <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Connected apps</h2>
-        <p className="mb-4 text-[0.875rem] text-mute">Connect an app once and every looper can use it. Add or remove them from a looper&apos;s Setup → Apps.</p>
+        <p className="mb-4 text-[0.875rem] text-mute">Connect an app once and every looper can use it. Add or remove them from a looper&apos;s Tools tab.</p>
         {apps.length ? (
           <div className="tile divide-y divide-line overflow-hidden">
             {apps.map((a) => (
@@ -100,7 +100,7 @@ export function SettingsView({ settings, apps, notice }: { settings: PublicSetti
             ))}
           </div>
         ) : (
-          <p className="tile px-4 py-4 text-[0.875rem] text-mute">No apps connected yet. Each looper lists the apps it needs under Setup → Apps.</p>
+          <p className="tile px-4 py-4 text-[0.875rem] text-mute">No apps connected yet. Each looper lists the apps it needs under Tools tab.</p>
         )}
       </section>
 

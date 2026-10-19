@@ -374,7 +374,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         `Run your skill "${skill.name}" now.`,
         skill.instructions,
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
-        ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Apps tab.` : "",
+        ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Tools tab.` : "",
       ].join("\n\n"),
       tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...askTools(uid, looper.id) },
       external: ext.tools,

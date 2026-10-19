@@ -17,17 +17,18 @@ import { Kanban } from "./kanban";
 import { MetricView } from "./metric-view";
 import { RetroBoard } from "./retro-board";
 import { SkillsPanel } from "./skills-panel";
-import { Button, Sparkline, cx, fmt } from "./ui";
+import { Bot, Button, Sparkline, cx, fmt } from "./ui";
 import { useNow } from "./use-now";
 
-// Five places per looper. Work, Results, Memory and Setup each hold two views of the same thing.
+// Six places per looper: talk, what I do and when, what I keep, what I have, how it's going, who I am.
 type View = "chat" | "board" | "calendar" | "database" | "canvas" | "retro" | "skills" | "apps" | "metric";
 const GROUPS: { id: string; label: string; views: View[] }[] = [
   { id: "chat", label: "Chat", views: ["chat"] },
-  { id: "work", label: "Work", views: ["board", "calendar"] },
+  { id: "tasks", label: "Tasks", views: ["board", "calendar"] },
+  { id: "space", label: "Space", views: ["database", "canvas"] },
+  { id: "tools", label: "Tools", views: ["apps"] },
   { id: "results", label: "Results", views: ["metric", "retro"] },
-  { id: "memory", label: "Memory", views: ["database", "canvas"] },
-  { id: "setup", label: "Setup", views: ["skills", "apps"] },
+  { id: "skills", label: "Skills", views: ["skills"] },
 ];
 const VIEWS = new Set<string>(["chat", "board", "calendar", "database", "canvas", "retro", "skills", "apps", "metric"]);
 const VIEW_LABEL: Partial<Record<View, string>> = { metric: "Metric", retro: "Retros", board: "Kanban", calendar: "Calendar", database: "Database", canvas: "Canvas", skills: "Skills", apps: "Apps" };
@@ -61,10 +62,10 @@ export function LooperView(props: {
 
   const forYou = cards.filter((c) => c.column !== "done" && cardAssignee(c) === "you").length;
   const counts: Partial<Record<string, number>> = {
-    work: forYou || undefined,
+    tasks: forYou || undefined,
     chat: props.asks.filter((a) => a.status === "open").length || undefined,
     database: database?.rows || undefined,
-    apps: looper.apps?.length || undefined,
+    tools: looper.apps?.length || undefined,
   };
 
   // What's in each view, shown in the tab menus so you know the other one is worth a look.
@@ -224,6 +225,7 @@ export function LooperView(props: {
             <AppsPanel looperId={looper.id} looperName={looper.name} />
           ) : view === "skills" ? (
             <div className="mx-auto flex max-w-4xl flex-col gap-4 [&>*]:w-full [&>*]:max-w-none">
+              <WhoIAm looper={looper} />
               <StatusCard looper={looper} now={now} />
               <SkillsPanel looper={looper} runs={runs} integrations={props.integrations} />
             </div>
@@ -382,7 +384,27 @@ function PausedPill({ looper }: { looper: Looper }) {
   );
 }
 
-/** Setup's first card: is it on, and when does it work next. */
+/** Is it on, and when does it work next. */
+/** The top of Skills: who this looper is, before what it can do. */
+function WhoIAm({ looper }: { looper: Looper }) {
+  const m = looper.metric;
+  return (
+    <div className="tile flex items-center gap-4 p-5">
+      <Bot size={52} color={looper.color} seed={looper.id} />
+      <div className="min-w-0 flex-1">
+        <div className="text-[1.25rem] font-semibold tracking-[-0.02em]">I&apos;m {looper.name}</div>
+        <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-[0.8125rem] text-mute">
+          <span>
+            I own <span className="font-medium text-ink">{m.name}</span>, {m.direction === "down" ? "down" : "up"} to {fmt(m.target)}
+            {m.unit && m.unit !== m.name ? ` ${m.unit}` : ""}
+          </span>
+          <span>I ask you before sending, publishing, filing, paying or deleting anything</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatusCard({ looper: saved, now }: { looper: Looper; now: number }) {
   const router = useRouter();
   const [busy, start] = useTransition();
