@@ -137,6 +137,10 @@ button.tile:hover {
 :focus:not(:focus-visible) {
   outline: none;
 }
+/* Tabs and menu items show keyboard focus with their own highlight instead. */
+.quiet-focus:focus-visible {
+  outline: none;
+}
 
 /* Infinite canvas: a dot grid that pans and zooms with the content (size/position set inline). */
 .canvas-surface {

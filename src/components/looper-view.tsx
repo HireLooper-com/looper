@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { askLooper, clearLooperChat, updateLooper } from "@/app/actions";
 import { occurrences } from "@/lib/schedule";
@@ -87,11 +88,12 @@ export function LooperView(props: {
     skills: `${looper.skills.length} skill${looper.skills.length === 1 ? "" : "s"} · ${scheduled} on a schedule`,
     apps: looper.apps?.length ? `${looper.apps.length} connected` : "None connected yet",
   };
-  const [menu, setMenu] = useState<{ id: string; left: number; top: number } | null>(null);
+  const [menu, setMenu] = useState<{ id: string; left: number; top: number; keyboard: boolean } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
-  const openMenu = (id: string, el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    setMenu((m) => (m?.id === id ? null : { id, left: r.left, top: r.bottom }));
+  const openMenu = (id: string, e: React.MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.parentElement!.getBoundingClientRect();
+    const keyboard = e.detail === 0;
+    setMenu((m) => (m?.id === id ? null : { id, left: r.left, top: r.bottom, keyboard }));
   };
 
   // Sliding underline under the active place.
@@ -111,7 +113,7 @@ export function LooperView(props: {
             const n = counts[g.id];
             const multi = g.views.length > 1;
             const tab = cx(
-              "flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-3 pt-3.5 text-[0.875rem] transition-colors focus-visible:text-ink focus-visible:outline-none",
+              "flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-3 pt-3.5 text-[0.875rem] transition-colors focus-visible:text-ink quiet-focus",
               active ? "font-medium text-ink" : "text-mute hover:text-ink",
               active && !bar ? "border-ink" : "border-transparent",
             );
@@ -132,11 +134,11 @@ export function LooperView(props: {
             return (
               <div key={g.id} data-active={active} className={cx(tab, "gap-0 px-0")}>
                 {active ? (
-                  <button onClick={(e) => openMenu(g.id, e.currentTarget.parentElement!)} aria-haspopup="menu" aria-expanded={menu?.id === g.id} className="flex items-center gap-1.5 pl-3 focus-visible:outline-none">
+                  <button onClick={(e) => openMenu(g.id, e)} aria-haspopup="menu" aria-expanded={menu?.id === g.id} className="flex items-center gap-1.5 pl-3 quiet-focus">
                     {inner}
                   </button>
                 ) : (
-                  <Link href={`/loopers/${looper.id}?tab=${g.views[0]}`} scroll={false} className="flex items-center gap-1.5 pl-3 focus-visible:outline-none">
+                  <Link href={`/loopers/${looper.id}?tab=${g.views[0]}`} scroll={false} className="flex items-center gap-1.5 pl-3 quiet-focus">
                     {inner}
                   </Link>
                 )}
@@ -144,8 +146,8 @@ export function LooperView(props: {
                   aria-label={`${g.label} views`}
                   aria-haspopup="menu"
                   aria-expanded={menu?.id === g.id}
-                  onClick={(e) => openMenu(g.id, e.currentTarget.parentElement!)}
-                  className={cx("ml-0.5 mr-1.5 flex h-5 w-5 items-center justify-center rounded-full text-mute transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:bg-ink/[0.08]", menu?.id === g.id && "bg-ink/[0.06] text-ink")}
+                  onClick={(e) => openMenu(g.id, e)}
+                  className={cx("ml-0.5 mr-1.5 flex h-5 w-5 items-center justify-center rounded-full text-mute transition-colors hover:bg-ink/[0.06] hover:text-ink quiet-focus focus-visible:bg-ink/[0.08]", menu?.id === g.id && "bg-ink/[0.06] text-ink")}
                 >
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={cx("transition-transform", menu?.id === g.id && "rotate-180")}>
                     <path d="m2.5 4 2.5 2.5L7.5 4" />
@@ -264,10 +266,11 @@ const VIEW_ICON: Partial<Record<View, React.ReactNode>> = {
 };
 
 /** The menu under a tab that holds two views: each with what's in it right now. */
-function ViewMenu({ at, views, current, href, onClose }: { at: { left: number; top: number }; views: { v: View; label: string; preview: string }[]; current: View; href: (v: View) => string; onClose: () => void }) {
+function ViewMenu({ at, views, current, href, onClose }: { at: { left: number; top: number; keyboard: boolean }; views: { v: View; label: string; preview: string }[]; current: View; href: (v: View) => string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    ref.current?.querySelector<HTMLElement>('[aria-current="page"], a')?.focus();
+    // Only move focus into the menu when it was opened from the keyboard.
+    if (at.keyboard) ref.current?.querySelector<HTMLElement>('[aria-current="page"], a')?.focus();
     const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest("[aria-haspopup]") && onClose();
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -287,8 +290,9 @@ function ViewMenu({ at, views, current, href, onClose }: { at: { left: number; t
       document.removeEventListener("keydown", key);
       window.removeEventListener("resize", onClose);
     };
-  }, [onClose]);
-  return (
+  }, [onClose, at.keyboard]);
+  // Rendered into <body>: the header's backdrop blur would otherwise offset a fixed menu.
+  return createPortal(
     <div ref={ref} role="menu" style={{ left: Math.max(8, at.left), top: at.top + 6 }} className="pop-in fixed z-50 w-[300px] rounded-[16px] border border-ink/[0.06] bg-panel p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.22)]">
       {views.map(({ v, label, preview }) => (
         <Link
@@ -298,7 +302,7 @@ function ViewMenu({ at, views, current, href, onClose }: { at: { left: number; t
           scroll={false}
           onClick={onClose}
           aria-current={v === current ? "page" : undefined}
-          className={cx("flex items-center gap-3 rounded-[11px] px-2.5 py-2 outline-none transition-colors hover:bg-ink/[0.05] focus-visible:bg-ink/[0.05]", v === current && "bg-ink/[0.04]")}
+          className={cx("quiet-focus flex items-center gap-3 rounded-[11px] px-2.5 py-2 transition-colors hover:bg-ink/[0.05] focus-visible:bg-ink/[0.05]", v === current && "bg-ink/[0.04]")}
         >
           <span className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]", v === current ? "bg-ink text-page" : "bg-ink/[0.06] text-ink")}>
             <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" aria-hidden>
@@ -312,7 +316,8 @@ function ViewMenu({ at, views, current, href, onClose }: { at: { left: number; t
           {v === current && <span className="text-[0.75rem] text-mute">✓</span>}
         </Link>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
