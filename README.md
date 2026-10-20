@@ -29,9 +29,9 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 | Want | Set |
 | --- | --- |
 | Postgres instead of files (Neon, …) | `DATABASE_URL` (or `POSTGRES_URL`, as the Neon integration on Vercel sets it) |
-| Sign in with a 6-digit email code | `LOOPS_API_KEY`, `LOOPS_TX_SIGN_IN_CODE` ([Loops](https://loops.so) sends the code) |
+| Sign in with a 6-digit email code | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so) sends the code) |
 | One-click app connections | `COMPOSIO_API_KEY` |
-| Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_TX_NEEDS_YOU` ([Loops](https://loops.so)) |
+| Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so)) |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
 
