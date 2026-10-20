@@ -6,7 +6,7 @@ import { searchEverything, startSkill, type Hit } from "@/app/team-actions";
 import type { Accent } from "@/lib/types";
 import { Bot, cx } from "./ui";
 
-const EVENT = "chieflooper:palette";
+const EVENT = "looper:palette";
 export const openPalette = () => window.dispatchEvent(new Event(EVENT));
 
 type Entry = { id: string; primary?: boolean; section: "Go to" | "Do" | "Found"; label: string; hint?: string; bot?: { color?: Accent; seed: string; dark?: boolean }; run: () => void | Promise<void> };

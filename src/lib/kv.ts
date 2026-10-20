@@ -44,6 +44,7 @@ function pool() {
   return g.__clPool;
 }
 
+// The table keeps the product's earlier name: renaming it would orphan every existing install's data.
 function ensureSchema() {
   g.__clSchema ??= pool()
     .query(
@@ -113,7 +114,7 @@ const postgres: KV = {
 
 // — Local files —
 
-const DATA_DIR = process.env.GROKLOOPER_DATA_DIR ?? path.join(process.cwd(), "data");
+const DATA_DIR = process.env.LOOPER_DATA_DIR ?? process.env.GROKLOOPER_DATA_DIR ?? path.join(process.cwd(), "data");
 const fileOf = (key: string) => path.join(DATA_DIR, "kv", `${encodeURIComponent(key)}.json`);
 const queues = new Map<string, Promise<unknown>>();
 

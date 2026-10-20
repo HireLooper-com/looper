@@ -147,7 +147,7 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
       await assertInfraBudget(uid);
       if (!sessionId) await startLog();
       awakeSince = Date.now();
-      const sb = await Sandbox.getOrCreate({ name: sandboxName(uid, looperId), persistent: true, timeout: 15 * 60_000, resources: { vcpus: 2 }, tags: { app: "chieflooper" } });
+      const sb = await Sandbox.getOrCreate({ name: sandboxName(uid, looperId), persistent: true, timeout: 15 * 60_000, resources: { vcpus: 2 }, tags: { app: "looper" } });
       if ((await sb.runCommand({ cmd: "test", args: ["-f", SETUP_MARK] })).exitCode !== 0) {
         opts.progress?.("Setting up my computer (first time, about a minute)…");
         await step({ label: "Setting up the computer (first time, about a minute)" });

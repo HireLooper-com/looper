@@ -25,7 +25,7 @@ async function getSecret() {
     return (secret = Buffer.from(stored));
   }
   // Local installs: generate once and keep it next to the data.
-  const file = path.join(process.env.GROKLOOPER_DATA_DIR ?? path.join(process.cwd(), "data"), ".session-secret");
+  const file = path.join(process.env.LOOPER_DATA_DIR ?? process.env.GROKLOOPER_DATA_DIR ?? path.join(process.cwd(), "data"), ".session-secret");
   try {
     secret = await fs.readFile(file);
   } catch {

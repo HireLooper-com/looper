@@ -78,7 +78,7 @@ export function hostId(): Promise<string> {
 
 /** ChatGPT plan usage is only offered to apps running on the user's own machine. */
 export function isLocalServer() {
-  return !process.env.VERCEL && process.env.GROKLOOPER_HOSTED !== "1";
+  return !process.env.VERCEL && (process.env.LOOPER_HOSTED ?? process.env.GROKLOOPER_HOSTED) !== "1";
 }
 
 export function toPublic(db: DB, user: User): PublicState {

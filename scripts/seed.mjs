@@ -1,10 +1,10 @@
 // Demo data so you can see the boards before your loopers have run. Usage: npm run seed
-// Only ever writes the separate "demo" account (demo@chieflooper.local); real users are never touched.
+// Only ever writes the separate "demo" account (demo@looper.local); real users are never touched.
 import fs from "node:fs";
 import path from "node:path";
 
 // Same storage as the app: Postgres when DATABASE_URL is set (run with `node --env-file=.env.local`), else data/kv files.
-const DIR = process.env.GROKLOOPER_DATA_DIR ?? "data";
+const DIR = process.env.LOOPER_DATA_DIR ?? process.env.GROKLOOPER_DATA_DIR ?? "data";
 let pgPool;
 async function kvGet(key) {
   if (process.env.DATABASE_URL) {
@@ -30,7 +30,7 @@ const users = (await kvGet("users"))?.users ?? [];
 let user = users.find((u) => u.id === "demo");
 if (!user) {
   const at = new Date().toISOString();
-  user = { id: "demo", provider: "xai", email: "demo@chieflooper.local", identities: ["xai:demo"], createdAt: at, lastLoginAt: at };
+  user = { id: "demo", provider: "xai", email: "demo@looper.local", identities: ["xai:demo"], createdAt: at, lastLoginAt: at };
   await kvSet("users", { users: [...users, user] });
 }
 const prev = (await kvGet(`ws:${user.id}`)) ?? {};
