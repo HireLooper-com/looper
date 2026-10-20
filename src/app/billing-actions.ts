@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { checkoutUrl, portalUrl } from "@/lib/billing";
 import { requireSessionUser, setWorkspace } from "@/lib/session";
-import { createTeamWorkspace, getWorkspace, type Plan } from "@/lib/workspace";
+import { createTeamWorkspace, getWorkspace, type Interval, type Plan } from "@/lib/workspace";
 
 async function origin() {
   const h = await headers();
@@ -17,7 +17,7 @@ const fail = (e: unknown): Result => ({ ok: false, error: e instanceof Error ? e
  * Start checkout. Personal goes on your personal workspace; Team goes on the open team workspace,
  * or a new one named `teamName` when you're in your personal one.
  */
-export async function startCheckout(plan: Plan, teamName?: string, template?: string): Promise<Result> {
+export async function startCheckout(plan: Plan, interval: Interval, teamName?: string, template?: string): Promise<Result> {
   try {
     const user = await requireSessionUser();
     let wsId = plan === "personal" ? user.id : user.ws;
@@ -28,7 +28,7 @@ export async function startCheckout(plan: Plan, teamName?: string, template?: st
     const ws = await getWorkspace(wsId);
     if (!ws) throw new Error("Workspace not found.");
     if (ws.ownerId !== user.id) throw new Error("Only the workspace owner can change its plan.");
-    return { ok: true, url: await checkoutUrl(ws, plan, user.email, await origin(), template) };
+    return { ok: true, url: await checkoutUrl(ws, plan, interval === "year" ? "year" : "month", user.email, await origin(), template) };
   } catch (e) {
     return fail(e);
   }
