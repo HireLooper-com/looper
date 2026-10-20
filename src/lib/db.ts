@@ -1,22 +1,22 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { nanoid } from "nanoid";
 import { kv } from "./kv";
 import type { DB, Provider, PublicState, User } from "./types";
 import { PROVIDERS } from "./types";
 
 // Users and workspaces live in the shared key-value store (Postgres on Vercel, files locally).
 const wsKey = (uid: string) => `ws:${uid}`;
-const USERS_KEY = "users";
 
 function empty(): DB {
+  // Hosted, new workspaces start on Claude with their included credits.
+  const hosted = !!process.env.ANTHROPIC_API_KEY;
   return {
     settings: {
-      provider: "xai",
+      provider: hosted ? "anthropic" : "xai",
       apiKeys: {},
       models: Object.fromEntries(PROVIDERS.map((p) => [p.id, p.defaultModel])) as Record<Provider, string>,
       integrations: [],
-      authMode: {},
+      authMode: hosted ? { anthropic: "credits" } : {},
       oauth: {},
       grokRoute: "api",
     },
@@ -57,37 +57,9 @@ export function mutate<T>(uid: string, fn: (db: DB) => T | Promise<T>): Promise<
   return kv.update<Partial<DB>, T>(wsKey(uid), () => ({}), (value) => fn(normalize(value)));
 }
 
-// — Users —
+// — Users — (they live in ./workspace; re-exported for older imports)
 
-export async function listUsers(): Promise<User[]> {
-  return (await kv.get<{ users: User[] }>(USERS_KEY))?.users ?? [];
-}
-
-export async function getUser(uid: string) {
-  return (await listUsers()).find((u) => u.id === uid);
-}
-
-/**
- * Find the user behind a provider identity, or create one. When `linkTo` is set the identity is
- * attached to that signed-in user instead (connecting a second subscription).
- */
-export function upsertUser(identity: { provider: Provider; subject: string; email?: string }, linkTo?: string): Promise<User> {
-  return kv.update<{ users: User[] }, User>(USERS_KEY, () => ({ users: [] }), (data) => {
-    const key = `${identity.provider}:${identity.subject}`;
-    const at = new Date().toISOString();
-    let user = linkTo ? data.users.find((u) => u.id === linkTo) : data.users.find((u) => u.identities.includes(key));
-    if (!user) {
-      user = { id: nanoid(12), provider: identity.provider, email: identity.email, identities: [], createdAt: at, lastLoginAt: at };
-      data.users.push(user);
-    }
-    // An identity belongs to exactly one user.
-    for (const u of data.users) if (u !== user) u.identities = u.identities.filter((i) => i !== key);
-    if (!user.identities.includes(key)) user.identities.push(key);
-    user.email ??= identity.email;
-    user.lastLoginAt = at;
-    return user;
-  });
-}
+export { getUser, upsertUser } from "./workspace";
 
 /** Optional allowlist: ALLOWED_EMAILS="you@company.com,@company.com". */
 export function emailAllowed(email?: string) {
@@ -114,7 +86,7 @@ export function toPublic(db: DB, user: User): PublicState {
   return {
     ...db,
     runs: db.runs.slice(-500),
-    user: { email: user.email, provider: user.provider },
+    user: { email: user.email, provider: user.provider, name: user.name, avatar: user.avatar },
     settings: {
       ...rest,
       keysSet: Object.fromEntries(PROVIDERS.map((p) => [p.id, Boolean(apiKeys[p.id])])) as Record<Provider, boolean>,

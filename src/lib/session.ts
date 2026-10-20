@@ -6,8 +6,12 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { getUser } from "./db";
+import type { User } from "./types";
+import { roleIn, type Role } from "./workspace";
 
 export const SESSION_COOKIE = "cl_session";
+/** Which workspace you have open; checked against your memberships on every request. */
+export const WORKSPACE_COOKIE = "cl_ws";
 const MAX_AGE = 30 * 24 * 3600;
 
 let secret: Buffer | undefined;
@@ -54,14 +58,29 @@ export async function setSession(uid: string) {
 }
 
 export async function clearSession() {
-  (await cookies()).delete(SESSION_COOKIE);
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
+  jar.delete(WORKSPACE_COOKIE);
 }
 
+/** Open another workspace (membership is checked when it's read). */
+export async function setWorkspace(wsId: string) {
+  (await cookies()).set(WORKSPACE_COOKIE, wsId, cookieOptions(!!process.env.VERCEL));
+}
+
+/** A signed-in user with the workspace they have open: `ws` is the id all data is read and written under. */
+export type SessionUser = User & { ws: string; role: Role };
+
 /** The signed-in user, or null. Always request-time: sessions expire, so this reads the clock. */
-export async function currentUser() {
+export async function currentUser(): Promise<SessionUser | null> {
   await connection();
-  const uid = await verifyToken((await cookies()).get(SESSION_COOKIE)?.value);
-  return uid ? ((await getUser(uid)) ?? null) : null;
+  const jar = await cookies();
+  const uid = await verifyToken(jar.get(SESSION_COOKIE)?.value);
+  const user = uid ? await getUser(uid) : undefined;
+  if (!user) return null;
+  const want = jar.get(WORKSPACE_COOKIE)?.value;
+  const role = want && want !== user.id ? await roleIn(want, user.id) : null;
+  return role ? { ...user, ws: want!, role } : { ...user, ws: user.id, role: "owner" };
 }
 
 /** For pages: the signed-in user, or a redirect to /login. */
@@ -71,9 +90,16 @@ export async function requireUser() {
   return user;
 }
 
-/** For server actions: the signed-in user's id, or an error. */
+/** For server actions: the id of the open workspace (what all data is keyed by), or an error. */
 export async function requireUid() {
   const user = await currentUser();
   if (!user) throw new Error("Your session ended. Sign in again.");
-  return user.id;
+  return user.ws;
+}
+
+/** For server actions that need the person too (authorship, invites, billing). */
+export async function requireSessionUser() {
+  const user = await currentUser();
+  if (!user) throw new Error("Your session ended. Sign in again.");
+  return user;
 }

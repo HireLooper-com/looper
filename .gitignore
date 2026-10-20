@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local data (contains API keys)
 /data/
+
+# the template is safe to commit
+!.env.example

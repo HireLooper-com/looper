@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { signOutApp } from "@/app/actions";
+import { switchWorkspace } from "@/app/workspace-actions";
 import type { Accent } from "@/lib/types";
 import { WorkingTray } from "./activity";
 import { openPalette } from "./command-palette";
@@ -37,7 +38,25 @@ function InboxIcon({ size = 18 }: { size?: number }) {
 }
 
 /** Left rail: the inbox, Chief, then every looper with its number. */
-export function Sidebar({ loopers, email, plan, chiefPreview, inboxCount }: { loopers: SidebarLooper[]; email?: string; plan?: string; chiefPreview?: string; inboxCount: number }) {
+type WorkspaceRef = { id: string; name: string; kind: "personal" | "team" };
+
+export function Sidebar({
+  loopers,
+  account,
+  workspace,
+  workspaces,
+  billing,
+  chiefPreview,
+  inboxCount,
+}: {
+  loopers: SidebarLooper[];
+  account: { email?: string; name?: string; avatar?: string };
+  workspace: WorkspaceRef & { plan?: string };
+  workspaces: WorkspaceRef[];
+  billing: boolean;
+  chiefPreview?: string;
+  inboxCount: number;
+}) {
   const path = usePathname();
   const router = useRouter();
   const [menu, setMenu] = useState(false);
@@ -142,20 +161,41 @@ export function Sidebar({ loopers, email, plan, chiefPreview, inboxCount }: { lo
         </nav>
 
         <div className="relative border-t border-ink/[0.06] p-2" ref={menuRef}>
-          <button onClick={() => setMenu((m) => !m)} aria-label="Account" className="flex w-full items-center gap-3 rounded-[14px] px-2 py-2 text-left hover:bg-ink/[0.03]">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#a1a1a6] to-[#6e6e73] text-[0.875rem] font-semibold uppercase text-white">
-              {(email || "?").slice(0, 1)}
-            </span>
+          <button onClick={() => setMenu((m) => !m)} aria-label="Account and workspaces" aria-expanded={menu} className="flex w-full items-center gap-3 rounded-[14px] px-2 py-2 text-left hover:bg-ink/[0.03]">
+            <Avatar account={account} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[0.875rem] font-medium">{email || "Signed in"}</span>
-              {plan && <span className="block text-[0.75rem] text-mute">{plan} plan</span>}
+              <span className="block truncate text-[0.875rem] font-medium">{workspace.kind === "team" ? workspace.name : account.name || account.email || "Signed in"}</span>
+              <span className="block truncate text-[0.75rem] text-mute">{workspace.kind === "team" ? `Team${workspace.plan ? ` · ${workspace.plan}` : ""}` : workspace.plan ?? account.email}</span>
             </span>
             <span className="text-mute">⋯</span>
           </button>
           {menu && (
-            <div className="absolute bottom-[60px] left-2 right-2 z-50 rounded-[14px] border border-ink/[0.06] bg-panel p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.14)]">
+            <div className="absolute bottom-[60px] left-2 right-2 z-50 max-h-[70dvh] overflow-y-auto rounded-[14px] border border-ink/[0.06] bg-panel p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.14)]">
+              <div className="px-3 pb-1 pt-1.5 text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-faint">Workspaces</div>
+              {workspaces.map((w) => (
+                <button
+                  key={w.id}
+                  onClick={async () => {
+                    setMenu(false);
+                    if (w.id === workspace.id) return;
+                    await switchWorkspace(w.id);
+                    router.push("/");
+                    router.refresh();
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-[8px] px-3 py-2 text-left text-[0.875rem] hover:bg-ink/[0.04]"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] bg-ink/[0.07] text-[0.6875rem] font-semibold uppercase">{w.kind === "team" ? w.name.slice(0, 1) : "P"}</span>
+                  <span className="min-w-0 flex-1 truncate">{w.kind === "team" ? w.name : "Personal"}</span>
+                  {w.id === workspace.id && <span className="text-mute">✓</span>}
+                </button>
+              ))}
+              <Link href="/workspace?new=1" onClick={() => setMenu(false)} className="block rounded-[8px] px-3 py-2 text-[0.875rem] text-mute hover:bg-ink/[0.04] hover:text-ink">
+                + New team workspace
+              </Link>
+              <div className="my-1 h-px bg-line" />
               {[
-                ["Connect apps", "/settings"],
+                [workspace.kind === "team" ? "Members & invites" : "Workspace", "/workspace"],
+                ...(billing ? [["Plan & credits", "/billing"]] : []),
                 ["Settings", "/settings"],
               ].map(([label, href]) => (
                 <Link key={label} href={href} onClick={() => setMenu(false)} className="block rounded-[8px] px-3 py-2 text-[0.875rem] hover:bg-ink/[0.04]">
@@ -178,5 +218,16 @@ export function Sidebar({ loopers, email, plan, chiefPreview, inboxCount }: { lo
         </div>
       </aside>
     </>
+  );
+}
+
+function Avatar({ account }: { account: { email?: string; name?: string; avatar?: string } }) {
+  if (account.avatar)
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={account.avatar} alt="" referrerPolicy="no-referrer" className="h-9 w-9 shrink-0 rounded-full object-cover" />;
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#a1a1a6] to-[#6e6e73] text-[0.875rem] font-semibold uppercase text-white">
+      {(account.name || account.email || "?").slice(0, 1)}
+    </span>
   );
 }

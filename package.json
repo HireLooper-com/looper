@@ -1,5 +1,5 @@
 {
-  "name": "chieflooper",
+  "name": "looper",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,9 +10,11 @@
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.84",
     "@ai-sdk/mcp": "^2.0.74",
     "@ai-sdk/openai": "^4.0.93",
     "@ai-sdk/xai": "^5.0.21",
+    "@supabase/supabase-js": "^2.118.0",
     "@vercel/functions": "^3.10.1",
     "@vercel/sandbox": "^3.8.0",
     "ai": "^7.0.140",
@@ -23,6 +25,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",
+    "stripe": "^23.0.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

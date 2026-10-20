@@ -3,7 +3,8 @@ import { isStepCount, Output, streamText, tool, type ModelMessage, type ToolSet 
 import { nanoid } from "nanoid";
 import { after } from "next/server";
 import { z } from "zod";
-import { listUsers, mutate, read } from "./db";
+import { mutate, read } from "./db";
+import { allWorkspaceIds } from "./workspace";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
 import { activeAccounts, composioTools, hasComposio, resolveApps } from "./composio";
 import { computerSession, hasComputer, wipeComputer } from "./computer";
@@ -13,12 +14,15 @@ import { getModel, hasCredentials } from "./llm";
 import { describeTool, progressWriter } from "./progress";
 import { describeSchedule, isDue } from "./schedule";
 import { appFromName } from "./apps";
-import type { AppRef, Ask, Card, Column, DB, DbValue, Looper, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
+import type { AppRef, Ask, Card, ChiefMessage, Column, DB, DbValue, Looper, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
 const DAY = 86_400_000;
 const columnSchema = z.enum(["backlog", "todo", "doing", "done"]);
+
+// In a shared workspace, the model should know which teammate is talking.
+const authored = (m: ChiefMessage) => (m.role === "user" && m.by ? `[${m.by.name}] ${m.content}` : m.content);
 
 // ——— Model calls ———
 
@@ -152,6 +156,8 @@ async function callModelOnce(uid: string, settings: Settings, opts: CallOptions,
     },
   });
   await result.consumeStream();
+  // Spend hosted credits even when the call failed partway: the tokens were used.
+  if (m.meter) await Promise.resolve(result.totalUsage).then(m.meter).catch(() => undefined);
   if (failure) throw failure;
   return result;
 }
@@ -522,7 +528,7 @@ export async function tickUser(uid: string) {
 
 /** Run every user's due skills. Called by the local ticker or the daily cron on /api/tick. */
 export async function tick() {
-  const started = await Promise.all((await listUsers()).map((u) => tickUser(u.id).then((l) => l.map((x) => `${u.id}/${x}`))));
+  const started = await Promise.all((await allWorkspaceIds()).map((ws) => tickUser(ws).then((l) => l.map((x) => `${ws}/${x}`))));
   return { started: started.flat() };
 }
 
@@ -798,8 +804,8 @@ Be brief and concrete. Use plain text with short lists.`;
  * Save the owner's message and mark Chief as working, then hand back the slow part to run in the
  * background, so the request returns at once and the UI follows the live progress.
  */
-export async function beginChiefReply(uid: string, userText: string) {
-  const userMsg = { id: nanoid(8), role: "user" as const, content: userText, at: now() };
+export async function beginChiefReply(uid: string, userText: string, by?: ChiefMessage["by"]) {
+  const userMsg: ChiefMessage = { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}) };
   await mutate(uid, (d) => void d.chief.push(userMsg));
   const live = progressWriter(uid, "chief", { label: "Chief", href: "/chief", done: "replied", failed: "couldn't reply" });
   await live.ready();
@@ -808,7 +814,7 @@ export async function beginChiefReply(uid: string, userText: string) {
 
 async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) {
   const db = await read(uid);
-  const history: ModelMessage[] = db.chief.slice(-31).map((m) => ({ role: m.role, content: m.content }));
+  const history: ModelMessage[] = db.chief.slice(-31).map((m) => ({ role: m.role, content: authored(m) }));
   const actions: string[] = [];
   const links: { label: string; href: string }[] = [];
   let content: string;
@@ -946,11 +952,11 @@ export async function fillDatabase(uid: string, looperId: string, trigger: Run["
 
 /** Talk to one looper directly. It answers with its own tools: board, database, apps; it can also
  * edit its core instructions and skills, and start one of its skills in the background. */
-export async function beginLooperReply(uid: string, looperId: string, userText: string) {
+export async function beginLooperReply(uid: string, looperId: string, userText: string, by?: ChiefMessage["by"]) {
   const name = await mutate(uid, (d) => {
     const l = d.loopers.find((x) => x.id === looperId);
     if (!l) throw new Error("Looper not found");
-    (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "user", content: userText, at: now() }];
+    (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}) }];
     return l.name;
   });
   const live = progressWriter(uid, `chat:${looperId}`, { label: name, href: `/loopers/${looperId}?tab=chat`, done: "replied", failed: "couldn't reply" });
@@ -1023,7 +1029,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
       ]
         .filter(Boolean)
         .join("\n\n"),
-      messages: history.map((m) => ({ role: m.role, content: m.content })),
+      messages: history.map((m) => ({ role: m.role, content: authored(m) })),
       tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...askTools(uid, looperId), ...own, ...pc?.tools },
       external: ext.tools,
       maxSteps: 20,

@@ -14,6 +14,8 @@ export interface KV {
   set(key: string, value: unknown, ttlSeconds?: number): Promise<void>;
   delete(key: string): Promise<void>;
   update<T, R>(key: string, fallback: () => T, fn: (value: T) => R | Promise<R>): Promise<R>;
+  /** Keys starting with `prefix` (live ones only). */
+  keys(prefix: string): Promise<string[]>;
 }
 
 // — Postgres —
@@ -66,6 +68,12 @@ const postgres: KV = {
   async delete(key) {
     await ensureSchema();
     await pool().query(`DELETE FROM chieflooper_kv WHERE key = $1`, [key]);
+  },
+  async keys(prefix) {
+    await ensureSchema();
+    const like = prefix.replace(/[\\%_]/g, (c) => `\\${c}`) + "%";
+    const r = await pool().query(`SELECT key FROM chieflooper_kv WHERE key LIKE $1 AND ${live}`, [like]);
+    return r.rows.map((row) => row.key as string);
   },
   async update(key, fallback, fn) {
     await ensureSchema();
@@ -122,6 +130,10 @@ const files: KV = {
   get: (key) => (queues.get(key) ?? Promise.resolve()).then(() => readFile(key)),
   set: (key, value, ttl) => serialized(key, () => writeFile(key, value, ttl)),
   delete: (key) => serialized(key, () => fs.rm(fileOf(key), { force: true })),
+  keys: async (prefix) => {
+    const names = await fs.readdir(path.join(DATA_DIR, "kv")).catch(() => [] as string[]);
+    return names.filter((n) => n.endsWith(".json")).map((n) => decodeURIComponent(n.slice(0, -5))).filter((k) => k.startsWith(prefix));
+  },
   update: (key, fallback, fn) =>
     serialized(key, async () => {
       const value = (await readFile<ReturnType<typeof fallback>>(key)) ?? fallback();

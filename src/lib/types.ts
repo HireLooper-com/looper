@@ -1,17 +1,22 @@
-export type Provider = "openai" | "xai";
+export type Provider = "openai" | "xai" | "anthropic";
 
 export const PROVIDERS: { id: Provider; label: string; plan: string; defaultModel: string; keyHint: string }[] = [
   { id: "openai", label: "OpenAI", plan: "ChatGPT", defaultModel: "gpt-5.6", keyHint: "sk-…" },
   { id: "xai", label: "xAI", plan: "Grok", defaultModel: "grok-4.7", keyHint: "xai-…" },
+  { id: "anthropic", label: "Anthropic", plan: "Claude", defaultModel: "claude-sonnet-5-5", keyHint: "sk-ant-…" },
 ];
 
 export interface User {
   id: string;
-  /** provider used for the first sign-in */
-  provider: Provider;
+  /** how they first signed in: a model provider (self-hosted) or "email"/"google"/"github" */
+  provider: Provider | "email" | "google" | "github";
   email?: string;
+  name?: string;
+  avatar?: string;
   /** provider:subject pairs that sign in as this user */
   identities: string[];
+  /** team workspaces they belong to (the personal one has their own id) */
+  workspaces?: string[];
   createdAt: string;
   lastLoginAt: string;
 }
@@ -53,7 +58,8 @@ export interface OAuthCredential {
   subject?: string;
 }
 
-export type AuthMode = "key" | "oauth";
+/** credits: hosted Claude on the workspace's included credits (our server key). */
+export type AuthMode = "key" | "oauth" | "credits";
 /** Where Grok subscription tokens are sent: xAI's public API, or the Grok CLI's proxy (unofficial). */
 export type GrokRoute = "api" | "cli-proxy";
 
@@ -63,7 +69,7 @@ export interface Settings {
   models: Record<Provider, string>;
   integrations: Integration[];
   authMode: Partial<Record<Provider, AuthMode>>;
-  oauth: { openai?: OAuthCredential; xai?: OAuthCredential };
+  oauth: { openai?: OAuthCredential; xai?: OAuthCredential; anthropic?: never };
   /** ChatGPT issues a client id per user on first sign-in; it survives sign-out. */
   chatgptClientId?: string;
   grokRoute: GrokRoute;
@@ -219,6 +225,8 @@ export interface ChiefMessage {
   links?: { label: string; href: string }[];
   /** a question or approval asked in this message */
   askId?: string;
+  /** who wrote it, in a shared workspace */
+  by?: { id: string; name: string };
 }
 
 /** One user's private workspace. */
@@ -238,13 +246,15 @@ export interface DB {
 export type PublicSettings = Omit<Settings, "apiKeys" | "integrations" | "oauth" | "chatgptClientId"> & {
   keysSet: Record<Provider, boolean>;
   /** connected subscription accounts, by email */
-  subscriptions: { openai?: { email?: string; sharing: boolean }; xai?: { email?: string } };
+  subscriptions: { openai?: { email?: string; sharing: boolean }; xai?: { email?: string }; anthropic?: never };
+  /** Hosted: USD of included Claude credits left (undefined when the server has no hosted credits). */
+  creditsLeft?: number;
   /** true when the server runs on the user's machine (ChatGPT sign-in is only allowed there) */
   isLocal: boolean;
   integrations: (Omit<Integration, "headers"> & { headerNames: string[] })[];
 };
 
-export type PublicState = Omit<DB, "settings"> & { settings: PublicSettings; user: { email?: string; provider: Provider } };
+export type PublicState = Omit<DB, "settings"> & { settings: PublicSettings; user: { email?: string; provider: User["provider"]; name?: string; avatar?: string } };
 
 // — Looper database (Notion-style table; one row = one unit of the looper's work) —
 
@@ -317,4 +327,11 @@ export interface CanvasItem {
 }
 export interface LooperCanvas {
   items: CanvasItem[];
+}
+
+/** Can loopers call a model with these settings: a sign-in, a key, or included credits left. */
+export function modelReady(s: PublicSettings) {
+  const mode = s.authMode[s.provider] ?? (s.subscriptions[s.provider] ? "oauth" : "key");
+  if (mode === "credits") return (s.creditsLeft ?? 0) > 0;
+  return mode === "oauth" ? !!s.subscriptions[s.provider] : s.keysSet[s.provider];
 }

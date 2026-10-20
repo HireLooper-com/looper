@@ -25,6 +25,8 @@ interface Pending {
   origin: string;
   /** signed-in user connecting ChatGPT as a second subscription */
   linkUid?: string;
+  /** the workspace that gets the connection (when linking from Settings) */
+  linkWs?: string;
   clientId?: string;
   createdAt: number;
 }
@@ -44,7 +46,7 @@ const b64url = (b: Buffer) => b.toString("base64url");
  * Build the authorize URL. `clientId` is the user's issued registration when known (signed-in user,
  * or a returning browser); otherwise ChatGPT registers this app for them during sign-in.
  */
-export async function startSignIn(opts: { port: string; origin: string; linkUid?: string; clientId?: string; loginHint?: string }) {
+export async function startSignIn(opts: { port: string; origin: string; linkUid?: string; linkWs?: string; clientId?: string; loginHint?: string }) {
   const state = b64url(randomBytes(24));
   const verifier = b64url(randomBytes(48));
   const nonce = b64url(randomBytes(24));
@@ -52,7 +54,7 @@ export async function startSignIn(opts: { port: string; origin: string; linkUid?
   const redirectUri = `http://127.0.0.1:${opts.port}${CALLBACK_PATH}`;
 
   for (const [k, v] of pending) if (Date.now() - v.createdAt > 15 * 60_000) pending.delete(k);
-  pending.set(state, { verifier, nonce, redirectUri, origin: opts.origin, linkUid: opts.linkUid, clientId: opts.clientId, createdAt: Date.now() });
+  pending.set(state, { verifier, nonce, redirectUri, origin: opts.origin, linkUid: opts.linkUid, linkWs: opts.linkWs, clientId: opts.clientId, createdAt: Date.now() });
 
   const params = new URLSearchParams({
     client_id: opts.clientId ?? DYNAMIC_CLIENT,
@@ -131,8 +133,8 @@ export async function finishSignIn(url: URL): Promise<string> {
   if (!p.linkUid && !emailAllowed(identity.email)) return fail("not-allowed");
   const scopes = (tokens.scope ?? url.searchParams.get("scope") ?? "").split(" ").filter(Boolean);
 
-  const user = await upsertUser({ provider: "openai", subject: identity.subject, email: identity.email }, p.linkUid);
-  await mutate(user.id, (d) => {
+  const user = await upsertUser({ provider: "openai", identity: `openai:${identity.subject}`, email: identity.email }, p.linkUid);
+  await mutate(p.linkWs ?? user.id, (d) => {
     d.settings.chatgptClientId = clientId;
     d.settings.oauth.openai = {
       accessToken: tokens.access_token,

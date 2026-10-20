@@ -6,6 +6,6 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/computer/[l
   const user = await currentUser();
   if (!user) return Response.json({ sessions: [] }, { status: 401 });
   const { looperId } = await ctx.params;
-  const log = await readComputerLog(user.id, looperId);
+  const log = await readComputerLog(user.ws, looperId);
   return Response.json({ available: hasComputer(), now: Date.now(), ...log }, { headers: { "cache-control": "no-store" } });
 }

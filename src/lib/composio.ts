@@ -1,7 +1,7 @@
 import "server-only";
 import { jsonSchema, tool, type ToolSet } from "ai";
 
-// Composio REST v3.1. One Composio user per Chieflooper user (user_id = our uid).
+// Composio REST v3.1. One Composio user per Looper user (user_id = our uid).
 // Docs: https://docs.composio.dev/reference
 const BASE = "https://backend.composio.dev/api/v3.1";
 

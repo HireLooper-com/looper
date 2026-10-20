@@ -18,5 +18,5 @@ export function LogoMark({ size = 28, className }: { size?: number; className?: 
 }
 
 export function Wordmark({ className }: { className?: string }) {
-  return <span className={cx("text-[1.0625rem] font-semibold tracking-[-0.02em]", className)}>Chieflooper</span>;
+  return <span className={cx("text-[1.0625rem] font-semibold tracking-[-0.02em]", className)}>Looper</span>;
 }

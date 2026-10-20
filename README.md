@@ -1,71 +1,49 @@
-# Chieflooper
+# Looper
 
-Hire AI **loopers**. Each one owns exactly one business metric and has:
+Hire AI **loopers**: autonomous operators that each own exactly one business number and work it every day. Hosted at [hirelooper.com](https://hirelooper.com), or run it yourself for free.
 
-- **1 metric**: a number with a target and direction, logged over time
-- **1 kanban board**: the looper adds cards and moves them as it works
-- **1 database**: a Notion-style table where one row is one unit of the looper's work (a bank transaction for a VAT looper, a blog post for an SEO looper). The looper adds and updates rows on every run; you edit them inline
-- **1 skill calendar**: scheduled skills (hourly, daily, weekly or on demand) and every past run
-- **1 retro board**: the looper reviews its own runs and metric movement, rates its effectiveness from 1 to 5, and turns "try next" items into new cards
+Each looper has:
 
-**Chief** is the main bot. Ask it to hire, brief, pause, retire or run loopers, or to report on the team. You can also chat with every looper directly; its runs report into that chat.
+- **One metric** with a target and direction, logged over time, always in view
+- **Skills** on a schedule (hourly, daily, weekly or on demand) that use your apps: Gmail, Search Console, Buffer, GitHub, Linear and thousands more
+- **Tasks:** a kanban board, a calendar of runs, and its own **computer** (a private Linux machine with Chrome) that you can watch live and replay step by step
+- **Space:** a database (one row per unit of work) and a canvas for references, images and boards
+- **Results:** a weekly retro where it scores its own effectiveness and decides what to try next
 
-The app is laid out like Grok Bot: a rail on the left with **Needs you** (one inbox of questions, approvals, tasks for you, apps to connect and runs that didn't finish), **Chief** (a daily brief plus the hiring chat) and every looper with its number and weekly trend. Each looper has five places: Chat, Work (Kanban, Calendar), Knowledge (Database, Canvas), Retro and Setup (Skills, Apps, pause), with its metric always in the header. Loopers ask quick questions and approvals inline with ask_owner; runs report as one line with what they changed. ⌘K jumps anywhere, runs skills and searches chats, rows, cards and canvas notes. /hire is a guided flow: goal or starter role → Chief's draft → review → connect apps → watch the first run. The Canvas is an infinite whiteboard with notes, headings, links, images, frames and arrows; loopers read it, look at your images and can build boards there.
+**Chief** hires and coordinates the team and writes a daily brief. Loopers never send, publish, pay or delete without your approval: questions and approvals land in **Needs you**.
 
-## Sign in with your plan
+**Templates** ready to hire: SEO & GEO Grower, Customer Support, Weekly Build-in-Public Update. Or describe a goal and Chief drafts a looper for it.
 
-The app starts on a login page. Each person signs in with a subscription they already pay for and gets a private workspace. Loopers run on that plan.
+**Teams:** shared workspaces with invite links. Everyone works with the same loopers, chats, boards and approvals.
 
-| | How | Where it works |
-| --- | --- | --- |
-| **Continue with ChatGPT** | OpenAI's [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source) (Plus or Pro): PKCE, a client registered per user, plan usage through the Responses API | **Local only.** OpenAI allows plan usage for open-source and locally run apps; hosted apps need to [join OpenAI's waitlist](https://openai.com/form/sign-in-with-chatgpt-interest/). The callback must be `http://127.0.0.1:<port>/auth/callback`. |
-| **Continue with Grok** | Device code at auth.x.ai using the Grok CLI's public client (SuperGrok / X Premium) | Local and hosted. **Unofficial**: xAI has no public OAuth client for other apps, so this may change. Some SuperGrok tiers get 403 on `api.x.ai`; Settings can switch to the Grok CLI endpoint (also unofficial) or an xAI API key. |
-
-OpenAI and xAI API keys still work as a fallback, under Settings.
-
-Restrict who can sign in with `ALLOWED_EMAILS="you@company.com,@company.com"`.
-
-## Run
+## Run it yourself
 
 ```bash
+git clone https://github.com/HireLooper-com/looper && cd looper
 npm install
-npm run dev            # open http://localhost:3000 and sign in
-npm run seed           # optional: three demo loopers (paused) in the last signed-in workspace
+npm run dev        # http://localhost:3000
 ```
 
-## Integrations: thousands of apps
+With no configuration it stores data as JSON files in `./data`, and you sign in with your Grok plan (or ChatGPT when running locally). Add an OpenAI, xAI or Anthropic API key under Settings instead if you prefer. See [`.env.example`](.env.example) for everything optional:
 
-Loopers use tools over the Model Context Protocol (MCP). Each hub is one MCP URL that exposes many apps:
-
-| Hub | What you paste |
+| Want | Set |
 | --- | --- |
-| Composio | MCP server URL from the Composio dashboard (+ `x-api-key` header if needed) |
-| Zapier MCP | Server URL (the secret is in the URL) |
-| Pipedream | Remote MCP URL + auth header |
-| Anything else | Any Streamable HTTP MCP endpoint |
+| Postgres instead of files (Supabase, Neon, …) | `DATABASE_URL` |
+| Sign in with Google, GitHub or a 6-digit email code | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Supabase Auth) |
+| One-click app connections | `COMPOSIO_API_KEY` |
+| Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
+| Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
 
-Integration tools stay out of the model's context until the looper asks for them: it calls `find_tools` with the app and action, and the matching tools are enabled for its next step. That keeps a catalog of thousands of tools cheap per run, and it works the same on ChatGPT and Grok.
+Billing (Stripe) and included Claude credits are for the hosted service only; they stay off unless their keys are set.
 
-## Scheduling
+## How it works
 
-- **Local:** `src/instrumentation.ts` checks every user's due skills each minute. Turn it off with `GROKLOOPER_TICKER=off`.
-- **Hosted:** call `GET /api/tick` from a cron job. Set `CRON_SECRET` and send `Authorization: Bearer $CRON_SECRET`.
+- **Storage:** one key-value table (Postgres) or files. Users and workspaces live in `src/lib/workspace.ts`. A workspace's data is keyed by its id; your personal workspace has your user id.
+- **Models:** `src/lib/llm.ts` resolves the workspace's model: a Grok or ChatGPT plan, an API key, or hosted credits (metered in `src/lib/billing.ts`).
+- **Runs:** `src/lib/agent.ts` runs skills, retros, Chief and the scheduler. App tools stay out of the model's context until the looper finds them with `find_tools`, so thousands of tools cost a few definitions per step.
+- **Computer:** `src/lib/computer.ts` gives each looper a persistent Vercel Sandbox with Chrome ([agent-browser](https://github.com/vercel-labs/agent-browser)). It's stopped after every turn, logs every step with a screenshot, and stops at bot checks instead of fighting them.
+- **Sign-in:** `src/lib/supabase-auth.ts` (Google, GitHub, email codes) or `src/lib/oauth/*` (Grok, ChatGPT), then an HMAC-signed session cookie (`src/lib/session.ts`).
 
-## Storage and sessions
+## License
 
-- Everything lives in one key-value table, `chieflooper_kv`: the user list, one workspace per user (loopers, boards, runs, retros, OAuth tokens, keys) and pending sign-ins. It is created on first use.
-- **Postgres** when `DATABASE_URL` is set: Neon, provisioned through the Vercel Marketplace. All server instances share it, and writes lock the row, so concurrent runs and token refreshes don't collide. Running locally with `.env.local` from `vercel env pull` uses the same database.
-- **Local files** under `data/kv/` when `DATABASE_URL` isn't set (gitignored, mode 600).
-- Sessions are an HMAC-signed cookie. Set `SESSION_SECRET` when hosting; locally one is generated in `data/.session-secret`.
-- ChatGPT plan tokens are only ever used by a local server. A hosted instance refuses to run a ChatGPT-plan looper, even if it finds the tokens in the shared database.
-
-## Code map
-
-- `src/lib/oauth/chatgpt.ts`, `src/lib/oauth/grok.ts`: plan sign-in, token refresh, sign-out
-- `src/lib/kv.ts`, `src/lib/db.ts`: storage (Postgres or files), users and workspaces
-- `src/lib/session.ts`, `src/proxy.ts`: sessions and the login gate
-- `src/lib/agent.ts`: looper runs, retros, the scheduler tick, and Chief with its management tools
-- `src/lib/llm.ts`: the model for each user's plan or key
-- `src/lib/integrations.ts`: MCP connections
-- `src/lib/schedule.ts`: skill schedules (due checks and calendar projection)
-- `src/components/*`: iCloud-style UI: home tiles, Chief, kanban, calendar, retro, settings
+[Sustainable Use License](LICENSE.md): free to use and modify for personal use and for your own business's internal use. You may not sell it or host it as a service for others. For anything else, get in touch.

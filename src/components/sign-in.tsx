@@ -47,7 +47,7 @@ export function ChatGPTButton({ isLocal, label = "Continue with ChatGPT", classN
         <OpenAIMark className="h-[18px] w-[18px]" />
         {pending ? "Opening ChatGPT…" : label}
       </button>
-      {!isLocal && <p className="text-[0.75rem] leading-snug text-mute">OpenAI allows ChatGPT sign-in only for apps running on your own machine. Run Chieflooper locally to use it.</p>}
+      {!isLocal && <p className="text-[0.75rem] leading-snug text-mute">OpenAI allows ChatGPT sign-in only for apps running on your own machine. Run Looper locally to use it.</p>}
       {error && <p className="text-[0.75rem] text-red">{error}</p>}
     </div>
   );

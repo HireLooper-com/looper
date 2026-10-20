@@ -69,7 +69,7 @@ export function SettingsView({ settings, apps, notice }: { settings: PublicSetti
 
       <section className="mt-10">
         <h2 className="mb-3 text-[1.25rem] font-semibold tracking-[-0.01em]">AI plan</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {PROVIDERS.map((p) => (
             <ProviderCard key={p.id} id={p.id} settings={settings} />
           ))}
@@ -132,8 +132,9 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
     listPlanModels("openai").then(setPlanModels).catch(() => setPlanModels([]));
   }, [id, sub]);
 
-  const Mark = id === "openai" ? OpenAIMark : GrokMark;
-  const usable = mode === "oauth" ? !!sub : hasKey;
+  const Mark = id === "openai" ? OpenAIMark : id === "anthropic" ? ClaudeMark : GrokMark;
+  const credits = id === "anthropic" ? settings.creditsLeft : undefined;
+  const usable = mode === "credits" ? (credits ?? 0) > 0 : mode === "oauth" ? !!sub : hasKey;
 
   return (
     <Panel className={cx("flex flex-col gap-5 p-6", active && "ring-2 ring-blue")}>
@@ -148,13 +149,37 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
           )}
           <div>
             <div className="text-[1.0625rem] font-semibold">{meta.plan}</div>
-            <div className="text-[0.8125rem] text-mute">{sub ? `Signed in${sub.email ? ` as ${sub.email}` : ""}` : "Not connected"}</div>
+            <div className="text-[0.8125rem] text-mute">
+              {id === "anthropic"
+                ? mode === "credits"
+                  ? `Included credits · $${(credits ?? 0).toFixed(2)} left`
+                  : hasKey
+                    ? "Your API key"
+                    : credits !== undefined
+                      ? `$${credits.toFixed(2)} of included credits`
+                      : "API key"
+                : sub
+                  ? `Signed in${sub.email ? ` as ${sub.email}` : ""}`
+                  : "Not connected"}
+            </div>
           </div>
         </div>
         {active ? <Pill tone="blue">In use</Pill> : usable ? <Pill tone="green">Ready</Pill> : null}
       </div>
 
-      {sub ? (
+      {id === "anthropic" ? (
+        credits !== undefined ? (
+          mode === "credits" ? (
+            <p className="text-[0.8125rem] text-mute">Loopers run on Claude using the credits included with your plan. When they run out, add your own key here or switch to Grok or ChatGPT.</p>
+          ) : (
+            <div>
+              <Button size="sm" variant="soft" disabled={pending || credits <= 0} onClick={() => start(async () => { await saveModelSettings({ provider: id, model, useCredits: true }); refresh(); })}>
+                Use included credits
+              </Button>
+            </div>
+          )
+        ) : null
+      ) : sub ? (
         <div className="flex flex-col gap-3">
           {id === "openai" && !settings.subscriptions.openai?.sharing && (
             <p className="text-[0.8125rem] text-red">Plan usage wasn&apos;t granted. Sign in again and allow plan usage.</p>
@@ -225,7 +250,7 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
           disabled={pending || (!usable && !key)}
           onClick={() =>
             start(async () => {
-              await saveModelSettings({ provider: id, model, apiKey: key || undefined, useKey: key ? true : undefined });
+              await saveModelSettings({ provider: id, model, apiKey: key || undefined, useKey: key ? true : undefined, useCredits: !key && mode === "credits" ? true : undefined });
               setKey("");
               refresh();
             })
@@ -357,5 +382,14 @@ function Integrations({ settings }: { settings: PublicSettings }) {
         )}
       </Panel>
     </div>
+  );
+}
+
+/** Claude's mark, simplified. */
+function ClaudeMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <path d="M12 2l1.6 6.1L19 5l-3.1 5.4L22 12l-6.1 1.6L19 19l-5.4-3.1L12 22l-1.6-6.1L5 19l3.1-5.4L2 12l6.1-1.6L5 5l5.4 3.1z" />
+    </svg>
   );
 }

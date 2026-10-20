@@ -1,10 +1,13 @@
 import "server-only";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
 import type { LanguageModel, ToolSet } from "ai";
 import { chatgptAccessToken, RESOURCE, USAGE_URL } from "./oauth/chatgpt";
 import { API_BASE, CLI_PROXY_BASE, cliProxyHeaders, grokAccessToken, GROK_USAGE_URL, isGrokEntitlementError } from "./oauth/grok";
+import { costOf, creditsLeft, spendCredits, type UsageLike } from "./billing";
 import { isLocalServer } from "./db";
+import { getWorkspace } from "./workspace";
 import type { Settings } from "./types";
 import { PROVIDERS } from "./types";
 
@@ -17,7 +20,12 @@ export interface ResolvedModel {
   wrapTools: <T extends ToolSet>(tools: T) => T;
   /** Human label for errors and UI */
   label: string;
+  /** Called with each call's token usage (hosted credits are spent here). */
+  meter?: (usage: UsageLike) => Promise<void>;
 }
+
+/** Hosted Claude runs on our key and the workspace's included credits. */
+export const hasHostedCredits = () => !!process.env.ANTHROPIC_API_KEY;
 
 const identity = <T,>(t: T) => t;
 
@@ -29,7 +37,7 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
 
   if (provider === "openai" && mode === "oauth") {
     // OpenAI allows plan usage only from apps running on the user's machine.
-    if (!isLocalServer()) throw new Error("ChatGPT plans can only run loopers when Chieflooper runs on your own machine. Switch to Grok or an OpenAI API key in Settings.");
+    if (!isLocalServer()) throw new Error("ChatGPT plans can only run loopers when Looper runs on your own machine. Switch to Grok or an OpenAI API key in Settings.");
     const openai = createOpenAI({
       apiKey: "chatgpt-plan",
       baseURL: RESOURCE,
@@ -96,6 +104,18 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
     return { model: xai.responses(modelId), wrapTools: identity, label: "Grok plan" };
   }
 
+  if (provider === "anthropic" && mode === "credits") {
+    if (!hasHostedCredits()) throw new Error("Included credits aren't available on this server. Add an Anthropic API key in Settings.");
+    if (creditsLeft(await getWorkspace(uid)) <= 0)
+      throw new Error("Your included AI credits are used up. Connect Grok, ChatGPT or an API key in Settings to keep your loopers working.");
+    return {
+      model: createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })(modelId),
+      wrapTools: identity,
+      label: "Included credits",
+      meter: (usage) => spendCredits(uid, costOf(modelId, usage)),
+    };
+  }
+
   const apiKey = settings.apiKeys[provider];
   if (!apiKey) {
     const label = PROVIDERS.find((p) => p.id === provider)?.label ?? provider;
@@ -106,13 +126,17 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
       return { model: createXai({ apiKey })(modelId), wrapTools: identity, label: "xAI API key" };
     case "openai":
       return { model: createOpenAI({ apiKey })(modelId), wrapTools: identity, label: "OpenAI API key" };
+    case "anthropic":
+      return { model: createAnthropic({ apiKey })(modelId), wrapTools: identity, label: "Anthropic API key" };
   }
 }
 
 /** True when the active provider has a usable sign-in or key. */
 export function hasCredentials(settings: Settings) {
   const p = settings.provider;
-  if ((settings.authMode[p] ?? "key") === "oauth") return !!settings.oauth[p];
+  const mode = settings.authMode[p] ?? "key";
+  if (mode === "credits") return hasHostedCredits();
+  if (mode === "oauth") return !!settings.oauth[p];
   return !!settings.apiKeys[p];
 }
 

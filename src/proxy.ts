@@ -2,15 +2,21 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Optimistic gate: send visitors without a session cookie to /login.
 // Pages and server actions verify the signed session themselves.
-const PUBLIC = ["/login", "/auth/", "/api/tick"];
+const PUBLIC = ["/login", "/auth/", "/api/tick", "/api/stripe/webhook"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p))) return NextResponse.next();
-  if (request.cookies.has("cl_session")) return NextResponse.next();
+  if (request.cookies.has("cl_session")) {
+    // Pages read the path to decide what an unpaid workspace may open.
+    const headers = new Headers(request.headers);
+    headers.set("x-pathname", pathname);
+    return NextResponse.next({ request: { headers } });
+  }
   const url = request.nextUrl.clone();
   url.pathname = "/login";
-  url.search = "";
+  // Come back here after signing in (e.g. an invite link).
+  url.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + request.nextUrl.search)}`;
   return NextResponse.redirect(url);
 }
 

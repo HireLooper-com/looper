@@ -76,7 +76,7 @@ export async function linkPreview(raw: string): Promise<{ url: string; title?: s
   }
   if (!/^https?:$/.test(url.protocol) || isPrivateHost(url.hostname)) return { url: url.href };
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000), headers: { "user-agent": "Mozilla/5.0 (compatible; Chieflooper link preview)", accept: "text/html" }, redirect: "follow" });
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000), headers: { "user-agent": "Mozilla/5.0 (compatible; Looper link preview)", accept: "text/html" }, redirect: "follow" });
     if (!res.ok || !res.headers.get("content-type")?.includes("html")) return { url: url.href };
     const html = (await res.text()).slice(0, 400_000);
     const meta = (prop: string) =>

@@ -7,5 +7,5 @@ export async function GET(request: Request) {
   if (!user) return Response.json(null, { status: 401 });
   const target = new URL(request.url).searchParams.get("target") ?? "";
   if (!/^(chief|(chat|run|design):[\w-]+)$/.test(target)) return Response.json(null, { status: 400 });
-  return Response.json(await readProgress(user.id, target), { headers: { "cache-control": "no-store" } });
+  return Response.json(await readProgress(user.ws, target), { headers: { "cache-control": "no-store" } });
 }

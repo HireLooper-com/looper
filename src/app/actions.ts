@@ -1,5 +1,9 @@
 "use server";
 
+import { creditsLeft } from "@/lib/billing";
+import { hasHostedCredits } from "@/lib/llm";
+import { displayName, getWorkspace } from "@/lib/workspace";
+
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
@@ -15,7 +19,7 @@ import { deleteDatabase } from "@/lib/database";
 import { testIntegration } from "@/lib/integrations";
 import * as chatgpt from "@/lib/oauth/chatgpt";
 import * as grok from "@/lib/oauth/grok";
-import { clearSession, currentUser, requireUid, requireUser, setSession } from "@/lib/session";
+import { clearSession, currentUser, requireSessionUser, requireUid, requireUser, setSession } from "@/lib/session";
 import type { AppRef, Card, Column, GrokRoute, Integration, IntegrationKind, Looper, Provider, Skill } from "@/lib/types";
 import { ACCENTS } from "@/lib/types";
 
@@ -27,7 +31,10 @@ const done = <T,>(v: T) => {
 
 export async function getState() {
   const user = await requireUser();
-  return toPublic(await read(user.id), user);
+  const [db, ws] = await Promise.all([read(user.ws), getWorkspace(user.ws)]);
+  const state = toPublic(db, user);
+  if (hasHostedCredits()) state.settings.creditsLeft = creditsLeft(ws);
+  return state;
 }
 
 // — Sign-in —
@@ -50,7 +57,7 @@ export async function startChatGPTLogin() {
 }
 
 async function startChatGPTLoginInner() {
-  if (!isLocalServer()) throw new Error("OpenAI only allows ChatGPT sign-in for apps running on your own machine. Use Grok here, or run Chieflooper locally.");
+  if (!isLocalServer()) throw new Error("OpenAI only allows ChatGPT sign-in for apps running on your own machine. Use Grok here, or run Looper locally.");
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
   const origin = `${h.get("x-forwarded-proto") ?? "http"}://${host}`;
@@ -59,11 +66,14 @@ async function startChatGPTLoginInner() {
   const hintUid = signedIn?.id ?? (await cookies()).get(HINT_COOKIE)?.value;
   const known = hintUid ? await getUser(hintUid) : undefined;
   const clientId = known ? (await read(known.id)).settings.chatgptClientId : undefined;
-  return chatgpt.startSignIn({ port, origin, linkUid: signedIn?.id, clientId, loginHint: known?.email });
+  return chatgpt.startSignIn({ port, origin, linkUid: signedIn?.id, linkWs: signedIn?.ws, clientId, loginHint: known?.email });
 }
 
 export async function startGrokLogin() {
-  return attempt(async () => grok.startDevice((await currentUser())?.id));
+  return attempt(async () => {
+    const u = await currentUser();
+    return grok.startDevice(u?.id, u?.ws);
+  });
 }
 
 export async function pollGrokLogin(flowId: string) {
@@ -90,13 +100,15 @@ export async function disconnectSubscription(provider: Provider) {
 
 // — Model settings —
 
-export async function saveModelSettings(input: { provider: Provider; model: string; apiKey?: string; useKey?: boolean }) {
+export async function saveModelSettings(input: { provider: Provider; model: string; apiKey?: string; useKey?: boolean; useCredits?: boolean }) {
   const uid = await requireUid();
+  if (input.useCredits && (input.provider !== "anthropic" || !hasHostedCredits())) throw new Error("Included credits aren't available here.");
   await mutate(uid, (db) => {
     db.settings.provider = input.provider;
     if (input.model.trim()) db.settings.models[input.provider] = input.model.trim();
     if (input.apiKey?.trim()) db.settings.apiKeys[input.provider] = input.apiKey.trim();
-    if (input.useKey !== undefined) db.settings.authMode[input.provider] = input.useKey ? "key" : "oauth";
+    if (input.useCredits) db.settings.authMode[input.provider] = "credits";
+    else if (input.useKey !== undefined) db.settings.authMode[input.provider] = input.useKey ? "key" : "oauth";
   });
   return done(true);
 }
@@ -106,6 +118,7 @@ export async function removeKey(provider: Provider) {
   await mutate(uid, (db) => {
     delete db.settings.apiKeys[provider];
     if (db.settings.oauth[provider]) db.settings.authMode[provider] = "oauth";
+    else if (provider === "anthropic" && hasHostedCredits()) db.settings.authMode.anthropic = "credits";
   });
   return done(true);
 }
@@ -126,16 +139,22 @@ export async function listPlanModels(provider: Provider) {
 // Replies run in the background: the request returns once the message is saved, and the chat
 // follows the reply through /api/progress. (Server actions run one at a time per tab, so a long one
 // would hold up every other click.)
+/** In a team workspace, messages carry who wrote them. */
+async function author() {
+  const user = await requireSessionUser();
+  return { uid: user.ws, by: user.ws !== user.id ? { id: user.id, name: displayName(user) } : undefined };
+}
+
 export async function askChief(text: string) {
-  const uid = await requireUid();
-  const reply = await beginChiefReply(uid, text);
+  const { uid, by } = await author();
+  const reply = await beginChiefReply(uid, text, by);
   after(reply);
   return done({ since: reply.since });
 }
 
 export async function askLooper(looperId: string, text: string) {
-  const uid = await requireUid();
-  const reply = await beginLooperReply(uid, looperId, text);
+  const { uid, by } = await author();
+  const reply = await beginLooperReply(uid, looperId, text, by);
   after(reply);
   return done({ since: reply.since });
 }
@@ -354,7 +373,7 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
         const preset = MCP_APPS[app.slug];
         const integration = db.settings.integrations.find((i) => i.app === app.slug && i.enabled);
         if (preset?.localOnly && !local)
-          return { ...app, state: "unavailable", detail: `${app.name} runs on your own machine. Open Chieflooper locally to connect it.` };
+          return { ...app, state: "unavailable", detail: `${app.name} runs on your own machine. Open Looper locally to connect it.` };
         if (integration) return { ...app, state: "connected", detail: `Read-only via ${integration.url.replace(/^https?:\/\//, "")}` };
         return { ...app, state: "not_connected", detail: "Runs on your machine through a small MCP server. Payments are blocked.", setup: preset?.setup };
       }
@@ -431,7 +450,7 @@ export async function connectMcpApp(looperId: string, slug: string): Promise<{ o
   const uid = await requireUid();
   const preset = MCP_APPS[slug];
   if (!preset) return { ok: false, error: "Unknown app" };
-  if (preset.localOnly && !isLocalServer()) return { ok: false, error: `${preset.name} only works when Chieflooper runs on your machine.` };
+  if (preset.localOnly && !isLocalServer()) return { ok: false, error: `${preset.name} only works when Looper runs on your machine.` };
   const probe: Integration = { id: "probe", name: preset.name, kind: "custom", url: preset.url, headers: {}, enabled: true, app: slug, deniedTools: preset.deniedTools };
   const test = await testIntegration(probe);
   if (!test.ok) return { ok: false, error: `Couldn't reach ${preset.name} at ${preset.url}. Is bunq-mcp running? (${test.error})` };

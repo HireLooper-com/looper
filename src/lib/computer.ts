@@ -4,6 +4,7 @@ import { Sandbox } from "@vercel/sandbox";
 import { tool, type ToolSet } from "ai";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { assertInfraBudget, spendInfra } from "./billing";
 import { deleteImage, imagePath, readCanvas, saveImage } from "./canvas";
 import { kv } from "./kv";
 import { describeTool } from "./progress";
@@ -24,6 +25,8 @@ const MAX_SESSIONS = 12;
 const MAX_SHOTS = 40;
 // A session left open this long (a crashed run) no longer counts as live.
 export const LIVE_MS = 8 * 60_000;
+// What an awake machine costs us (2 vCPU, 4 GB, plus snapshot storage), rounded up, per minute.
+const USD_PER_MINUTE = 0.003;
 
 export const hasComputer = () => !!(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_TOKEN);
 
@@ -116,6 +119,7 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
   let browserUsed = false;
   let sessionId: string | null = null;
   let shots = 0;
+  let awakeSince = 0;
   // Sites that showed a bot check this turn: further actions there are refused, so the looper can't loop.
   const blocked = new Set<string>();
   let currentHost = "";
@@ -140,7 +144,9 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
 
   const open = () =>
     (box ??= (async () => {
+      await assertInfraBudget(uid);
       if (!sessionId) await startLog();
+      awakeSince = Date.now();
       const sb = await Sandbox.getOrCreate({ name: sandboxName(uid, looperId), persistent: true, timeout: 15 * 60_000, resources: { vcpus: 2 }, tags: { app: "chieflooper" } });
       if ((await sb.runCommand({ cmd: "test", args: ["-f", SETUP_MARK] })).exitCode !== 0) {
         opts.progress?.("Setting up my computer (first time, about a minute)…");
@@ -295,6 +301,7 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
       if (browserUsed) await exec("agent-browser", ["close"], { env: BROWSER_ENV, timeoutMs: 20_000 });
       await sb.stop().catch(() => undefined);
     }
+    if (awakeSince) await spendInfra(uid, Math.max(1, (Date.now() - awakeSince) / 60_000) * USD_PER_MINUTE).catch(() => undefined);
     await log((s) => void (s.endedAt = new Date().toISOString())).catch(() => undefined);
   }
 

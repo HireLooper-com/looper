@@ -11,13 +11,13 @@ export const maxDuration = 300;
 export default async function InboxPage() {
   await connection();
   const user = await requireUser();
-  const db = await read(user.id);
+  const db = await read(user.ws);
   const items = inboxItems(db);
 
   // Apps a looper needs that aren't connected yet (one catalog call for all loopers).
   let apps: AppTodo[] = [];
   if (hasComposio() && db.loopers.some((l) => l.apps?.some((a) => a.via === "composio"))) {
-    const connected = await activeAccounts(user.id).catch(() => null);
+    const connected = await activeAccounts(user.ws).catch(() => null);
     if (connected)
       apps = db.loopers.flatMap((l) =>
         (l.apps ?? []).filter((a) => a.via === "composio" && !connected.has(a.slug)).map((a) => ({ looperId: l.id, slug: a.slug, name: a.name, logo: a.logo })),

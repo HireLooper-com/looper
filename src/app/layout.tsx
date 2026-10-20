@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chieflooper",
-  description: "Hire AI loopers that each own one business metric. Sign in with your ChatGPT or Grok plan.",
+  title: "Looper",
+  description: "Hire AI loopers that each own one business metric and work it every day.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

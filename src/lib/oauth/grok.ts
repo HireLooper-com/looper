@@ -26,6 +26,8 @@ interface Device {
   nextPollAt: number;
   /** signed-in user connecting Grok as a second subscription */
   linkUid?: string;
+  /** the workspace that gets the connection (when linking from Settings) */
+  linkWs?: string;
 }
 
 // Pending device sign-ins are stored in the shared store: on Vercel each poll may reach a different instance.
@@ -42,7 +44,7 @@ async function post(url: string, body: Record<string, string>) {
 }
 
 /** Step 1: get a code the user confirms on x.ai. Returns a flow id the browser polls with. */
-export async function startDevice(linkUid?: string) {
+export async function startDevice(linkUid?: string, linkWs?: string) {
   const { ok, status, data } = await post(DEVICE_URL, { client_id: CLIENT_ID, scope: SCOPE });
   if (!ok) throw new Error(data.error_description ?? `xAI sign-in unavailable (${status})`);
   const interval = Number(data.interval ?? 5);
@@ -53,6 +55,7 @@ export async function startDevice(linkUid?: string) {
     expiresAt: Date.now() + Number(data.expires_in ?? 300) * 1000,
     nextPollAt: Date.now() + interval * 1000,
     linkUid,
+    linkWs,
   };
   await kv.set(deviceKey(flowId), device, Math.ceil((device.expiresAt - Date.now()) / 1000));
   return {
@@ -128,8 +131,8 @@ export async function pollDevice(flowId: string): Promise<PollResult> {
   if (!identity.subject) throw new Error("xAI didn't confirm who signed in. Try again.");
   if (!d.linkUid && !emailAllowed(identity.email)) return { status: "not-allowed" };
 
-  const user = await upsertUser({ provider: "xai", subject: identity.subject, email: identity.email }, d.linkUid);
-  await mutate(user.id, (db) => {
+  const user = await upsertUser({ provider: "xai", identity: `xai:${identity.subject}`, email: identity.email }, d.linkUid);
+  await mutate(d.linkWs ?? user.id, (db) => {
     db.settings.oauth.xai = { ...credentialFrom(data), ...identity };
     db.settings.authMode.xai = "oauth";
     db.settings.provider = "xai";

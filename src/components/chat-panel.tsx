@@ -227,6 +227,7 @@ function Bubble({ m }: { m: ChiefMessage }) {
   const mine = m.role === "user";
   return (
     <div className={cx("fade-up flex flex-col gap-1.5", mine ? "items-end" : "items-start")}>
+      {m.by && <div className="px-1 text-[0.75rem] text-mute">{m.by.name}</div>}
       <div className={cx("max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-relaxed", mine ? "bg-blue text-page" : "bg-ink/[0.045] text-ink")}>
         {m.content}
       </div>

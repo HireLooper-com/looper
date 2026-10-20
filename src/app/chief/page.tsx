@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { getState } from "../actions";
 import { ChiefChat } from "@/components/chief-chat";
+import { modelReady } from "@/lib/types";
 import { dailyBrief, inboxItems } from "@/lib/inbox";
 
 // Server actions on this page can run a looper (model calls + tools), so allow the full 5 minutes.
@@ -10,8 +11,7 @@ export default async function ChiefPage() {
   await connection();
   const state = await getState();
   const s = state.settings;
-  const mode = s.authMode[s.provider] ?? (s.subscriptions[s.provider] ? "oauth" : "key");
-  const ready = mode === "oauth" ? !!s.subscriptions[s.provider] : s.keysSet[s.provider];
+  const ready = modelReady(s);
 
   return (
     <div className="flex h-[calc(100dvh-58px)] flex-col lg:h-dvh">

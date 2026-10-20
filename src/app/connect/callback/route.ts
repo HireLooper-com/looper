@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
   const user = await currentUser();
   const pending = accountId ? await kv.get<{ uid: string; looperId: string; slug: string }>(`composio-link:${accountId}`) : undefined;
   // Query parameters alone aren't proof: the account must be one we started for this user, and active.
-  if (!user || !pending || pending.uid !== user.id || pending.slug !== app) return back(`connect_error=${encodeURIComponent(app)}`);
+  if (!user || !pending || pending.uid !== user.ws || pending.slug !== app) return back(`connect_error=${encodeURIComponent(app)}`);
   await kv.delete(`composio-link:${accountId}`);
   if (q.get("status") !== "success") return back(`connect_error=${encodeURIComponent(app)}`);
   const account = await getAccount(accountId).catch(() => null);
-  forgetAccounts(user.id);
+  forgetAccounts(user.ws);
   return back(account?.status === "ACTIVE" ? `connected=${encodeURIComponent(app)}` : `connect_error=${encodeURIComponent(app)}`);
 }

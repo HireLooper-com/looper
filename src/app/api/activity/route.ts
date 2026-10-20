@@ -5,5 +5,5 @@ import { currentUser } from "@/lib/session";
 export async function GET() {
   const user = await currentUser();
   if (!user) return Response.json({ jobs: [] }, { status: 401 });
-  return Response.json({ jobs: await readJobs(user.id) }, { headers: { "cache-control": "no-store" } });
+  return Response.json({ jobs: await readJobs(user.ws) }, { headers: { "cache-control": "no-store" } });
 }

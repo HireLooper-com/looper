@@ -3,21 +3,35 @@ import { tickUser } from "@/lib/agent";
 import { read } from "@/lib/db";
 import { inboxItems, metricDelta, metricNow, trend } from "@/lib/inbox";
 import { isDue } from "@/lib/schedule";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { billingEnabled, hasAccess } from "@/lib/billing";
 import { currentUser } from "@/lib/session";
-import { PROVIDERS } from "@/lib/types";
+import { getUser, getWorkspace, workspacesOf } from "@/lib/workspace";
 import { Notices } from "./activity";
 import { CommandPalette } from "./command-palette";
 import { Sidebar } from "./sidebar";
 import { fmt } from "./ui";
 
+const OPEN_WITHOUT_PLAN = ["/billing", "/invite/", "/workspace", "/login", "/auth/"];
+
 /** Signed-in frame: the looper rail on the left, the page on the right. Signed out: just the page. */
 export async function Shell({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
   if (!user) return <main className="min-h-dvh">{children}</main>;
-  const db = await read(user.id);
+  const all = await workspacesOf(user);
+  const ws = all.find((w) => w.id === user.ws) ?? (await getWorkspace(user.ws));
+  const owner = ws && ws.ownerId !== user.id ? await getUser(ws.ownerId) : user;
+  // Hosted without a plan: only choosing one (and joining or switching workspaces) is open.
+  if (!hasAccess(ws, owner?.email)) {
+    const path = (await headers()).get("x-pathname") ?? "/";
+    if (!OPEN_WITHOUT_PLAN.some((p) => path.startsWith(p))) redirect("/billing");
+    return <main className="min-h-dvh">{children}</main>;
+  }
+  const db = await read(user.ws);
   // Hosted, the cron only fires daily, so opening the app starts anything that came due since.
   const due = db.loopers.some((l) => l.status === "active" && l.skills.some((s) => isDue(s)) && !db.runs.some((r) => r.looperId === l.id && r.status === "running"));
-  if (due) after(() => tickUser(user.id).catch((e) => console.error("[tick]", e)));
+  if (due) after(() => tickUser(user.ws).catch((e) => console.error("[tick]", e)));
 
   const inbox = inboxItems(db);
   const loopers = db.loopers.map((l) => {
@@ -39,7 +53,15 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   const lastChief = db.chief.filter((m) => m.role === "assistant").at(-1)?.content.replace(/\s+/g, " ").slice(0, 120);
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
-      <Sidebar loopers={loopers} chiefPreview={lastChief} inboxCount={inbox.length} email={user.email} plan={PROVIDERS.find((p) => p.id === user.provider)?.plan} />
+      <Sidebar
+        loopers={loopers}
+        chiefPreview={lastChief}
+        inboxCount={inbox.length}
+        account={{ email: user.email, name: user.name, avatar: user.avatar }}
+        workspace={{ id: user.ws, name: ws?.name ?? "Personal", kind: ws?.kind ?? "personal", plan: ws?.billing ? (ws.billing.plan === "team" ? "Team plan" : "Personal plan") : ws?.comped ? "Complimentary" : undefined }}
+        workspaces={all.map((w) => ({ id: w.id, name: w.name, kind: w.kind }))}
+        billing={billingEnabled()}
+      />
       <main className="min-w-0 flex-1 lg:h-dvh lg:overflow-y-auto">{children}</main>
       <CommandPalette loopers={loopers.map(({ id, name, color, skills }) => ({ id, name, color, skills }))} />
       <Notices loopers={loopers.map(({ id, color }) => ({ id, color }))} />

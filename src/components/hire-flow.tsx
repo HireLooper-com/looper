@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { LOOPER_TEMPLATES, templateBySlug } from "@/lib/looper-templates";
 import { confirmHire, draftHire, startSkill } from "@/app/team-actions";
 import type { LooperSpec } from "@/lib/agent";
 import { describeSchedule } from "@/lib/schedule";
@@ -10,18 +11,6 @@ import { AppsPanel } from "./apps-panel";
 import { Bot, Button, cx } from "./ui";
 
 /** Starter roles a founder or freelancer can hire in a minute. */
-const TEMPLATES = [
-  { title: "VAT return", role: "Accounting", goal: "Prepare my quarterly Dutch VAT return: match every bank transaction to an invoice and get unresolved VAT items to 0 before the deadline." },
-  { title: "Invoice chaser", role: "Finance", goal: "Get paid faster: chase overdue invoices politely and bring overdue receivables down to €0." },
-  { title: "SEO growth", role: "SEO", goal: "Grow organic clicks from Google Search Console by finding quick wins and drafting posts." },
-  { title: "LinkedIn growth", role: "Social", goal: "Grow my LinkedIn impressions to 50k a month by drafting posts in my voice for my approval." },
-  { title: "Lead qualifier", role: "Sales", goal: "Qualify inbound leads from my inbox and CRM and book more qualified demo calls each week." },
-  { title: "Inbox zero", role: "Support", goal: "Keep customer emails answered within a day: draft replies for my approval and keep unanswered emails near 0." },
-  { title: "Revenue watch", role: "Revenue", goal: "Watch Stripe for failed payments and churn, and recover failed payments to keep MRR growing." },
-  { title: "Content repurposer", role: "Content", goal: "Turn every blog post into a week of social posts and grow posts published per week." },
-  { title: "Competitor watch", role: "Research", goal: "Track my top competitors' pricing, launches and posts and send me a weekly brief." },
-  { title: "Cash runway", role: "Finance", goal: "Keep my cash runway in view: categorise spend from my bank and Stripe and flag anything that shortens runway." },
-];
 
 type Hired = { id: string; name: string; color?: Accent; firstSkillId?: string; firstSkillName?: string };
 type Step = "goal" | "drafting" | "review" | "connect";
@@ -29,11 +18,12 @@ type Step = "goal" | "drafting" | "review" | "connect";
 const DRAFTING = ["Reading your goal…", "Choosing the one number to own…", "Picking the apps it needs…", "Designing its database…", "Scheduling its skills…"];
 
 /** Guided hiring: goal → Chief's draft → review → connect apps → watch the first run. */
-export function HireFlow({ resume, notice, taken, nextColor }: { resume?: Hired; notice?: string; taken: string[]; nextColor: Accent }) {
+export function HireFlow({ resume, notice, taken, nextColor, template }: { resume?: Hired; notice?: string; taken: string[]; nextColor: Accent; template?: string }) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>(resume ? "connect" : "goal");
+  const preset = templateBySlug(template);
+  const [step, setStep] = useState<Step>(resume ? "connect" : preset ? "review" : "goal");
   const [goal, setGoal] = useState("");
-  const [spec, setSpec] = useState<LooperSpec | null>(null);
+  const [spec, setSpec] = useState<LooperSpec | null>(preset ? structuredClone(preset.spec) : null);
   const [hired, setHired] = useState<Hired | null>(resume ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, start] = useTransition();
@@ -114,16 +104,24 @@ export function HireFlow({ resume, notice, taken, nextColor }: { resume?: Hired;
             </div>
           </form>
           {error && <p className="mt-3 text-[0.875rem] text-red">{error}</p>}
-          <div className="eyebrow mt-10">Or start from a role</div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {TEMPLATES.map((t) => (
-              <button key={t.title} onClick={() => draft(t.goal)} className="tile group flex flex-col gap-1 p-4 text-left transition-transform hover:-translate-y-0.5">
-                <span className="flex items-center gap-2">
-                  <span className="text-[0.9375rem] font-medium">{t.title}</span>
-                  <span className="rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute">{t.role}</span>
-                  <span className="ml-auto text-mute opacity-0 transition-opacity group-hover:opacity-100">→</span>
+          <div className="eyebrow mt-10">Or hire a ready-made looper</div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {LOOPER_TEMPLATES.map((t) => (
+              <button
+                key={t.slug}
+                onClick={() => {
+                  setError(null);
+                  setSpec(structuredClone(t.spec));
+                  setStep("review");
+                }}
+                className="tile group flex flex-col gap-2 p-4 text-left transition-transform hover:-translate-y-0.5"
+              >
+                <Bot size={40} color={nextColor} seed={t.slug} />
+                <span className="text-[0.9375rem] font-medium leading-snug">{t.title}</span>
+                <span className="text-[0.8125rem] leading-snug text-mute">{t.pitch}</span>
+                <span className="mt-auto pt-1 text-[0.75rem] text-faint">
+                  {t.spec.metric.name} · {t.spec.apps.join(", ")}
                 </span>
-                <span className="line-clamp-2 text-[0.8125rem] leading-snug text-mute">{t.goal}</span>
               </button>
             ))}
           </div>

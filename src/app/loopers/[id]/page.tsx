@@ -6,6 +6,7 @@ import { readCanvas } from "@/lib/canvas";
 import { computerSummary, hasComputer } from "@/lib/computer";
 import { readDatabase } from "@/lib/database";
 import { requireUser } from "@/lib/session";
+import { modelReady } from "@/lib/types";
 
 // Server actions on this page can run a looper (model calls + tools), so allow the full 5 minutes.
 export const maxDuration = 300;
@@ -19,9 +20,9 @@ export default async function LooperPage({ params, searchParams }: PageProps<"/l
   const looper = state.loopers.find((l) => l.id === id);
   if (!looper) notFound();
   const [table, canvas, computer] = await Promise.all([
-    readDatabase(user.id, id),
-    readCanvas(user.id, id).catch(() => null),
-    hasComputer() ? computerSummary(user.id, id).catch(() => null) : null,
+    readDatabase(user.ws, id),
+    readCanvas(user.ws, id).catch(() => null),
+    hasComputer() ? computerSummary(user.ws, id).catch(() => null) : null,
   ]);
 
   return (
@@ -36,11 +37,7 @@ export default async function LooperPage({ params, searchParams }: PageProps<"/l
       computer={computer}
       canvasItems={canvas?.items.filter((i) => i.kind !== "arrow").length ?? 0}
       chat={state.chats?.[id] ?? []}
-      ready={(() => {
-        const s = state.settings;
-        const mode = s.authMode[s.provider] ?? (s.subscriptions[s.provider] ? "oauth" : "key");
-        return mode === "oauth" ? !!s.subscriptions[s.provider] : s.keysSet[s.provider];
-      })()}
+      ready={modelReady(state.settings)}
       tab={typeof tab === "string" ? tab : "chat"}
     />
   );
