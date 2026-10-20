@@ -85,6 +85,23 @@ export async function wipeComputer(uid: string, looperId: string) {
   await kv.delete(logKey(uid, looperId));
 }
 
+// Bot checks (Cloudflare, hCaptcha, reCAPTCHA, PerimeterX, DataDome). We never try to get past them:
+// the looper stops, looks for an official route, or asks the owner to pass the check themselves.
+const BOT_CHECK =
+  /challenges\.cloudflare\.com|cf-turnstile|cf-chl|verify you are human|performing security verification|checking (if the site connection is secure|your browser)|attention required! \| cloudflare|hcaptcha\.com|google\.com\/recaptcha|recaptcha\/api|i'?m not a robot|press (&|and) hold|captcha-delivery\.com|are you a (robot|human)|unusual traffic from your computer/i;
+const JUST_A_MOMENT = /^just a moment/i;
+// Visible challenge frames only: many ordinary forms load invisible reCAPTCHA, which isn't a block.
+const SIGNALS_JS = `[...document.querySelectorAll('iframe')].map(e=>e.src).filter(s=>!/invisible/.test(s)).join(' ')+' '+(document.body?document.body.innerText:'').slice(0,3000)`;
+const BLOCKED_NOTE =
+  "This site showed a bot check (CAPTCHA / 'verify you are human') and blocks automated browsing. Don't click it or retry, and never try to get around it. Instead: use the site's official API or a connected app if there is one, find the information from another public source (RSS feed, search results, other sites), or use ask_owner to ask whether they want to pass the check themselves.";
+const hostOf = (url: string) => {
+  try {
+    return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n… (cut at ${n} characters)` : s);
 // agent-browser notes its cookie restore on stderr; that's noise for the model.
 const quiet = (s: string) => s.split("\n").filter((l) => !l.startsWith("[agent-browser]")).join("\n").trim();
@@ -99,6 +116,9 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
   let browserUsed = false;
   let sessionId: string | null = null;
   let shots = 0;
+  // Sites that showed a bot check this turn: further actions there are refused, so the looper can't loop.
+  const blocked = new Set<string>();
+  let currentHost = "";
 
   async function log(fn: (s: ComputerSessionLog) => void) {
     if (!sessionId) return;
@@ -168,8 +188,11 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
 
   /** Title, URL and the clickable elements, so the model can pick its next step by ref. */
   async function page() {
-    const [title, url, snap] = await Promise.all([browser(["get", "title"]), browser(["get", "url"]), browser(["snapshot", "-i", "-c"])]);
-    return { title: title.out, url: url.out, elements: clip(snap.out || snap.err, 12_000) };
+    const [title, url, snap, signals] = await Promise.all([browser(["get", "title"]), browser(["get", "url"]), browser(["snapshot", "-i", "-c"]), browser(["eval", SIGNALS_JS])]);
+    currentHost = hostOf(url.out);
+    const botCheck = JUST_A_MOMENT.test(title.out) || BOT_CHECK.test(`${title.out}\n${snap.out}\n${signals.out}`);
+    if (botCheck && currentHost) blocked.add(currentHost);
+    return { title: title.out, url: url.out, elements: clip(snap.out || snap.err, 12_000), botCheck };
   }
 
   const tools: ToolSet = {
@@ -198,9 +221,16 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
         else if (action === "wait") args = ["wait", target ?? "1000"];
         else if (action !== "look") args = [action];
         if (!args && action !== "look") return need("a target (and value)");
+        // Already stopped by a bot check on this site this turn: don't touch it again.
+        const host = action === "open" ? hostOf(target!) : currentHost;
+        if (host && blocked.has(host) && !["back", "forward"].includes(action)) return { blocked: true, site: host, note: BLOCKED_NOTE };
         const done = args ? await browser(args) : null;
         const [now, shot] = await Promise.all([page(), shoot()]);
         const failed = !!done && done.code !== 0;
+        if (now.botCheck) {
+          await step({ label: `Stopped: ${currentHost || "the site"} shows a bot check`, url: now.url, title: now.title, shot: shot?.path, error: true });
+          return { blocked: true, site: currentHost, note: BLOCKED_NOTE, page: { title: now.title, url: now.url } };
+        }
         await step({ label: describeTool("computer_browse", input), url: now.url, title: now.title, shot: shot?.path, error: failed || undefined });
         if (failed) return { error: clip(done.err || done.out || "That didn't work.", 1500), page: now };
         return { done: done ? clip(done.out, 500) : undefined, page: now };
@@ -210,8 +240,14 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
       description: "Read the text of the page open in your browser, as clean readable text (articles, tables, prices, search results).",
       inputSchema: z.object({}),
       execute: async () => {
+        if (currentHost && blocked.has(currentHost)) return { blocked: true, site: currentHost, note: BLOCKED_NOTE };
         const r = await browser(["read"], 90_000);
         const url = await browser(["get", "url"]);
+        if (BOT_CHECK.test(r.out.slice(0, 3000))) {
+          if (currentHost) blocked.add(currentHost);
+          await step({ label: `Stopped: ${currentHost || "the site"} shows a bot check`, url: url.out, error: true });
+          return { blocked: true, site: currentHost, note: BLOCKED_NOTE };
+        }
         await step({ label: "Reading the page", url: url.out, error: r.code !== 0 || undefined });
         return r.code === 0 ? { text: clip(r.out, 20_000) } : { error: clip(r.err || r.out, 1500) };
       },
