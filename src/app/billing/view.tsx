@@ -127,9 +127,9 @@ export function BillingView(props: {
       {error && <p className="mt-4 text-[0.875rem] text-red">{error}</p>}
 
       <p className="mt-8 text-[0.8125rem] leading-relaxed text-mute">
-        Credits pay for Claude while your loopers work; they&apos;re given once per plan and don&apos;t expire. When they run out, connect your own Grok, ChatGPT or API key in Settings and keep going. Each workspace includes up to ${props.infra.cap} of computer time a month. Prefer to run it yourself?{" "}
+        Credits pay for Claude while your loopers work; they&apos;re given once per plan and don&apos;t expire. When they run out, connect your own Grok, ChatGPT or API key in Settings and keep going. Each workspace includes up to ${props.infra.cap} of computer time a month. Prefer to run the code yourself?{" "}
         <a href="https://github.com/HireLooper-com/looper" className="underline hover:text-ink">
-          Self-host for free
+          Star us on GitHub
         </a>
         .
       </p>

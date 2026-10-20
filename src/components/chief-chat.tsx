@@ -29,7 +29,7 @@ export function ChiefChat({ messages, ready, brief, email, inbox }: { messages: 
       }
       starters={STARTERS}
       emptyTitle="What should we move?"
-      emptyText="Tell Chief a goal. It hires a looper that owns one number, with its own chat, board, calendar, database and retro."
+      emptyText="Tell Chief a goal. It hires a looper that owns one business metric, with its own chat, board, calendar, database and retro."
       placeholder="Message Chief"
       send={askChief}
       progressTarget="chief"

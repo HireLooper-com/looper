@@ -39,7 +39,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <LogoMark size={76} className="mx-auto" />
           <h1 className="display mt-6 text-[2rem]">Sign in to Looper</h1>
           <p className="mx-auto mt-2 max-w-[30ch] text-[1rem] leading-snug text-mute">
-            Hire AI loopers that each own one number and work it every day.
+            Hire AI loopers that each own one business metric and work it every day.
           </p>
 
           {notice && (

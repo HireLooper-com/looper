@@ -253,7 +253,7 @@ export function LooperView(props: {
   );
 }
 
-/** The looper's one number, always in view: value, trend, target. Opens the chart. */
+/** The looper's business metric, always in view: value, trend, target. Opens the chart. */
 const VIEW_ICON: Partial<Record<View, React.ReactNode>> = {
   metric: <path d="M3 15l4.5-5 3 3L17 5M13 5h4v4" />,
   retro: <path d="M4 10a6 6 0 1 0 2-4.5M4 3.5V6h2.5M10 7v3.5l2.5 1.5" />,
@@ -480,7 +480,7 @@ function LooperChat({ looper, messages, runs, asks, ready }: { looper: Looper; m
       ready={ready}
       starters={[`What did you do on your last run?`, `What's blocking ${looper.metric.name}?`, `Show me what's in your database`, `Change how you work`]}
       emptyTitle={`Hi, I'm ${looper.name}`}
-      emptyText={`I own one number: ${looper.metric.name}. Ask me anything, give me a task, or change how I work. My runs report here too.`}
+      emptyText={`I own one business metric: ${looper.metric.name}. Ask me anything, give me a task, or change how I work. My runs report here too.`}
       placeholder={`Message ${looper.name}`}
       send={(t) => askLooper(looper.id, t)}
       progressTarget={`chat:${looper.id}`}

@@ -15,7 +15,7 @@ import { Bot, Button, cx } from "./ui";
 type Hired = { id: string; name: string; color?: Accent; firstSkillId?: string; firstSkillName?: string };
 type Step = "goal" | "drafting" | "review" | "connect";
 
-const DRAFTING = ["Reading your goal…", "Choosing the one number to own…", "Picking the apps it needs…", "Designing its database…", "Scheduling its skills…"];
+const DRAFTING = ["Reading your goal…", "Choosing the business metric to own…", "Picking the apps it needs…", "Designing its database…", "Scheduling its skills…"];
 
 /** Guided hiring: goal → Chief's draft → review → connect apps → watch the first run. */
 export function HireFlow({ resume, notice, taken, nextColor, template }: { resume?: Hired; notice?: string; taken: string[]; nextColor: Accent; template?: string }) {
@@ -78,7 +78,7 @@ export function HireFlow({ resume, notice, taken, nextColor, template }: { resum
       {step === "goal" && (
         <div className="fade-up mt-8">
           <h1 className="text-[2rem] font-semibold tracking-[-0.03em]">Who do you want to hire?</h1>
-          <p className="mt-1 text-[1rem] text-mute">Describe the result you want. Chief drafts a looper that owns one number, and you review it before anything runs.</p>
+          <p className="mt-1 text-[1rem] text-mute">Describe the result you want. Chief drafts a looper that owns one business metric, and you review it before anything runs.</p>
           <form
             className="mt-6"
             onSubmit={(e) => {
@@ -219,7 +219,7 @@ function Review({ spec, onChange, taken, color }: { spec: LooperSpec; onChange: 
 
       <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-[1fr_auto]">
         <div>
-          <div className="eyebrow">Owns one number</div>
+          <div className="eyebrow">Owns one business metric</div>
           <div className="mt-1 text-[1.125rem] font-medium">{spec.metric.name}</div>
           <div className="text-[0.8125rem] text-mute">
             {spec.metric.direction === "up" ? "Higher is better" : "Lower is better"} · {spec.metric.unit}
