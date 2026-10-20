@@ -37,7 +37,7 @@ export function WorkspaceView(props: { me: string; workspace: { id: string; name
           e.preventDefault();
           run(async () => {
             await newTeamWorkspace(teamName || "Team");
-            window.location.assign(props.billing ? "/billing?plan=team" : "/workspace");
+            window.location.assign(props.billing ? "/billing?plan=team" : "/welcome");
           });
         }}
       >

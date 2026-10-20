@@ -132,7 +132,7 @@ export function Sidebar({
                 <span className="truncate text-[0.9375rem] font-medium">Chief</span>
                 <span className="shrink-0 rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute">Daily brief</span>
               </span>
-              <span className="block truncate text-[0.8125rem] text-mute">{chiefPreview || "Tell me which business metric to move"}</span>
+              <span className="block truncate text-[0.8125rem] text-mute">{chiefPreview || "Tell me what to move"}</span>
             </span>
           </Link>
 
@@ -161,7 +161,7 @@ export function Sidebar({
             ];
           })}
           {loopers.length === 0 && (
-            <Link href="/hire" className="mx-1 mt-1 block rounded-[14px] border border-dashed border-ink/15 px-3 py-4 text-center text-[0.8125rem] text-mute hover:text-ink">
+            <Link href="/welcome" className="mx-1 mt-2 block rounded-full bg-ink px-3 py-2.5 text-center text-[0.875rem] font-medium text-page hover:bg-ink-2">
               Hire your first looper
             </Link>
           )}

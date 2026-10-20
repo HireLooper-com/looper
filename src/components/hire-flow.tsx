@@ -199,8 +199,8 @@ function Steps({ step }: { step: Step }) {
   );
 }
 
-/** The draft as an editable profile: name, number, target, then what it does and uses. */
-function Review({ spec, onChange, taken, color }: { spec: LooperSpec; onChange: (s: LooperSpec) => void; taken: string[]; color: Accent }) {
+/** The draft as an editable profile (also used by onboarding): name, number, target, then what it does and uses. */
+export function Review({ spec, onChange, taken, color }: { spec: LooperSpec; onChange: (s: LooperSpec) => void; taken: string[]; color: Accent }) {
   const set = (patch: Partial<LooperSpec>) => onChange({ ...spec, ...patch });
   const clash = taken.some((n) => n.toLowerCase() === spec.name.trim().toLowerCase());
   return (
