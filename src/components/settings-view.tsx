@@ -176,7 +176,7 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
         {id === "xai" ? (
           <Mark className="h-11 w-11 shrink-0" />
         ) : id === "anthropic" ? (
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[22%] bg-[#F5F4EE] text-[#D97757] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.08)]">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[22%] bg-[#F5F4EE] text-[#141413] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.08)]">
             <Mark className="h-6 w-6" />
           </span>
         ) : (
