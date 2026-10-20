@@ -21,21 +21,19 @@ import { ModelOptions, optionValue, parseOption, price, usd } from "./model-pick
 import { ChatGPTButton, CodexSignIn, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
 import { Button, Field, Input, Panel, Pill, Select, cx } from "./ui";
 
-const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; header?: string; tone: string }[] = [
+const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; header?: string }[] = [
   {
     kind: "composio",
     name: "Composio",
     apps: "Hundreds of toolkits",
     how: "Create an MCP server in the Composio dashboard, pick the toolkits, then paste its URL. Add your Composio API key as a header if the URL needs one.",
     header: "x-api-key",
-    tone: "bg-ink/[0.08]",
   },
   {
     kind: "zapier",
     name: "Zapier MCP",
     apps: "Thousands of apps",
     how: "Open Zapier MCP, choose the actions you allow, and copy the server URL. The URL carries its own secret.",
-    tone: "bg-ink/[0.08]",
   },
   {
     kind: "pipedream",
@@ -43,7 +41,6 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
     apps: "Thousands of apps",
     how: "Use Pipedream's remote MCP server URL for your project. Add the auth header Pipedream gives you.",
     header: "Authorization",
-    tone: "bg-ink/[0.08]",
   },
   {
     kind: "custom",
@@ -51,7 +48,6 @@ const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; he
     apps: "Your own tools",
     how: "Any Streamable HTTP MCP endpoint: your internal APIs, Linear, Notion, Stripe, GitHub and others.",
     header: "Authorization",
-    tone: "bg-ink/[0.08]",
   },
 ];
 
@@ -131,11 +127,15 @@ export function SettingsView({ settings, menu, usage, apps, notice }: { settings
         )}
       </section>
 
-      <section className="mt-12">
-        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Hubs <span className="text-[0.875rem] font-normal text-mute">optional</span></h2>
-        <p className="mb-4 text-[0.875rem] text-mute">A hub is one MCP link that reaches hundreds or thousands of apps, for apps you&apos;d rather connect through Zapier, Pipedream or your own server.</p>
+      <details className="group mt-12" open={settings.integrations.length > 0}>
+        <summary className="flex cursor-pointer list-none items-baseline gap-2 [&::-webkit-details-marker]:hidden">
+          <h2 className="text-[1.25rem] font-semibold tracking-[-0.01em]">Advanced</h2>
+          <span className="text-[0.875rem] text-mute">MCP hubs and custom servers</span>
+          <span className="text-[0.875rem] text-mute transition-transform group-open:rotate-90">›</span>
+        </summary>
+        <p className="mb-4 mt-1 text-[0.875rem] text-mute">A hub is one MCP link that reaches hundreds or thousands of apps, for apps you&apos;d rather connect through Zapier, Pipedream or your own server.</p>
         <Integrations settings={settings} />
-      </section>
+      </details>
     </div>
   );
 }
@@ -391,13 +391,10 @@ function Integrations({ settings }: { settings: PublicSettings }) {
               setHub(h);
               setError(null);
             }}
-            className={cx("tile flex flex-col gap-4 p-5 text-left", hub?.kind === h.kind && "ring-2 ring-blue")}
+            className={cx("tile flex flex-col gap-0.5 p-4 text-left", hub?.kind === h.kind && "ring-2 ring-blue")}
           >
-            <span className={cx("h-10 w-10 rounded-[11px]", h.tone)} />
-            <div>
-              <div className="font-semibold">{h.name}</div>
-              <div className="text-[0.8125rem] text-mute">{h.apps}</div>
-            </div>
+            <div className="font-semibold">{h.name}</div>
+            <div className="text-[0.8125rem] text-mute">{h.apps}</div>
           </button>
         ))}
       </div>
