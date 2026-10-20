@@ -91,7 +91,8 @@ body {
     var(--color-page);
 }
 
-/* Sign-in backdrop: the hirelooper.com hero wash, cycling through six loopers' colour pairs. */
+/* Sign-in backdrop: the hirelooper.com hero wash, cycling through six loopers' colour pairs.
+   Bright in both themes; in dark mode the card stays dark, like the app window on the site. */
 @property --wa { syntax: "<color>"; inherits: true; initial-value: #ff7ab6; }
 @property --wb { syntax: "<color>"; inherits: true; initial-value: #ffb36b; }
 @keyframes wash-loop {
@@ -105,12 +106,9 @@ body {
 .wash-loop {
   background: radial-gradient(1400px 900px at 60% 0%, color-mix(in srgb, var(--wa) 14%, #f6f2ec), color-mix(in srgb, var(--wb) 22%, #ede6dc) 62%, color-mix(in srgb, var(--wb) 40%, #dccdba));
   animation: wash-loop 42s ease-in-out infinite;
+  --color-faint: #6e6e73;
 }
-@media (prefers-color-scheme: dark) {
-  .wash-loop {
-    background: radial-gradient(1400px 900px at 60% 0%, color-mix(in srgb, var(--wa) 32%, #111113), color-mix(in srgb, var(--wb) 16%, #111113) 62%, color-mix(in srgb, var(--wb) 26%, #0b0b0c));
-  }
-}
+.wash-loop .tile { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 0 30px 60px -25px rgba(0, 0, 0, 0.35); }
 
 /* The sign-in looper idles like a small creature: it floats and sways on one clock, breathes on
    another, and every few seconds gives a little hop. The shadow below shrinks as it rises. */
