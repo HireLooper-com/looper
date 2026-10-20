@@ -167,9 +167,32 @@ export function describeTool(name: string, input: unknown): string {
     case "computer_browse": {
       const t = str(i.target, 60);
       if (i.action === "open") return `Opening ${t.replace(/^https?:\/\//, "")}`;
-      if (i.action === "fill" || i.action === "type") return `Typing into the page`;
-      if (i.action === "click") return "Clicking on the page";
-      return "Using the browser";
+      const v = str(i.value, 40);
+      switch (i.action) {
+        case "fill":
+        case "type":
+          return "Typing into the page"; // never echo the text: it may be a password
+        case "click":
+          return "Clicking on the page";
+        case "select":
+          return `Choosing “${v}”`;
+        case "press":
+          return `Pressing ${t}`;
+        case "scroll":
+          return `Scrolling ${t === "up" ? "up" : "down"}`;
+        case "back":
+          return "Going back";
+        case "forward":
+          return "Going forward";
+        case "reload":
+          return "Reloading the page";
+        case "wait":
+          return "Waiting for the page";
+        case "look":
+          return "Looking at the page";
+        default:
+          return "Using the browser";
+      }
     }
     case "computer_read":
       return "Reading the page";

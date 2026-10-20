@@ -365,7 +365,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   const live = progressWriter(uid, `run:${run.id}`, { label: `${looper.name} · ${skill.name}`, href: `/loopers/${looper.id}?tab=chat`, done: "finished" });
   live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
-  const pc = hasComputer() ? computerSession(uid, looper.id, live.push) : null;
+  const pc = hasComputer() ? computerSession(uid, looper.id, { label: skill.name, progress: live.push }) : null;
   if (ext.connected.length) live.push(`Connected: ${ext.connected.map((c) => c.split(" (")[0]).join(", ")}`);
   let outcome: { ok?: boolean; note?: string; error?: string } = {};
   try {
@@ -973,7 +973,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
   live.push("Connecting apps…");
   // Apps, database and canvas load side by side.
   const [ext, table, canvas] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId)]);
-  const pc = hasComputer() ? computerSession(uid, looperId, live.push) : null;
+  const pc = hasComputer() ? computerSession(uid, looperId, { label: "Chat", progress: live.push }) : null;
   let content: string;
   try {
     const own: ToolSet = {

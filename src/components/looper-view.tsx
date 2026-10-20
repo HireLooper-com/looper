@@ -10,6 +10,7 @@ import type { Ask, Card, ChiefMessage, Looper, PublicSettings, Retro, Run } from
 import { cardAssignee } from "@/lib/types";
 import { AppsPanel } from "./apps-panel";
 import { ComputerCard } from "./computer-card";
+import { ComputerView } from "./computer-view";
 import { ChatPanel } from "./chat-panel";
 import { CalendarView } from "./calendar";
 import { CanvasBoard } from "./canvas-board";
@@ -18,21 +19,21 @@ import { Kanban } from "./kanban";
 import { MetricView } from "./metric-view";
 import { RetroBoard } from "./retro-board";
 import { SkillsPanel } from "./skills-panel";
-import { Bot, Button, Sparkline, cx, fmt } from "./ui";
+import { Bot, Button, Sparkline, cx, fmt, timeAgo } from "./ui";
 import { useNow } from "./use-now";
 
 // Six places per looper: talk, what I do and when, what I keep, what I have, how it's going, who I am.
-type View = "chat" | "board" | "calendar" | "database" | "canvas" | "retro" | "skills" | "apps" | "metric";
+type View = "chat" | "board" | "calendar" | "computer" | "database" | "canvas" | "retro" | "skills" | "apps" | "metric";
 const GROUPS: { id: string; label: string; views: View[] }[] = [
   { id: "chat", label: "Chat", views: ["chat"] },
-  { id: "tasks", label: "Tasks", views: ["board", "calendar"] },
+  { id: "tasks", label: "Tasks", views: ["board", "calendar", "computer"] },
   { id: "space", label: "Space", views: ["database", "canvas"] },
   { id: "tools", label: "Tools", views: ["apps"] },
   { id: "results", label: "Results", views: ["metric", "retro"] },
   { id: "skills", label: "Skills", views: ["skills"] },
 ];
-const VIEWS = new Set<string>(["chat", "board", "calendar", "database", "canvas", "retro", "skills", "apps", "metric"]);
-const VIEW_LABEL: Partial<Record<View, string>> = { metric: "Metric", retro: "Retros", board: "Kanban", calendar: "Calendar", database: "Database", canvas: "Canvas", skills: "Skills", apps: "Apps" };
+const VIEWS = new Set<string>(["chat", "board", "calendar", "computer", "database", "canvas", "retro", "skills", "apps", "metric"]);
+const VIEW_LABEL: Partial<Record<View, string>> = { metric: "Metric", retro: "Retros", board: "Kanban", calendar: "Calendar", computer: "Computer", database: "Database", canvas: "Canvas", skills: "Skills", apps: "Apps" };
 const FULL_HEIGHT = new Set<View>(["chat", "canvas"]);
 
 export function LooperView(props: {
@@ -44,6 +45,7 @@ export function LooperView(props: {
   integrations: PublicSettings["integrations"];
   database: { name: string; rows: number; rowNoun: string } | null;
   canvasItems: number;
+  computer: { sessions: number; lastAt?: string; live: boolean } | null;
   chat: ChiefMessage[];
   ready: boolean;
   tab: string;
@@ -89,6 +91,13 @@ export function LooperView(props: {
       : looper.status === "paused"
         ? `Paused · ${scheduled} scheduled skill${scheduled === 1 ? "" : "s"}`
         : "Nothing scheduled",
+    computer: !props.computer
+      ? "Not available"
+      : props.computer.live
+        ? "Working on it now · watch live"
+        : props.computer.sessions
+          ? `${props.computer.sessions} session${props.computer.sessions === 1 ? "" : "s"} · last ${timeAgo(props.computer.lastAt)}`
+          : "Not used yet",
     database: database ? `${database.name} · ${database.rows} row${database.rows === 1 ? "" : "s"}` : "Not set up yet",
     canvas: props.canvasItems ? `${props.canvasItems} item${props.canvasItems === 1 ? "" : "s"} on the board` : "Empty board",
     skills: `${looper.skills.length} skill${looper.skills.length === 1 ? "" : "s"} · ${scheduled} on a schedule`,
@@ -208,6 +217,8 @@ export function LooperView(props: {
           )}
           {view === "metric" ? (
             <MetricView looper={looper} />
+          ) : view === "computer" ? (
+            <ComputerView looper={{ id: looper.id, name: looper.name, color: looper.color }} />
           ) : view === "calendar" ? (
             <CalendarView looper={looper} runs={runs} />
           ) : view === "database" ? (
@@ -225,7 +236,7 @@ export function LooperView(props: {
           ) : view === "apps" ? (
             <div className="flex flex-col gap-4">
               <AppsPanel looperId={looper.id} looperName={looper.name} />
-              <ComputerCard looperId={looper.id} looperName={looper.name} />
+              {props.computer && <ComputerCard looperId={looper.id} looperName={looper.name} summary={props.computer} />}
             </div>
           ) : view === "skills" ? (
             <div className="mx-auto flex max-w-4xl flex-col gap-4 [&>*]:w-full [&>*]:max-w-none">
@@ -247,6 +258,12 @@ const VIEW_ICON: Partial<Record<View, React.ReactNode>> = {
   metric: <path d="M3 15l4.5-5 3 3L17 5M13 5h4v4" />,
   retro: <path d="M4 10a6 6 0 1 0 2-4.5M4 3.5V6h2.5M10 7v3.5l2.5 1.5" />,
   board: <path d="M3 4h4v12H3zM8 4h4v8H8zM13 4h4v5h-4z" />,
+  computer: (
+    <>
+      <rect x="2.5" y="3.5" width="15" height="10" rx="1.8" />
+      <path d="M7 17h6M10 13.5V17" />
+    </>
+  ),
   calendar: (
     <>
       <rect x="3" y="4.5" width="14" height="12" rx="2" />
