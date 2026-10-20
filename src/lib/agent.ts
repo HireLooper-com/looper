@@ -6,6 +6,7 @@ import { z } from "zod";
 import { listUsers, mutate, read } from "./db";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
 import { activeAccounts, composioTools, hasComposio, resolveApps } from "./composio";
+import { computerSession, hasComputer, wipeComputer } from "./computer";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
@@ -196,6 +197,9 @@ function looperBrief(db: DB, l: Looper, database = "") {
     retro ? `Your last retro said to try next:\n${retro.tryNext.map((t) => `- ${t}`).join("\n")}` : "",
     `Your skills: ${l.skills.map((s) => `${s.name} (${describeSchedule(s.schedule)})`).join("; ")}.`,
     database,
+    hasComputer()
+      ? "You have your own computer: a private Linux machine with Chrome that remembers logins. Use computer_browse to open and use websites that no connected app covers (search, read, fill forms, check dashboards), computer_read to read a page, computer_screenshot to see it, computer_run for shell work like downloads and scripts. Prefer a connected app when one covers the job. If a site needs a login you don't have, ask the owner; never guess passwords. Before a final submit, post, purchase or send on a website, get an approved ask_owner approval, as with apps."
+      : "",
     "Work rules: keep your kanban board current (add cards for work you plan, move them as you go). When you learn the latest metric value from a real source, record it with metric_record. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. When only the owner can decide something, ask with ask_owner (tappable options) instead of guessing, and never send, publish, file, pay or delete without an approved ask_owner approval; keep kanban cards for: 'you' for real tasks that take the owner more than a tap. Finish with a 2–4 sentence summary of what you did and what changed.",
   ]
     .filter(Boolean)
@@ -361,6 +365,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   const live = progressWriter(uid, `run:${run.id}`, { label: `${looper.name} · ${skill.name}`, href: `/loopers/${looper.id}?tab=chat`, done: "finished" });
   live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
+  const pc = hasComputer() ? computerSession(uid, looper.id, live.push) : null;
   if (ext.connected.length) live.push(`Connected: ${ext.connected.map((c) => c.split(" (")[0]).join(", ")}`);
   let outcome: { ok?: boolean; note?: string; error?: string } = {};
   try {
@@ -376,7 +381,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
         ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Tools tab.` : "",
       ].join("\n\n"),
-      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...askTools(uid, looper.id) },
+      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...askTools(uid, looper.id), ...pc?.tools },
       external: ext.tools,
       maxSteps,
       progress: live.push,
@@ -393,7 +398,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
     outcome = { error: summary };
     return { ...run, status: "error" as const, summary };
   } finally {
-    await ext.close();
+    await Promise.all([ext.close(), pc?.release()]);
     await live.done(outcome);
   }
 }
@@ -700,7 +705,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           actions.push(`Retired ${l.name}`);
           return { id: l.id };
         }).then(async ({ id }) => {
-          await Promise.all([deleteDatabase(uid, id), deleteCanvas(uid, id)]);
+          await Promise.all([deleteDatabase(uid, id), deleteCanvas(uid, id), wipeComputer(uid, id).catch(() => undefined)]);
           return { ok: true };
         }),
     }),
@@ -968,6 +973,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
   live.push("Connecting apps…");
   // Apps, database and canvas load side by side.
   const [ext, table, canvas] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId)]);
+  const pc = hasComputer() ? computerSession(uid, looperId, live.push) : null;
   let content: string;
   try {
     const own: ToolSet = {
@@ -1018,7 +1024,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
         .filter(Boolean)
         .join("\n\n"),
       messages: history.map((m) => ({ role: m.role, content: m.content })),
-      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...askTools(uid, looperId), ...own },
+      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...askTools(uid, looperId), ...own, ...pc?.tools },
       external: ext.tools,
       maxSteps: 20,
       progress: live.push,
@@ -1029,7 +1035,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   } finally {
-    await ext.close();
+    await Promise.all([ext.close(), pc?.release()]);
   }
   const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
   await mutate(uid, (d) => void ((d.chats ??= {})[looperId] = [...(d.chats?.[looperId] ?? []), reply]));

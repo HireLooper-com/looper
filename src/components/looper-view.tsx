@@ -9,6 +9,7 @@ import { occurrences } from "@/lib/schedule";
 import type { Ask, Card, ChiefMessage, Looper, PublicSettings, Retro, Run } from "@/lib/types";
 import { cardAssignee } from "@/lib/types";
 import { AppsPanel } from "./apps-panel";
+import { ComputerCard } from "./computer-card";
 import { ChatPanel } from "./chat-panel";
 import { CalendarView } from "./calendar";
 import { CanvasBoard } from "./canvas-board";
@@ -222,7 +223,10 @@ export function LooperView(props: {
               })()}
             />
           ) : view === "apps" ? (
-            <AppsPanel looperId={looper.id} looperName={looper.name} />
+            <div className="flex flex-col gap-4">
+              <AppsPanel looperId={looper.id} looperName={looper.name} />
+              <ComputerCard looperId={looper.id} looperName={looper.name} />
+            </div>
           ) : view === "skills" ? (
             <div className="mx-auto flex max-w-4xl flex-col gap-4 [&>*]:w-full [&>*]:max-w-none">
               <WhoIAm looper={looper} />

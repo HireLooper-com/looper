@@ -164,6 +164,19 @@ export function describeTool(name: string, input: unknown): string {
       return "Editing a canvas item";
     case "canvas_remove":
       return "Tidying the canvas";
+    case "computer_browse": {
+      const t = str(i.target, 60);
+      if (i.action === "open") return `Opening ${t.replace(/^https?:\/\//, "")}`;
+      if (i.action === "fill" || i.action === "type") return `Typing into the page`;
+      if (i.action === "click") return "Clicking on the page";
+      return "Using the browser";
+    }
+    case "computer_read":
+      return "Reading the page";
+    case "computer_screenshot":
+      return "Looking at the screen";
+    case "computer_run":
+      return `Running “${str(i.command, 50)}”`;
     case "kanban_list":
       return "Looking at the board";
     case "kanban_add_card":

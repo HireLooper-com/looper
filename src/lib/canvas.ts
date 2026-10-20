@@ -48,6 +48,8 @@ export async function saveImage(uid: string, looperId: string, type: string, byt
   return imagePath(looperId, id);
 }
 
+export const deleteImage = (uid: string, looperId: string, id: string) => kv.delete(imageKey(uid, looperId, id));
+
 export function readImage(uid: string, looperId: string, id: string) {
   return kv.get<StoredImage>(imageKey(uid, looperId, id));
 }
