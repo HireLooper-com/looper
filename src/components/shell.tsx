@@ -6,7 +6,8 @@ import { isDue } from "@/lib/schedule";
 import { areaOf } from "@/lib/types";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { billingEnabled, hasAccess } from "@/lib/billing";
+import { billingEnabled, creditsLeft, hasAccess } from "@/lib/billing";
+import { hasHostedCredits } from "@/lib/llm";
 import { currentUser } from "@/lib/session";
 import { getUser, getWorkspace, workspacesOf } from "@/lib/workspace";
 import { Notices } from "./activity";
@@ -52,6 +53,9 @@ export async function Shell({ children }: { children: React.ReactNode }) {
       skills: l.skills.map((s) => ({ id: s.id, name: s.name })),
     };
   });
+  // Included Claude credits are granted once per plan; show what's left until they run out.
+  const granted = ws?.credits?.granted ?? 0;
+  const credits = billingEnabled() && hasHostedCredits() && granted > 0 ? { left: creditsLeft(ws), granted } : undefined;
   const lastChief = db.chief.filter((m) => m.role === "assistant").at(-1)?.content.replace(/\s+/g, " ").slice(0, 120);
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
@@ -63,6 +67,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
         workspace={{ id: user.ws, name: ws?.name ?? "Personal", kind: ws?.kind ?? "personal", plan: ws?.billing ? (ws.billing.plan === "team" ? "Team plan" : "Personal plan") : ws?.comped ? "Complimentary" : undefined }}
         workspaces={all.map((w) => ({ id: w.id, name: w.name, kind: w.kind }))}
         billing={billingEnabled()}
+        credits={credits}
       />
       <main className="min-w-0 flex-1 lg:h-dvh lg:overflow-y-auto">{children}</main>
       <CommandPalette loopers={loopers.map(({ id, name, color, skills }) => ({ id, name, color, skills }))} />
