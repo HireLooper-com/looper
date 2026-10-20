@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { LogoMark } from "@/components/brand";
-import { ChatGPTButton, GrokSignIn } from "@/components/sign-in";
+import { ChatGPTButton, CodexSignIn, GrokSignIn } from "@/components/sign-in";
 import { EmailSignIn } from "@/components/email-sign-in";
 import { hasEmailCodes } from "@/lib/email-code";
 import { isLocalServer } from "@/lib/db";
@@ -57,6 +57,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
                   or
                   <span className="h-px flex-1 bg-line" />
                 </div>
+                <CodexSignIn label="Continue with ChatGPT" next={target} />
                 <GrokSignIn next={target} />
               </>
             ) : (
@@ -70,7 +71,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
         {hosted ? (
           <p className="mt-6 max-w-[38ch] text-center text-[0.75rem] leading-relaxed text-faint">
-            Grok sign-in uses your SuperGrok or X Premium subscription through the Grok CLI sign-in, which xAI hasn&apos;t officially opened to other apps, so it may change.
+            ChatGPT sign-in uses your plan&apos;s Codex usage (Plus, Pro, Business or Enterprise) through the Codex CLI sign-in. Grok uses your SuperGrok or X Premium subscription through the Grok CLI sign-in. Neither OpenAI nor xAI has officially opened these to other apps, so they may change.
           </p>
         ) : (
           <p className="mt-6 max-w-[38ch] text-center text-[0.75rem] leading-relaxed text-faint">
