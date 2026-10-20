@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useOptimistic, useState, useTransition } from "react";
-import { addCard, deleteCard, editCard, moveCard } from "@/app/actions";
+import { addCard, deleteCard, editCard, moveCard, workOnCards } from "@/app/actions";
 import type { Accent, Card, Column } from "@/lib/types";
+import { refreshActivity } from "./live";
 import { cardAssignee, COLUMNS } from "@/lib/types";
 import { Bot, Button, Pill, Textarea, cx, timeAgo } from "./ui";
 
@@ -22,7 +23,7 @@ function Owner({ card, looperName, color, seed }: { card: Card; looperName: stri
 
 const DOT: Record<Column, string> = { backlog: "bg-faint", todo: "bg-lavender", doing: "bg-orange", done: "bg-green" };
 
-export function Kanban({ looperId, cards, looperName, color }: { looperId: string; cards: Card[]; looperName: string; color: Accent }) {
+export function Kanban({ looperId, cards, looperName, color, running }: { looperId: string; cards: Card[]; looperName: string; color: Accent; running?: boolean }) {
   const router = useRouter();
   const [, start] = useTransition();
   const [optimistic, applyMove] = useOptimistic(cards, (state, m: { id: string; column: Column }) =>
@@ -33,6 +34,23 @@ export function Kanban({ looperId, cards, looperName, color }: { looperId: strin
   const [open, setOpen] = useState<Card | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const forYou = optimistic.filter((c) => cardAssignee(c) === "you" && c.column !== "done").length;
+
+  // Runs start in the background: the button flips at once, the chat and Working tray follow it.
+  const [started, setStarted] = useState(false);
+  const [note, setNote] = useState("");
+  const busy = running || started;
+  const runCards = (cardId?: string) => {
+    setStarted(true);
+    setNote("");
+    start(async () => {
+      const ok = await workOnCards(looperId, cardId);
+      if (!ok) setNote(`${looperName} is mid-run. It picks these up next.`);
+      refreshActivity();
+      router.refresh();
+      setTimeout(() => setStarted(false), 8000);
+    });
+  };
+  const todoForLooper = optimistic.filter((c) => c.column === "todo" && cardAssignee(c) === "looper").length;
 
   const move = (id: string, column: Column) =>
     start(async () => {
@@ -55,7 +73,9 @@ export function Kanban({ looperId, cards, looperName, color }: { looperId: strin
             </button>
           ))}
         </div>
-        <span className="text-[0.8125rem] text-mute">{looperName} works its own cards; cards marked For you need you.</span>
+        <span className="text-[0.8125rem] text-mute">
+          {note || (busy ? <>{looperName} is working. <a href={`/loopers/${looperId}?tab=chat`} className="hover:text-ink">Follow it in chat →</a></> : `${looperName} works its own cards; cards marked For you need you.`)}
+        </span>
       </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {COLUMNS.map((col) => {
@@ -83,6 +103,15 @@ export function Kanban({ looperId, cards, looperName, color }: { looperId: strin
                   {col.label}
                   <span className="text-faint">{list.length}</span>
                 </div>
+                {col.id === "todo" && todoForLooper > 0 && (
+                  <button
+                    onClick={() => runCards()}
+                    disabled={busy}
+                    className="rounded-full px-2.5 py-0.5 text-[0.75rem] text-mute hover:bg-panel hover:text-ink disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    {busy ? "Running…" : "▶ Run now"}
+                  </button>
+                )}
               </div>
               <div className="flex flex-1 flex-col gap-2">
                 {list.map((c) => (
@@ -112,7 +141,7 @@ export function Kanban({ looperId, cards, looperName, color }: { looperId: strin
           );
         })}
       </div>
-      {open && <CardSheet card={open} looperName={looperName} onClose={() => setOpen(null)} onMove={(col) => { move(open.id, col); setOpen(null); }} />}
+      {open && <CardSheet card={open} looperName={looperName} busy={busy} onRun={() => { runCards(open.id); setOpen(null); }} onClose={() => setOpen(null)} onMove={(col) => { move(open.id, col); setOpen(null); }} />}
     </>
   );
 }
@@ -154,7 +183,7 @@ function AddCard({ looperId, column, assignee }: { looperId: string; column: Col
   );
 }
 
-function CardSheet({ card, looperName, onClose, onMove }: { card: Card; looperName: string; onClose: () => void; onMove: (c: Column) => void }) {
+function CardSheet({ card, looperName, busy, onRun, onClose, onMove }: { card: Card; looperName: string; busy: boolean; onRun: () => void; onClose: () => void; onMove: (c: Column) => void }) {
   const router = useRouter();
   const [title, setTitle] = useState(card.title);
   const [desc, setDesc] = useState(card.description);
@@ -197,9 +226,16 @@ function CardSheet({ card, looperName, onClose, onMove }: { card: Card; looperNa
           <Button variant="danger" size="sm" disabled={pending} onClick={() => start(async () => { await deleteCard(card.id); onClose(); router.refresh(); })}>
             Delete
           </Button>
-          <Button size="sm" disabled={pending} onClick={() => start(async () => { await editCard(card.id, { title, description: desc, assignee }); onClose(); router.refresh(); })}>
-            Save
-          </Button>
+          <div className="flex gap-2">
+            {assignee === "looper" && card.column !== "done" && (
+              <Button size="sm" variant="ghost" disabled={pending || busy} onClick={onRun}>
+                {busy ? `${looperName} is working…` : `${looperName}, work on this now`}
+              </Button>
+            )}
+            <Button size="sm" disabled={pending} onClick={() => start(async () => { await editCard(card.id, { title, description: desc, assignee }); onClose(); router.refresh(); })}>
+              Save
+            </Button>
+          </div>
         </div>
       </div>
     </div>

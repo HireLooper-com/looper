@@ -8,7 +8,7 @@ import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { after } from "next/server";
-import { beginChiefReply, beginLooperReply, defaultRetroSkill, runRetro, runSkill } from "@/lib/agent";
+import { beginChiefReply, beginLooperReply, defaultRetroSkill, runRetro, runSkill, workCards } from "@/lib/agent";
 import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
@@ -347,6 +347,19 @@ export async function deleteSkill(looperId: string, skillId: string) {
 export async function runLooperSkill(looperId: string, skillId: string) {
   const uid = await requireUid();
   after(() => runSkill(uid, looperId, skillId, "manual").then(() => undefined).catch(() => undefined));
+  return done(true);
+}
+
+/** A run still marked running after this long was killed mid-way (e.g. by the function timeout). */
+const STALE_RUN_MS = 15 * 60_000;
+
+/** Have the looper work its "To do" cards now, or one card. False when it's already mid-run. */
+export async function workOnCards(looperId: string, cardId?: string) {
+  const uid = await requireUid();
+  const db = await read(uid);
+  const busy = db.runs.some((r) => r.looperId === looperId && r.status === "running" && Date.now() - Date.parse(r.startedAt) < STALE_RUN_MS);
+  if (busy) return done(false);
+  after(() => workCards(uid, looperId, cardId, "manual").then(() => undefined).catch(() => undefined));
   return done(true);
 }
 

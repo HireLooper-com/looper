@@ -247,7 +247,7 @@ export function LooperView(props: {
               <SkillsPanel looper={looper} runs={runs} integrations={props.integrations} />
             </div>
           ) : (
-            <Kanban looperId={looper.id} cards={cards} looperName={looper.name} color={looper.color} />
+            <Kanban looperId={looper.id} cards={cards} looperName={looper.name} color={looper.color} running={!!running} />
           )}
         </div>
       )}
