@@ -37,6 +37,8 @@ function normalize(db: Partial<DB>): DB {
   const base = empty();
   for (const k of Object.keys(base) as (keyof DB)[]) if (db[k] === undefined) (db as Record<string, unknown>)[k] = base[k];
   db.settings = Object.assign(base.settings, db.settings);
+  // Providers added later get their default model.
+  db.settings.models = { ...base.settings.models, ...db.settings.models };
   if (db.runs && db.runs.length > 1000) db.runs.splice(0, db.runs.length - 1000);
   // A run still "running" long after the 5-minute function limit was cut off and never finished.
   for (const r of db.runs ?? [])

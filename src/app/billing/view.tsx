@@ -6,9 +6,10 @@ import { Bot, Button, cx } from "@/components/ui";
 
 type Plan = "personal" | "team";
 
-const money = (n: number) => `$${n < 10 ? n.toFixed(2) : Math.round(n)}`;
+const money = (n: number) => `$${n.toFixed(2)}`;
+const price = (n: number) => `$${Math.round(n)}`;
 const FEATURES: Record<Plan, string[]> = {
-  personal: ["Unlimited loopers", "Each with its own computer", "Apps, boards, database, canvas, retros", "One-time AI credits to start", "Then your own Grok, ChatGPT or API key"],
+  personal: ["Unlimited loopers", "Approvals before anything goes out", "Apps, boards, database, canvas, retros", "One-time AI credits to start", "Then your own Grok, ChatGPT or API key"],
   team: ["Everything in Personal", "Unlimited collaborators", "Shared loopers, chats and approvals", "Invite links and roles", "Bigger one-time AI credits"],
 };
 
@@ -49,7 +50,7 @@ export function BillingView(props: {
           <Bot dark seed="chief" size={48} className="looping" />
           <div>
             <div className="text-[1.0625rem] font-semibold">You&apos;re in. Welcome to Looper.</div>
-            <p className="text-[0.875rem] text-mute">Your credits are ready. Hire your first looper from a template or tell Chief what number to move.</p>
+            <p className="text-[0.875rem] text-mute">Your credits are ready. Hire your first looper from a template or tell Chief which business metric to move.</p>
           </div>
           <a href={props.template ? `/hire?template=${encodeURIComponent(props.template)}` : "/hire"} className="ml-auto shrink-0 rounded-full bg-ink px-4 py-2 text-[0.875rem] font-medium text-page hover:bg-ink-2">
             Hire a looper
@@ -59,14 +60,14 @@ export function BillingView(props: {
 
       <h1 className="text-[1.75rem] font-semibold tracking-[-0.025em]">{props.access ? "Plan & credits" : "Choose a plan"}</h1>
       <p className="mt-1 text-[0.9375rem] text-mute">
-        {workspace.name} · {workspace.kind === "team" ? "team workspace" : "personal workspace"}
+        {workspace.kind === "team" ? `${workspace.name} · team workspace` : "Your personal workspace"}
       </p>
 
       {props.access && (
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <Stat label="Plan" value={props.comped ? "Complimentary" : billing ? `${billing.plan === "team" ? "Team" : "Personal"}` : "—"} note={billing ? statusNote(billing) : props.comped ? "On the house" : ""} />
-          <Stat label="AI credits left" value={money(props.credits.left)} note={props.credits.granted ? `of ${money(props.credits.granted)} included` : "Use your own Grok, ChatGPT or key"} />
-          <Stat label="Computers this month" value={money(props.infra.spent)} note={`of ${money(props.infra.cap)} included`} bar={props.infra.spent / props.infra.cap} />
+          <Stat label="AI credits left" value={money(props.credits.left)} note={props.credits.granted ? `of ${price(props.credits.granted)} included` : "Use your own Grok, ChatGPT or key"} />
+          <Stat label="Computers this month" value={money(props.infra.spent)} note={`of ${price(props.infra.cap)} included`} bar={props.infra.spent / props.infra.cap} />
         </div>
       )}
 

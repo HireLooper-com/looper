@@ -130,7 +130,7 @@ export function Sidebar({
                 <span className="truncate text-[0.9375rem] font-medium">Chief</span>
                 <span className="shrink-0 rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute">Daily brief</span>
               </span>
-              <span className="block truncate text-[0.8125rem] text-mute">{chiefPreview || "Tell me what number to move"}</span>
+              <span className="block truncate text-[0.8125rem] text-mute">{chiefPreview || "Tell me which business metric to move"}</span>
             </span>
           </Link>
 
