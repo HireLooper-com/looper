@@ -75,6 +75,14 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* Tailwind v4 dropped the pointer cursor on buttons; restore it app-wide, keep the default on disabled ones. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
 /* Soft colour wash behind the home and sign-in screens, like iCloud's canvas. */
 .wash {
   background:
