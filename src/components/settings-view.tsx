@@ -15,7 +15,7 @@ import {
 } from "@/app/actions";
 import type { IntegrationKind, Provider, PublicSettings } from "@/lib/types";
 import { PROVIDERS } from "@/lib/types";
-import { ChatGPTButton, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
+import { ChatGPTButton, CodexSignIn, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
 import { Button, Field, Input, Panel, Pill, Select, cx } from "./ui";
 
 const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; header?: string; tone: string }[] = [
@@ -159,7 +159,7 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
                       ? `$${credits.toFixed(2)} of included credits`
                       : "API key"
                 : sub
-                  ? `Signed in${sub.email ? ` as ${sub.email}` : ""}`
+                  ? `Signed in${sub.email ? ` as ${sub.email}` : ""}${id === "openai" && settings.subscriptions.openai?.via === "codex" ? " via Codex CLI" : ""}`
                   : "Not connected"}
             </div>
           </div>
@@ -201,7 +201,16 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
           </div>
         </div>
       ) : id === "openai" ? (
-        <ChatGPTButton isLocal={settings.isLocal} label="Connect ChatGPT plan" />
+        settings.isLocal ? (
+          <ChatGPTButton isLocal label="Connect ChatGPT plan" />
+        ) : (
+          <div className="flex flex-col gap-2">
+            <CodexSignIn onConnected={refresh} />
+            <p className="text-[0.75rem] leading-snug text-mute">
+              Signs in the way the Codex CLI does and runs loopers on your plan&apos;s Codex usage (Plus, Pro, Business or Enterprise). Unofficial and identifies as the Codex CLI. If OpenAI says device codes are off, turn on device code sign-in for Codex in ChatGPT&apos;s security settings.
+            </p>
+          </div>
+        )
       ) : (
         <GrokSignIn label="Connect Grok plan" onConnected={refresh} />
       )}

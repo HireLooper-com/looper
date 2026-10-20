@@ -56,6 +56,10 @@ export interface OAuthCredential {
   scopes: string[];
   email?: string;
   subject?: string;
+  /** codex: ChatGPT signed in through the Codex CLI's login (unofficial), used on hosted servers */
+  via?: "codex";
+  /** ChatGPT account the Codex endpoint bills */
+  accountId?: string;
 }
 
 /** credits: hosted Claude on the workspace's included credits (our server key). */
@@ -260,7 +264,7 @@ export interface DB {
 export type PublicSettings = Omit<Settings, "apiKeys" | "integrations" | "oauth" | "chatgptClientId"> & {
   keysSet: Record<Provider, boolean>;
   /** connected subscription accounts, by email */
-  subscriptions: { openai?: { email?: string; sharing: boolean }; xai?: { email?: string }; anthropic?: never };
+  subscriptions: { openai?: { email?: string; sharing: boolean; via?: "codex" }; xai?: { email?: string }; anthropic?: never };
   /** Hosted: USD of included Claude credits left (undefined when the server has no hosted credits). */
   creditsLeft?: number;
   /** true when the server runs on the user's machine (ChatGPT sign-in is only allowed there) */

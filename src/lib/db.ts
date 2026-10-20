@@ -93,7 +93,11 @@ export function toPublic(db: DB, user: User): PublicState {
       ...rest,
       keysSet: Object.fromEntries(PROVIDERS.map((p) => [p.id, Boolean(apiKeys[p.id])])) as Record<Provider, boolean>,
       subscriptions: {
-        openai: oauth.openai && { email: oauth.openai.email, sharing: oauth.openai.scopes.includes("chatgpt.tokens.use.direct") },
+        openai: oauth.openai && {
+          email: oauth.openai.email,
+          sharing: oauth.openai.via === "codex" || oauth.openai.scopes.includes("chatgpt.tokens.use.direct"),
+          via: oauth.openai.via,
+        },
         xai: oauth.xai && { email: oauth.xai.email },
       },
       isLocal: isLocalServer(),

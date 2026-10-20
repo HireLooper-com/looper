@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
-import { pollGrokLogin, startChatGPTLogin, startGrokLogin } from "@/app/actions";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { pollCodexLogin, pollGrokLogin, startChatGPTLogin, startCodexLogin, startGrokLogin } from "@/app/actions";
 import { cx } from "./ui";
 
 export function OpenAIMark({ className }: { className?: string }) {
@@ -55,8 +55,39 @@ export function ChatGPTButton({ isLocal, label = "Continue with ChatGPT", classN
 
 type Device = Extract<Awaited<ReturnType<typeof startGrokLogin>>, { ok: true }>["value"];
 
+interface DeviceProps {
+  label?: string;
+  onConnected?: () => void;
+  next?: string;
+  className?: string;
+}
+
 /** "Continue with Grok": device code confirmed on x.ai, then polled from here. */
-export function GrokSignIn({ label = "Continue with Grok", onConnected, next = "/", className }: { label?: string; onConnected?: () => void; next?: string; className?: string }) {
+export function GrokSignIn({ label = "Continue with Grok", ...props }: DeviceProps) {
+  return <DeviceSignIn {...props} label={label} site="x.ai" icon={<GrokMark className="h-5 w-5" />} begin={startGrokLogin} check={pollGrokLogin} />;
+}
+
+/** ChatGPT plan through the Codex CLI's device code login (unofficial). Works on hosted servers. */
+export function CodexSignIn({ label = "Connect via Codex CLI (unofficial)", ...props }: DeviceProps) {
+  return <DeviceSignIn {...props} label={label} site="OpenAI" icon={<OpenAIMark className="h-[18px] w-[18px]" />} begin={startCodexLogin} check={pollCodexLogin} />;
+}
+
+function DeviceSignIn({
+  label,
+  onConnected,
+  next = "/",
+  className,
+  site,
+  icon,
+  begin: startLogin,
+  check,
+}: DeviceProps & {
+  label: string;
+  site: string;
+  icon: ReactNode;
+  begin: () => Promise<{ ok: true; value: Device } | { ok: false; error: string }>;
+  check: (flowId: string) => Promise<{ status: "pending" | "denied" | "expired" | "not-allowed" | "connected" }>;
+}) {
   const router = useRouter();
   const [device, setDevice] = useState<Device | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -68,7 +99,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, next = "
   const poll = (d: Device) => {
     timer.current = setTimeout(async () => {
       try {
-        const r = await pollGrokLogin(d.flowId);
+        const r = await check(d.flowId);
         if (r.status === "pending") return poll(d);
         setDevice(null);
         if (r.status === "connected") {
@@ -78,7 +109,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, next = "
           return;
         }
         setMessage(
-          r.status === "denied" ? "Sign-in was declined on x.ai." : r.status === "not-allowed" ? "This account isn't on the allowed list for this workspace." : "The code expired. Start again.",
+          r.status === "denied" ? `Sign-in was declined on ${site}.` : r.status === "not-allowed" ? "This account isn't on the allowed list for this workspace." : "The code expired. Start again.",
         );
       } catch (e) {
         setDevice(null);
@@ -91,7 +122,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, next = "
     start(async () => {
       setMessage(null);
       try {
-        const r = await startGrokLogin();
+        const r = await startLogin();
         if (!r.ok) return setMessage(r.error);
         const d = r.value;
         setDevice(d);
@@ -105,12 +136,12 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, next = "
   if (device)
     return (
       <div className="flex flex-col gap-3 rounded-[20px] border border-line bg-panel p-4">
-        <div className="eyebrow">Confirm on x.ai</div>
+        <div className="eyebrow">Confirm on {site}</div>
         <div className="font-mono text-[1.75rem] font-medium tracking-[0.12em]">{device.userCode}</div>
-        <p className="text-[0.8125rem] leading-snug text-mute">A tab opened at x.ai. Check the code matches and approve. This page continues on its own.</p>
+        <p className="text-[0.8125rem] leading-snug text-mute">A tab opened at {site}. {site === "x.ai" ? "Check the code matches and approve." : "Enter this code and approve."} This page continues on its own.</p>
         <div className="flex items-center gap-3">
           <a href={device.verificationUriComplete} target="_blank" rel="noopener noreferrer" className="text-[0.8125rem] font-medium underline underline-offset-4">
-            Open x.ai again
+            Open {site} again
           </a>
           <span className="flex items-center gap-1.5 text-[0.75rem] text-mute">
             <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-green" /> Waiting for approval
@@ -138,7 +169,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, next = "
           className,
         )}
       >
-        <GrokMark className="h-5 w-5" />
+        {icon}
         {pending ? "Getting a code…" : label}
       </button>
       {message && <p className="text-[0.75rem] text-red">{message}</p>}
