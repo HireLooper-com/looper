@@ -1,9 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useState, useTransition } from "react";
 import { LOOPER_TEMPLATES, templateBySlug } from "@/lib/looper-templates";
-import { confirmHire, draftHire, startSkill } from "@/app/team-actions";
+import { confirmHire, draftHire, reviseHire, startSkill } from "@/app/team-actions";
 import type { LooperSpec } from "@/lib/agent";
 import { describeSchedule } from "@/lib/schedule";
 import type { Accent } from "@/lib/types";
@@ -140,8 +140,8 @@ export function HireFlow({ resume, notice, taken, nextColor, template }: { resum
       {step === "review" && spec && (
         <div className="fade-up mt-8">
           <h1 className="text-[2rem] font-semibold tracking-[-0.03em]">Meet {spec.name || "your looper"}</h1>
-          <p className="mt-1 text-[1rem] text-mute">Change anything, then hire. Nothing runs until you do.</p>
-          <Review spec={spec} onChange={setSpec} taken={taken} color={nextColor} />
+          <p className="mt-1 text-[1rem] text-mute">Tell Chief what to change, then hire. Nothing runs until you do.</p>
+          <ReviewChat spec={spec} onChange={setSpec} taken={taken} color={nextColor} />
           {error && <p className="mt-3 text-[0.875rem] text-red">{error}</p>}
           <div className="mt-6 flex items-center justify-between gap-3">
             <button onClick={() => setStep("goal")} className="text-[0.875rem] text-mute hover:text-ink">
@@ -195,6 +195,87 @@ function Steps({ step }: { step: Step }) {
           {i < order.length - 1 && <span className="mx-1 h-px w-6 bg-line" />}
         </span>
       ))}
+    </div>
+  );
+}
+
+type Line = { by: "you" | "chief"; text: string };
+
+/** The draft plus a chat with Chief under it: say what to change and Chief rewrites the draft. */
+export function ReviewChat({ spec, onChange, taken, color, canChat = true }: { spec: LooperSpec; onChange: (s: LooperSpec) => void; taken: string[]; color: Accent; canChat?: boolean }) {
+  const [chat, setChat] = useState<Line[]>([]);
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, start] = useTransition();
+
+  const send = () => {
+    const next = [...chat, { by: "you" as const, text: text.trim() }];
+    setChat(next);
+    setText("");
+    setError(null);
+    start(async () => {
+      const r = await reviseHire(spec, next);
+      if (!r.ok) return setError(r.error);
+      onChange(r.value.spec);
+      setChat((c) => [...c, { by: "chief", text: r.value.reply }]);
+    });
+  };
+
+  return (
+    <div>
+      <Review spec={spec} onChange={onChange} taken={taken} color={color} />
+      <div className="mt-5 flex flex-col gap-3">
+        <ChiefLine>
+          Here&apos;s {spec.name || "the draft"}. Edit the name or target on the card, or tell me what to change: other apps, different skills, a new schedule, what to leave alone.
+        </ChiefLine>
+        {chat.map((m, i) =>
+          m.by === "you" ? (
+            <div key={i} className="fade-up flex justify-end">
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-[18px] bg-blue px-4 py-2.5 text-[0.9375rem] leading-relaxed text-page">{m.text}</div>
+            </div>
+          ) : (
+            <ChiefLine key={i}>{m.text}</ChiefLine>
+          ),
+        )}
+        {busy && <ChiefLine muted>Updating the draft…</ChiefLine>}
+        {error && <p className="text-[0.875rem] text-red">{error}</p>}
+      </div>
+      <form
+        className="mt-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (text.trim() && !busy) send();
+        }}
+      >
+        <div className="flex items-end gap-2 rounded-[20px] border border-ink/[0.08] bg-panel p-2 focus-within:border-ink/25">
+          <textarea
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                if (text.trim() && !busy) send();
+              }
+            }}
+            disabled={!canChat}
+            placeholder={canChat ? `e.g. Write blog posts as pull requests in GitHub instead of Google Docs` : "Connect a model in Settings to chat with Chief"}
+            className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent px-3 py-2 text-[0.9375rem] outline-none placeholder:text-faint"
+          />
+          <Button size="sm" disabled={!text.trim() || busy || !canChat} className="mb-0.5">
+            Send
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ChiefLine({ children, muted }: { children: ReactNode; muted?: boolean }) {
+  return (
+    <div className="fade-up flex items-start gap-2.5">
+      <Bot dark seed="chief" size={28} className={muted ? "looping" : undefined} />
+      <div className={cx("max-w-[85%] whitespace-pre-wrap rounded-[18px] bg-ink/[0.045] px-4 py-2.5 text-[0.9375rem] leading-relaxed", muted ? "text-mute" : "text-ink")}>{children}</div>
     </div>
   );
 }

@@ -26,7 +26,7 @@ export const LOOPER_TEMPLATES: LooperTemplate[] = [
       area: "distribution",
       emoji: "🔎",
       mission:
-        "Grow organic search traffic and visibility in AI answers (GEO). Work from real data in Google Search Console, find the pages and questions with the biggest upside, and improve them one at a time: better titles and descriptions, clear answers near the top, FAQ sections, structured data, internal links, and an llms.txt. Check how search engines and AI assistants answer our key questions, and close the gaps where competitors are cited and we're not. " +
+        "Grow organic search traffic and visibility in AI answers (GEO). Work from real data in Google Search Console, find the pages and questions with the biggest upside, and improve them one at a time: better titles and descriptions, clear answers near the top, FAQ sections, structured data, internal links, and an llms.txt. Ship changes and new blog posts as pull requests in the site's GitHub repo, building on the posts that already exist instead of repeating them. Check how search engines and AI assistants answer our key questions, and close the gaps where competitors are cited and we're not. " +
         SAFE,
       metric: { name: "Organic clicks", unit: "per week", direction: "up", target: 1000 },
       skills: [
@@ -44,36 +44,38 @@ export const LOOPER_TEMPLATES: LooperTemplate[] = [
           time: "09:00",
           days: [3],
           instructions:
-            "Take the highest-value open opportunity from your database. Open the page with your computer and audit it: title and meta description vs. the query, does the first paragraph answer the question directly, headings, an FAQ section, schema.org markup (FAQPage/Article/Product), internal links, load issues; also check /llms.txt and /robots.txt for AI crawlers. Write concrete changes (new title, description, answer paragraph, FAQ Q&As, JSON-LD) in a Google Doc, set the row to 'drafted' with the doc link, and ask_owner to approve. When approved, add a 'you' card with exactly what to paste where.",
+            "Take the highest-value open opportunity from your database. Open the page with your computer and audit it: title and meta description vs. the query, does the first paragraph answer the question directly, headings, an FAQ section, schema.org markup (FAQPage/Article/Product), internal links, load issues; also check /llms.txt and /robots.txt for AI crawlers. Find the file behind the page in the site's GitHub repo, make the changes on a new branch and open a pull request (title, description, answer paragraph, FAQ, JSON-LD; follow the repo's existing format). Set the row to 'Drafted' with the pull request link and ask_owner to approve merging it. Never merge without approval.",
         },
         {
-          name: "Answer a question AI misses",
+          name: "Write a blog post AI misses",
           type: "weekly",
           time: "10:00",
           days: [5],
           instructions:
-            "Pick a key question where AI answers or top results don't mention us. Draft a short, citable piece (a clear 2–3 sentence answer first, then specifics, data and a FAQ) in a Google Doc in the owner's tone, aimed at being quoted by AI assistants. Add it to the database as 'drafted' and ask_owner for approval with the link.",
+            "Pick a key question where AI answers or top results don't mention us. Before writing, check the existing posts: the 'Existing post' rows in your database, the blog folder in the GitHub repo, and the live blog. If a post already covers the question, improve that post instead of writing a new one. Otherwise write a short, citable post in the owner's tone (a clear 2–3 sentence answer first, then specifics, data and an FAQ), copying the file format, frontmatter and naming of the existing posts, and link to 2–3 related existing posts. Open a pull request with it, add the row as 'Drafted' with the pull request link, and ask_owner for approval to merge.",
         },
       ],
-      apps: ["Google Search Console", "Google Docs"],
+      apps: ["Google Search Console", "GitHub"],
       database: {
         name: "Search opportunities",
         rowNoun: "opportunity",
         columns: [
           { name: "Query or page", type: "text" },
-          { name: "Kind", type: "select", options: ["Quick win", "Losing clicks", "AI answer gap", "Technical"] },
+          { name: "Kind", type: "select", options: ["Quick win", "Losing clicks", "AI answer gap", "Technical", "Existing post"] },
           { name: "Position", type: "number" },
           { name: "Impressions", type: "number" },
           { name: "Clicks", type: "number" },
           { name: "Who AI cites", type: "text" },
           { name: "Status", type: "select", options: ["New", "Drafted", "Approved", "Done"] },
-          { name: "Draft", type: "url" },
+          { name: "Page or file", type: "url" },
+          { name: "Pull request", type: "url" },
           { name: "Found", type: "date" },
         ],
       },
       starterCards: [
-        { title: "Connect Google Search Console", for: "you" },
-        { title: "Pin your 5 most important search questions and 3 competitors to my canvas", for: "you" },
+        { title: "Connect Google Search Console and GitHub", for: "you" },
+        { title: "Pin to my canvas: the repo and folder your blog posts live in, your 5 key search questions and 3 competitors", for: "you" },
+        { title: "List every existing blog post as an 'Existing post' row so I never write one twice", for: "looper" },
         { title: "Baseline: last 28 days of clicks, top queries and pages", for: "looper" },
       ],
     },

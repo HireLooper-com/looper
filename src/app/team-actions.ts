@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { beginLooperReply, hireLooper, looperSpec, proposeLooper, runSkill, type LooperSpec } from "@/lib/agent";
+import { beginLooperReply, hireLooper, looperSpec, proposeLooper, reviseLooper, runSkill, type LooperSpec } from "@/lib/agent";
 import { readCanvas } from "@/lib/canvas";
 import { readDatabase } from "@/lib/database";
 import { mutate, read } from "@/lib/db";
@@ -103,6 +103,14 @@ export async function draftHire(goal: string) {
     const uid = await requireUid();
     if (goal.trim().length < 8) throw new Error("Say a bit more about the goal.");
     return proposeLooper(uid, goal.trim());
+  });
+}
+
+export async function reviseHire(spec: LooperSpec, chat: { by: "you" | "chief"; text: string }[]) {
+  return attempt(async () => {
+    const uid = await requireUid();
+    if (!chat.some((m) => m.by === "you" && m.text.trim())) throw new Error("Say what to change.");
+    return reviseLooper(uid, looperSpec.parse(spec), chat.slice(-12));
   });
 }
 

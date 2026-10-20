@@ -716,6 +716,30 @@ export async function proposeLooper(uid: string, goal: string): Promise<LooperSp
   return (await result.output) as LooperSpec;
 }
 
+const revision = z.object({
+  reply: z.string().describe("1-3 short sentences to the owner: what you changed, or the one question you need answered"),
+  spec: looperSpec,
+});
+
+/** Chief reworks a draft from the owner's feedback in the review chat. Returns the whole spec, changed only where asked. */
+export async function reviseLooper(uid: string, spec: LooperSpec, chat: { by: "you" | "chief"; text: string }[]) {
+  const db = await read(uid);
+  const team = db.loopers.map((l) => `- ${l.name}: ${metricLine(l)}`).join("\n") || "- nobody yet";
+  const result = await callModel(
+    uid,
+    db.settings,
+    {
+      model: db.chatModels?.chief,
+      usage: { source: "chief", kind: "chat" },
+      instructions: `${CHIEF_INSTRUCTIONS}${businessLine(db)}\n\nToday is ${new Date().toDateString()}. Current team (names taken):\n${team}\n\nThe owner is reviewing a looper draft before hiring it and tells you what to change. Return the full updated spec: change what they ask for, keep everything else exactly as it is, and keep it consistent (if an app is swapped, update the skills, database and starter cards that mention it). If the request is unclear, keep the spec as is and ask one short question in reply.`,
+      prompt: `Current draft:\n${JSON.stringify(spec, null, 2)}\n\nConversation:\n${chat.map((m) => `${m.by === "you" ? "Owner" : "Chief"}: ${m.text}`).join("\n")}`,
+      maxSteps: 1,
+    },
+    Output.object({ schema: revision }),
+  );
+  return (await result.output) as z.infer<typeof revision>;
+}
+
 function chiefTools(uid: string, actions: string[], links: { label: string; href: string }[]): ToolSet {
   const findLooper = (db: DB, idOrName: string) => {
     const l = db.loopers.find((x) => x.id === idOrName || x.name.toLowerCase() === idOrName.toLowerCase());
