@@ -91,6 +91,63 @@ body {
     var(--color-page);
 }
 
+/* Sign-in backdrop: the hirelooper.com hero wash, cycling through six loopers' colour pairs. */
+@property --wa { syntax: "<color>"; inherits: true; initial-value: #ff7ab6; }
+@property --wb { syntax: "<color>"; inherits: true; initial-value: #ffb36b; }
+@keyframes wash-loop {
+  0%, 100% { --wa: #ff7ab6; --wb: #ffb36b; }
+  16.67% { --wa: #8be38f; --wb: #e8d84a; }
+  33.33% { --wa: #5be3c4; --wb: #3d8bff; }
+  50% { --wa: #8f6bff; --wb: #3dd6ff; }
+  66.67% { --wa: #5ab471; --wb: #74ddc8; }
+  83.33% { --wa: #b36bff; --wb: #ff7ad9; }
+}
+.wash-loop {
+  background: radial-gradient(1400px 900px at 60% 0%, color-mix(in srgb, var(--wa) 14%, #f6f2ec), color-mix(in srgb, var(--wb) 22%, #ede6dc) 62%, color-mix(in srgb, var(--wb) 40%, #dccdba));
+  animation: wash-loop 42s ease-in-out infinite;
+}
+@media (prefers-color-scheme: dark) {
+  .wash-loop {
+    background: radial-gradient(1400px 900px at 60% 0%, color-mix(in srgb, var(--wa) 32%, #111113), color-mix(in srgb, var(--wb) 16%, #111113) 62%, color-mix(in srgb, var(--wb) 26%, #0b0b0c));
+  }
+}
+
+/* The sign-in looper idles like a small creature: it floats and sways on one clock, breathes on
+   another, and every few seconds gives a little hop. The shadow below shrinks as it rises. */
+@keyframes alive-float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-7px) rotate(3deg); }
+}
+@keyframes alive-breathe {
+  0%, 100% { transform: scale(1, 1); }
+  45% { transform: scale(1.04, 0.97); }
+  70% { transform: scale(0.98, 1.03); }
+}
+@keyframes alive-hop {
+  0%, 82%, 100% { transform: translateY(0) scale(1, 1); }
+  85% { transform: translateY(2px) scale(1.08, 0.9); }
+  89% { transform: translateY(-14px) scale(0.94, 1.08); }
+  93% { transform: translateY(0) scale(1.06, 0.94); }
+  96% { transform: translateY(0) scale(0.98, 1.02); }
+}
+@keyframes alive-shadow {
+  0%, 100% { transform: scaleX(1); opacity: 0.35; }
+  50% { transform: scaleX(0.78); opacity: 0.2; }
+}
+.alive { position: relative; width: fit-content; }
+.alive-float { animation: alive-float 4.2s ease-in-out infinite; }
+.alive-hop { animation: alive-hop 7s ease-in-out infinite; transform-origin: 50% 100%; }
+.alive-body { animation: alive-breathe 3.1s ease-in-out infinite; transform-origin: 50% 90%; }
+.alive-shadow {
+  position: absolute; left: 18%; right: 18%; bottom: -10px; height: 8px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.7), transparent);
+  animation: alive-shadow 4.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wash-loop, .alive-float, .alive-hop, .alive-body, .alive-shadow { animation: none; }
+}
+
 .tile {
   background: var(--color-panel);
   border-radius: 20px;
