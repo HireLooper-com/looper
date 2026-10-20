@@ -45,3 +45,7 @@ next-env.d.ts
 
 # the template is safe to commit
 !.env.example
+
+# local agent tooling
+/.agents/
+skills-lock.json
