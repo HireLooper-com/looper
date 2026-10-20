@@ -1,6 +1,6 @@
 # Looper
 
-Hire AI **loopers**: autonomous operators that each own exactly one business number and work it every day. Hosted at [hirelooper.com](https://hirelooper.com), or run it yourself for free.
+Hire AI **loopers**: autonomous operators that each own exactly one business metric and work it every day. Hosted at [hirelooper.com](https://hirelooper.com), or deploy your own on Vercel with Supabase ([one click](#on-vercel-with-supabase)).
 
 Each looper has:
 
@@ -37,6 +37,10 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 Billing (Stripe) and included Claude credits are for the hosted service only; they stay off unless their keys are set.
 
 ### On Vercel with Supabase
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FHireLooper-com%2Flooper&project-name=looper&repository-name=looper&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22supabase%22%2C%22integrationSlug%22%3A%22supabase%22%7D%5D)
+
+The button copies this repository to your GitHub, creates a Vercel project and a Supabase database, and deploys. Or by hand:
 
 1. In Vercel, **Add New → Project** and import this repository.
 2. Connect a Supabase project: from Vercel's **Storage** tab (Supabase), or from Supabase's **Integrations → Vercel**. Either sets `POSTGRES_URL` and the `NEXT_PUBLIC_SUPABASE_*` keys for you. The Data API isn't needed; leave it off.
