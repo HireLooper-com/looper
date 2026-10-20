@@ -33,10 +33,17 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const isLocal = isLocalServer();
 
   return (
-    <div className="wash fixed inset-0 overflow-y-auto">
+    <div className="wash-loop fixed inset-0 overflow-y-auto">
       <div className="mx-auto flex min-h-full max-w-[440px] flex-col items-center justify-center px-4 py-12">
         <div className="tile w-full px-8 pb-8 pt-10 text-center sm:px-10">
-          <LogoMark size={76} className="mx-auto" />
+          <div className="alive mx-auto">
+            <span className="alive-shadow" aria-hidden />
+            <div className="alive-float">
+              <div className="alive-hop">
+                <LogoMark size={76} className="alive-body" />
+              </div>
+            </div>
+          </div>
           <h1 className="display mt-6 text-[2rem]">Sign in to Looper</h1>
           <p className="mx-auto mt-2 max-w-[30ch] text-[1rem] leading-snug text-mute">
             Hire AI loopers that drive your business metrics.
