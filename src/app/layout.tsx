@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Looper",
-  description: "Hire AI loopers that each own one business metric and work it every day.",
+  description: "Hire AI loopers that drive your business metrics.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
