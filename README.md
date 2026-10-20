@@ -28,13 +28,19 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 
 | Want | Set |
 | --- | --- |
-| Postgres instead of files (Supabase, Neon, …) | `DATABASE_URL` |
+| Postgres instead of files (Supabase, Neon, …) | `DATABASE_URL` (or `POSTGRES_URL`, as the Vercel integrations set it) |
 | Sign in with Google, GitHub or a 6-digit email code | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Supabase Auth) |
 | One-click app connections | `COMPOSIO_API_KEY` |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
 
 Billing (Stripe) and included Claude credits are for the hosted service only; they stay off unless their keys are set.
+
+### On Vercel with Supabase
+
+1. In Vercel, **Add New → Project** and import this repository.
+2. Connect a Supabase project: from Vercel's **Storage** tab (Supabase), or from Supabase's **Integrations → Vercel**. Either sets `POSTGRES_URL` and the `NEXT_PUBLIC_SUPABASE_*` keys for you. The Data API isn't needed; leave it off.
+3. Redeploy. The app creates its table on first use and keeps its session secret in the database, so nothing else is required. Add `CRON_SECRET` so only Vercel Cron can run the scheduler, and the optional keys above as you need them.
 
 ## How it works
 

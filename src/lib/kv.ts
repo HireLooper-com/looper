@@ -5,7 +5,8 @@ import { attachDatabasePool } from "@vercel/functions";
 import { Pool } from "pg";
 
 /**
- * Tiny JSON key-value store. Postgres (Neon) when DATABASE_URL is set, so every server instance
+ * Tiny JSON key-value store. Postgres when DATABASE_URL (or POSTGRES_URL, which the Supabase and
+ * Neon integrations on Vercel set) is there, so every server instance
  * shares state; local JSON files otherwise, for zero-setup development.
  * `update` is a locked read-modify-write: SELECT … FOR UPDATE in Postgres, a per-key queue on disk.
  */
@@ -22,9 +23,22 @@ export interface KV {
 
 const g = globalThis as { __clPool?: Pool; __clSchema?: Promise<void> };
 
+const databaseUrl = () => process.env.DATABASE_URL || process.env.POSTGRES_URL;
+
+/**
+ * Supabase signs its certificates with its own CA, which Node doesn't trust, and pg treats
+ * sslmode=require as "verify". Keep the connection encrypted but skip the CA check there.
+ */
+function pgConfig(url: string) {
+  const u = new URL(url);
+  if (!/\.supabase\.(com|co)$/.test(u.hostname)) return { connectionString: url };
+  u.searchParams.delete("sslmode");
+  return { connectionString: u.toString(), ssl: { rejectUnauthorized: false } };
+}
+
 function pool() {
   if (!g.__clPool) {
-    g.__clPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 5000 });
+    g.__clPool = new Pool({ ...pgConfig(databaseUrl()!), max: 5, idleTimeoutMillis: 5000 });
     attachDatabasePool(g.__clPool);
   }
   return g.__clPool;
@@ -143,5 +157,5 @@ const files: KV = {
     }),
 };
 
-export const kv: KV = process.env.DATABASE_URL ? postgres : files;
-export const usingPostgres = () => !!process.env.DATABASE_URL;
+export const kv: KV = databaseUrl() ? postgres : files;
+export const usingPostgres = () => !!databaseUrl();

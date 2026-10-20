@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { getUser } from "./db";
+import { kv, usingPostgres } from "./kv";
 import type { User } from "./types";
 import { roleIn, type Role } from "./workspace";
 
@@ -18,6 +19,11 @@ let secret: Buffer | undefined;
 async function getSecret() {
   if (secret) return secret;
   if (process.env.SESSION_SECRET) return (secret = Buffer.from(process.env.SESSION_SECRET));
+  // Hosted without SESSION_SECRET (e.g. a one-click deploy): make one once and keep it in the database.
+  if (usingPostgres()) {
+    const stored = await kv.update<string, string>("app:session-secret", () => randomBytes(32).toString("base64url"), (v) => v);
+    return (secret = Buffer.from(stored));
+  }
   // Local installs: generate once and keep it next to the data.
   const file = path.join(process.env.GROKLOOPER_DATA_DIR ?? path.join(process.cwd(), "data"), ".session-secret");
   try {
