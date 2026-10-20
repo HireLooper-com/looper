@@ -51,6 +51,7 @@ export function Sidebar({
   credits,
   chiefPreview,
   inboxCount,
+  admin,
 }: {
   loopers: SidebarLooper[];
   account: { email?: string; name?: string; avatar?: string };
@@ -61,6 +62,8 @@ export function Sidebar({
   credits?: { left: number; granted: number };
   chiefPreview?: string;
   inboxCount: number;
+  /** operators (ADMIN_EMAILS) get a link to /admin */
+  admin?: boolean;
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -208,6 +211,7 @@ export function Sidebar({
                 [workspace.kind === "team" ? "Members & invites" : "Workspace", "/workspace"],
                 ...(billing ? [["Plan & credits", "/billing"]] : []),
                 ["Settings", "/settings"],
+                ...(admin ? [["Admin", "/admin"]] : []),
               ].map(([label, href]) => (
                 <Link key={label} href={href} onClick={() => setMenu(false)} className="block rounded-[8px] px-3 py-2 text-[0.875rem] hover:bg-ink/[0.04]">
                   {label}

@@ -16,7 +16,7 @@ const API = "https://app.loops.so/api/v1";
 
 export const hasLoops = () => !!process.env.LOOPS_API_KEY;
 
-const appUrl = () =>
+export const appUrl = () =>
   process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
 
 /** Runs in the background; await the result only when the caller needs to know it was accepted. */
@@ -82,4 +82,12 @@ export async function notifyNeedsYou(wsId: string, looperName: string, question:
       .join("\n\n");
     mail(p.email, `${looperName} needs you`, question, body);
   }
+}
+
+export const hasNotes = hasMail;
+
+/** A note from the operators to a workspace owner (the admin page's nudges). Resolves to whether Loops accepted it. */
+export function sendNote(email: string, subject: string, body: string) {
+  if (!hasMail()) return Promise.resolve(false);
+  return mail(email, subject, subject, body);
 }

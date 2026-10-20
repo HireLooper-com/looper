@@ -6,7 +6,7 @@ import { read } from "@/lib/db";
 import { modelMenu } from "@/lib/llm";
 import { getCatalog, nameOf } from "@/lib/models";
 import { requireUser } from "@/lib/session";
-import { allUsage, isAdmin, summarize, usageRows } from "@/lib/usage";
+import { summarize, usageRows } from "@/lib/usage";
 
 const NOTICES: Record<string, string> = {
   connected: "ChatGPT plan connected. Pick its models in any chat, or make one the default below.",
@@ -21,7 +21,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const { chatgpt } = await searchParams;
   const user = await requireUser();
   const uid = user.ws;
-  const [db, catalog, rows, everyone] = await Promise.all([read(uid), getCatalog(), usageRows(uid), isAdmin(user.email) ? allUsage() : undefined]);
+  const [db, catalog, rows] = await Promise.all([read(uid), getCatalog(), usageRows(uid)]);
   const menu = await modelMenu(uid, db.settings, db.settings.defaultModel);
   const names = {
     model: (provider: Parameters<typeof nameOf>[1], id: string) => nameOf(catalog, provider, id),
@@ -32,7 +32,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
     byModel: s.byModel.map((m) => ({ ...m, name: names.model(m.provider, m.model) })),
     bySource: s.bySource.map((x) => ({ ...x, name: names.source(x.source) })),
   });
-  const usage = { workspace: label(summarize(rows)), all: everyone && { ...label(everyone.summary), workspaces: everyone.workspaces } };
+  const usage = { workspace: label(summarize(rows)) };
   // Every app account the user has connected, and which loopers use it.
   const accounts = hasComposio() ? await activeAccounts(uid, true).catch(() => new Map()) : new Map();
   const apps: ConnectedApp[] = await Promise.all(
