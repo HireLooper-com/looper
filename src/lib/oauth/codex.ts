@@ -64,7 +64,8 @@ export async function startDevice(linkUid?: string, linkWs?: string) {
     linkWs,
   };
   await kv.set(deviceKey(flowId), device, Math.ceil((device.expiresAt - Date.now()) / 1000));
-  return { flowId, userCode: device.userCode, verificationUri: VERIFY_URL, verificationUriComplete: VERIFY_URL, interval, expiresAt: device.expiresAt };
+  // OpenAI's page has no way to pre-fill the code, so the browser copies it for the user to paste.
+  return { flowId, userCode: device.userCode, verificationUri: VERIFY_URL, verificationUriComplete: VERIFY_URL, codeInLink: false, interval, expiresAt: device.expiresAt };
 }
 
 /** Who signed in, and the ChatGPT account the Codex endpoint bills. */
