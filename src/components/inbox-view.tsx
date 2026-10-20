@@ -75,7 +75,7 @@ export function InboxView({ items, apps, loopers }: { items: InboxItem[]; apps: 
             return (
               <div key={`${a.looperId}:${a.slug}`} className="flex items-center gap-3 px-4 py-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                {a.logo ? <img src={a.logo} alt="" className="h-8 w-8 rounded-[8px]" /> : <span className="h-8 w-8 rounded-[8px] bg-ink/[0.06]" />}
+                {a.logo ? <img src={a.logo} alt="" className="h-8 w-8 rounded-[8px] bg-white object-contain p-1" /> : <span className="h-8 w-8 rounded-[8px] bg-ink/[0.06]" />}
                 <div className="min-w-0 flex-1">
                   <div className="text-[0.9375rem] font-medium">{a.name}</div>
                   <div className="text-[0.8125rem] text-mute">{l.name} needs it</div>

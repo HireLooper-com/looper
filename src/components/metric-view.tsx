@@ -93,7 +93,7 @@ export function MetricView({ looper }: { looper: Looper }) {
           {looper.apps!.map((a) => (
             <span key={a.slug} className="inline-flex items-center gap-1 rounded-[6px] bg-ink/[0.05] px-1.5 py-0.5 text-[0.75rem]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {a.logo && <img src={a.logo} alt="" className="h-3.5 w-3.5 rounded-[3px]" />}
+              {a.logo && <img src={a.logo} alt="" className="h-3.5 w-3.5 rounded-[3px] bg-white object-contain p-px" />}
               {a.name}
             </span>
           ))}

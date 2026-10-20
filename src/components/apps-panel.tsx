@@ -12,7 +12,7 @@ type Row = Status["apps"][number];
 function AppIcon({ app }: { app: Pick<AppRef, "name" | "logo"> }) {
   if (app.logo)
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={app.logo} alt="" className="h-10 w-10 rounded-[22%] bg-panel object-contain p-1 shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.08)]" />;
+    return <img src={app.logo} alt="" className="h-10 w-10 rounded-[22%] bg-white object-contain p-1.5 shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.08)]" />;
   return <span className="flex h-10 w-10 items-center justify-center rounded-[22%] bg-ink/[0.07] text-[1rem] font-semibold uppercase text-ink-2">{app.name.slice(0, 1)}</span>;
 }
 
