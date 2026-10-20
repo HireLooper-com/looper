@@ -6,12 +6,11 @@ import type { User } from "./types";
 
 // Email through Loops (loops.so): every person is a contact, so product updates and onboarding
 // loops can reach them; sign-up and plan changes are events those loops start from; "a looper
-// needs you" is a transactional email. All of it is off without LOOPS_API_KEY, and a Loops
-// outage never breaks the app: calls run in the background and failures are only logged.
-//   LOOPS_API_KEY        Loops → Settings → API
-//   LOOPS_TX_NEEDS_YOU   transactional email id; data variables: name, looperName, question,
-//                        detail, count, url
-//   LOOPS_TX_SIGN_IN_CODE  transactional email id for sign-in codes; data variable: code
+// needs you" and sign-in codes go out through one generic transactional template, with the
+// wording written here. All of it is off without LOOPS_API_KEY, and a Loops outage never breaks
+// the app: calls run in the background and failures are only logged.
+//   LOOPS_API_KEY              Loops → Settings → API
+//   LOOPS_GENERIC_TEMPLATE_ID  transactional email id; data variables: subject, heading, body
 
 const API = "https://app.loops.so/api/v1";
 
@@ -53,17 +52,23 @@ export function loopsEvent(email: string | undefined, eventName: string, eventPr
   send("/events/send", { email, eventName, eventProperties });
 }
 
-export const hasSignInCodes = () => hasLoops() && !!process.env.LOOPS_TX_SIGN_IN_CODE;
+const hasMail = () => hasLoops() && !!process.env.LOOPS_GENERIC_TEMPLATE_ID;
+
+/** One email through the generic template. Resolves to whether Loops accepted it. */
+function mail(email: string, subject: string, heading: string, body: string) {
+  return send("/transactional", { transactionalId: process.env.LOOPS_GENERIC_TEMPLATE_ID, email, dataVariables: { subject, heading, body } });
+}
+
+export const hasSignInCodes = hasMail;
 
 /** Email a 6-digit sign-in code. Resolves to whether Loops accepted it. */
 export function sendSignInCode(email: string, code: string) {
-  return send("/transactional", { transactionalId: process.env.LOOPS_TX_SIGN_IN_CODE, email, dataVariables: { code } });
+  return mail(email, `${code} is your Looper code`, code, "Enter this code to sign in to Looper. It works once and expires in 10 minutes. If you didn't ask for it, ignore this email.");
 }
 
 /** Email the people in a workspace that a looper is waiting on them, at most every 30 minutes each. */
 export async function notifyNeedsYou(wsId: string, looperName: string, question: string, detail: string | undefined, openCount: number) {
-  const tx = process.env.LOOPS_TX_NEEDS_YOU;
-  if (!hasLoops() || !tx) return;
+  if (!hasMail()) return;
   const ws = await getWorkspace(wsId);
   const people = ws ? await membersOf(ws) : await getUser(wsId).then((u) => (u ? [{ userId: u.id, email: u.email, name: displayName(u) }] : []));
   for (const p of people) {
@@ -71,10 +76,10 @@ export async function notifyNeedsYou(wsId: string, looperName: string, question:
     const key = `mail:needs-you:${wsId}:${p.userId}`;
     if (await kv.get(key)) continue;
     await kv.set(key, true, 30 * 60);
-    send("/transactional", {
-      transactionalId: tx,
-      email: p.email,
-      dataVariables: { name: p.name ?? "", looperName, question, detail: detail?.slice(0, 600) ?? "", count: openCount, url: `${appUrl()}/inbox` },
-    });
+    const more = openCount > 1 ? ` ${openCount} things are waiting for you in total.` : "";
+    const body = [p.name ? `Hi ${p.name.split(" ")[0]},` : "", `${looperName} asks: ${question}`, detail?.slice(0, 600) ?? "", `Answer it in your inbox: ${appUrl()}/inbox.${more}`]
+      .filter(Boolean)
+      .join("\n\n");
+    mail(p.email, `${looperName} needs you`, question, body);
   }
 }
