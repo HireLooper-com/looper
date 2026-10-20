@@ -31,6 +31,7 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 | Postgres instead of files (Supabase, Neon, …) | `DATABASE_URL` (or `POSTGRES_URL`, as the Vercel integrations set it) |
 | Sign in with Google, GitHub or a 6-digit email code | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Supabase Auth) |
 | One-click app connections | `COMPOSIO_API_KEY` |
+| Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_TX_NEEDS_YOU` ([Loops](https://loops.so)) |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
 

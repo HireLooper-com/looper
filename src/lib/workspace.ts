@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { nanoid } from "nanoid";
 import { kv } from "./kv";
+import { loopsContact, loopsEvent } from "./loops";
 import type { User } from "./types";
 
 // People and the workspaces they share. A workspace holds everything (loopers, boards, apps,
@@ -102,6 +103,11 @@ export async function upsertUser(input: { identity: string; email?: string; name
   user.lastLoginAt = at;
   await saveUser(user);
   await ensurePersonal(user);
+  // New people join the Loops audience (updates, onboarding); "signup" can start a welcome loop.
+  if (!found) {
+    loopsContact(user, { plan: "none" });
+    loopsEvent(user.email, "signup", { provider: user.provider });
+  }
   return user;
 }
 

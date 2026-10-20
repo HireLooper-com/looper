@@ -1,6 +1,7 @@
 import "server-only";
 import Stripe from "stripe";
-import { getWorkspace, mutateWorkspace, type Plan, type Workspace } from "./workspace";
+import { loopsContact, loopsEvent } from "./loops";
+import { getUser, getWorkspace, mutateWorkspace, type Plan, type Workspace } from "./workspace";
 
 // Hosted plans. Without STRIPE_SECRET_KEY (self-hosted) everything is open and nothing is metered.
 //   Personal $49/month: unlimited loopers, $49 of AI credits once.
@@ -126,7 +127,8 @@ export async function syncSubscription(sub: Stripe.Subscription) {
   const plan = planOfPrice(sub.items.data[0]?.price.id) ?? (sub.metadata.plan as Plan | undefined);
   if (!plan) return;
   const periodEnd = sub.items.data[0]?.current_period_end;
-  await mutateWorkspace(wsId, (w) => {
+  const before = (await getWorkspace(wsId))?.billing?.status;
+  const ws = await mutateWorkspace(wsId, (w) => {
     w.billing = {
       plan,
       status: sub.status,
@@ -140,5 +142,14 @@ export async function syncSubscription(sub: Stripe.Subscription) {
       w.creditGrants = [...grants];
       w.credits = { granted: (w.credits?.granted ?? 0) + PLANS[plan].credits, used: w.credits?.used ?? 0 };
     }
+    return { ...w };
   });
+  // Tell Loops when a plan starts or ends, so its loops can welcome or win back the owner.
+  const owner = await getUser(ws.ownerId);
+  if (!owner?.email) return;
+  const active = ACTIVE.has(sub.status);
+  if (active !== (before !== undefined && ACTIVE.has(before))) {
+    loopsContact(owner, { plan: active ? plan : "none" });
+    loopsEvent(owner.email, active ? "subscribed" : "subscription_ended", { plan });
+  }
 }

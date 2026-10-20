@@ -11,6 +11,7 @@ import { computerSession, hasComputer, wipeComputer } from "./computer";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials } from "./llm";
+import { notifyNeedsYou } from "./loops";
 import { describeTool, progressWriter } from "./progress";
 import { describeSchedule, isDue } from "./schedule";
 import { appFromName } from "./apps";
@@ -306,16 +307,22 @@ function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): 
         options: z.array(z.string().max(60)).min(2).max(4).optional(),
         detail: z.string().max(1200).optional(),
       }),
-      execute: (input) =>
-        mutate(uid, (d) => {
+      execute: async (input) => {
+        let mail: { looperName: string; open: number } | undefined;
+        const r = await mutate(uid, (d) => {
           const open = d.asks.find((a) => a.looperId === looperId && a.status === "open" && a.question === input.question);
           if (open) return { asked: open.id, note: "Already asked; wait for the answer." };
           const ask: Ask = { id: nanoid(8), looperId, kind: input.kind, question: input.question, options: input.kind === "choice" ? input.options : undefined, detail: input.detail, status: "open", createdAt: now() };
           d.asks.push(ask);
           (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "assistant", content: input.question, at: now(), askId: ask.id }];
           onAsk?.(ask.id);
+          mail = { looperName: d.loopers.find((l) => l.id === looperId)?.name ?? "A looper", open: d.asks.filter((a) => a.status === "open").length };
           return { asked: ask.id, note: "The owner will see it in chat and their inbox. Carry on with anything that doesn't depend on the answer." };
-        }),
+        });
+        // Also by email, so nobody has to keep the app open to know a looper is waiting.
+        if (mail) await notifyNeedsYou(uid, mail.looperName, input.question, input.detail, mail.open).catch((e) => console.error("[loops] needs-you", e));
+        return r;
+      },
     }),
   };
 }
