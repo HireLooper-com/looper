@@ -63,6 +63,7 @@ export async function startDevice(linkUid?: string, linkWs?: string) {
     userCode: data.user_code as string,
     verificationUri: data.verification_uri as string,
     verificationUriComplete: (data.verification_uri_complete ?? data.verification_uri) as string,
+    codeInLink: !!data.verification_uri_complete,
     interval,
     expiresAt: device.expiresAt,
   };

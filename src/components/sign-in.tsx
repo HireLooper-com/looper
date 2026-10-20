@@ -91,6 +91,7 @@ function DeviceSignIn({
   const router = useRouter();
   const [device, setDevice] = useState<Device | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [pending, start] = useTransition();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -118,29 +119,81 @@ function DeviceSignIn({
     }, d.interval * 1000);
   };
 
-  const begin = () =>
+  // Copies the code so it can be pasted on the provider's page. Must run inside the tap: mobile
+  // Safari only allows clipboard writes and new tabs from a user gesture, not after an await.
+  const copy = (code: string | Promise<string | null>) => {
+    const text = Promise.resolve(code).then((c) => {
+      if (!c) throw new Error("no code");
+      return new Blob([c], { type: "text/plain" });
+    });
+    const write =
+      typeof ClipboardItem !== "undefined"
+        ? navigator.clipboard?.write([new ClipboardItem({ "text/plain": text })])
+        : text.then((b) => b.text()).then((c) => navigator.clipboard?.writeText(c));
+    return Promise.resolve(write)
+      .then(() => setCopied(true))
+      .catch(() => setCopied(false));
+  };
+
+  const begin = () => {
+    setMessage(null);
+    setCopied(false);
+    const tab = window.open("", "_blank");
+    let resolve: (code: string | null) => void = () => undefined;
+    void copy(new Promise<string | null>((r) => (resolve = r)));
     start(async () => {
-      setMessage(null);
       try {
         const r = await startLogin();
-        if (!r.ok) return setMessage(r.error);
+        if (!r.ok) {
+          tab?.close();
+          resolve(null);
+          return setMessage(r.error);
+        }
         const d = r.value;
+        resolve(d.codeInLink ? null : d.userCode);
         setDevice(d);
-        window.open(d.verificationUriComplete, "_blank", "noopener");
+        if (tab) {
+          tab.opener = null;
+          tab.location.href = d.verificationUriComplete;
+        } else window.open(d.verificationUriComplete, "_blank", "noopener");
         poll(d);
       } catch (e) {
+        tab?.close();
+        resolve(null);
         setMessage(e instanceof Error ? e.message : String(e));
       }
     });
+  };
 
   if (device)
     return (
       <div className="flex flex-col gap-3 rounded-[20px] border border-line bg-panel p-4">
         <div className="eyebrow">Confirm on {site}</div>
-        <div className="font-mono text-[1.75rem] font-medium tracking-[0.12em]">{device.userCode}</div>
-        <p className="text-[0.8125rem] leading-snug text-mute">A tab opened at {site}. {site === "x.ai" ? "Check the code matches and approve." : "Enter this code and approve."} This page continues on its own.</p>
         <div className="flex items-center gap-3">
-          <a href={device.verificationUriComplete} target="_blank" rel="noopener noreferrer" className="text-[0.8125rem] font-medium underline underline-offset-4">
+          <div className="font-mono text-[1.75rem] font-medium tracking-[0.12em]">{device.userCode}</div>
+          {!device.codeInLink && (
+            <button onClick={() => copy(device.userCode)} className="ml-auto rounded-full border border-ink/15 px-3 py-1 text-[0.75rem] font-medium hover:border-ink/40">
+              {copied ? "Copied" : "Copy"}
+            </button>
+          )}
+        </div>
+        <p className="text-[0.8125rem] leading-snug text-mute">
+          A tab opened at {site}.{" "}
+          {device.codeInLink
+            ? "The code is filled in. Check it matches and approve."
+            : copied
+              ? "The code is copied. Paste it into the first box and approve."
+              : "Enter this code and approve."}{" "}
+          This page continues on its own.
+        </p>
+        <div className="flex items-center gap-3">
+          <a
+            href={device.verificationUriComplete}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => !device.codeInLink && copy(device.userCode)}
+            className="text-[0.8125rem] font-medium underline underline-offset-4"
+          >
             Open {site} again
           </a>
           <span className="flex items-center gap-1.5 text-[0.75rem] text-mute">
