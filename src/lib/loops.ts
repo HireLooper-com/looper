@@ -11,6 +11,7 @@ import type { User } from "./types";
 //   LOOPS_API_KEY        Loops → Settings → API
 //   LOOPS_TX_NEEDS_YOU   transactional email id; data variables: name, looperName, question,
 //                        detail, count, url
+//   LOOPS_TX_SIGN_IN_CODE  transactional email id for sign-in codes; data variable: code
 
 const API = "https://app.loops.so/api/v1";
 
@@ -19,8 +20,9 @@ export const hasLoops = () => !!process.env.LOOPS_API_KEY;
 const appUrl = () =>
   process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
 
-function send(path: string, body: unknown) {
-  if (!hasLoops()) return;
+/** Runs in the background; await the result only when the caller needs to know it was accepted. */
+function send(path: string, body: unknown): Promise<boolean> {
+  if (!hasLoops()) return Promise.resolve(false);
   const p = fetch(`${API}${path}`, {
     method: path.startsWith("/contacts/") ? "PUT" : "POST",
     headers: { Authorization: `Bearer ${process.env.LOOPS_API_KEY}`, "Content-Type": "application/json" },
@@ -29,9 +31,14 @@ function send(path: string, body: unknown) {
   })
     .then(async (r) => {
       if (!r.ok) console.error(`[loops] ${path} ${r.status} ${(await r.text()).slice(0, 200)}`);
+      return r.ok;
     })
-    .catch((e) => console.error(`[loops] ${path}`, e instanceof Error ? e.message : e));
+    .catch((e) => {
+      console.error(`[loops] ${path}`, e instanceof Error ? e.message : e);
+      return false;
+    });
   waitUntil(p);
+  return p;
 }
 
 /** Create or update the person in Loops' audience. */
@@ -44,6 +51,13 @@ export function loopsContact(user: Pick<User, "id" | "email" | "name">, props: R
 export function loopsEvent(email: string | undefined, eventName: string, eventProperties: Record<string, string | number | boolean> = {}) {
   if (!email) return;
   send("/events/send", { email, eventName, eventProperties });
+}
+
+export const hasSignInCodes = () => hasLoops() && !!process.env.LOOPS_TX_SIGN_IN_CODE;
+
+/** Email a 6-digit sign-in code. Resolves to whether Loops accepted it. */
+export function sendSignInCode(email: string, code: string) {
+  return send("/transactional", { transactionalId: process.env.LOOPS_TX_SIGN_IN_CODE, email, dataVariables: { code } });
 }
 
 /** Email the people in a workspace that a looper is waiting on them, at most every 30 minutes each. */

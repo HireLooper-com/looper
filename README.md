@@ -1,6 +1,6 @@
 # Looper
 
-Hire AI **loopers**: autonomous operators that each own exactly one business metric and work it every day. Hosted at [hirelooper.com](https://hirelooper.com), or deploy your own on Vercel with Supabase ([one click](#on-vercel-with-supabase)).
+Hire AI **loopers**: autonomous operators that each own exactly one business metric and work it every day. Hosted at [hirelooper.com](https://hirelooper.com), or deploy your own on Vercel with Neon ([one click](#on-vercel-with-neon)).
 
 Each looper has:
 
@@ -28,8 +28,8 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 
 | Want | Set |
 | --- | --- |
-| Postgres instead of files (Supabase, Neon, …) | `DATABASE_URL` (or `POSTGRES_URL`, as the Vercel integrations set it) |
-| Sign in with Google, GitHub or a 6-digit email code | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Supabase Auth) |
+| Postgres instead of files (Neon, …) | `DATABASE_URL` (or `POSTGRES_URL`, as the Neon integration on Vercel sets it) |
+| Sign in with a 6-digit email code | `LOOPS_API_KEY`, `LOOPS_TX_SIGN_IN_CODE` ([Loops](https://loops.so) sends the code) |
 | One-click app connections | `COMPOSIO_API_KEY` |
 | Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_TX_NEEDS_YOU` ([Loops](https://loops.so)) |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
@@ -37,14 +37,14 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 
 Billing (Stripe) and included Claude credits are for the hosted service only; they stay off unless their keys are set.
 
-### On Vercel with Supabase
+### On Vercel with Neon
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FHireLooper-com%2Flooper&project-name=looper&repository-name=looper&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22supabase%22%2C%22integrationSlug%22%3A%22supabase%22%7D%5D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FHireLooper-com%2Flooper&project-name=looper&repository-name=looper&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22neon%22%2C%22integrationSlug%22%3A%22neon%22%7D%5D)
 
-The button copies this repository to your GitHub, creates a Vercel project and a Supabase database, and deploys. Or by hand:
+The button copies this repository to your GitHub, creates a Vercel project and a Neon database, and deploys. Or by hand:
 
 1. In Vercel, **Add New → Project** and import this repository.
-2. Connect a Supabase project: from Vercel's **Storage** tab (Supabase), or from Supabase's **Integrations → Vercel**. Either sets `POSTGRES_URL` and the `NEXT_PUBLIC_SUPABASE_*` keys for you. The Data API isn't needed; leave it off.
+2. In the project's **Storage** tab, create a Neon database and connect it. That sets `DATABASE_URL` for you.
 3. Redeploy. The app creates its table on first use and keeps its session secret in the database, so nothing else is required. Add `CRON_SECRET` so only Vercel Cron can run the scheduler, and the optional keys above as you need them.
 
 ## How it works
@@ -53,7 +53,7 @@ The button copies this repository to your GitHub, creates a Vercel project and a
 - **Models:** `src/lib/llm.ts` resolves the workspace's model: a Grok or ChatGPT plan, an API key, or hosted credits (metered in `src/lib/billing.ts`).
 - **Runs:** `src/lib/agent.ts` runs skills, retros, Chief and the scheduler. App tools stay out of the model's context until the looper finds them with `find_tools`, so thousands of tools cost a few definitions per step.
 - **Computer:** `src/lib/computer.ts` gives each looper a persistent Vercel Sandbox with Chrome ([agent-browser](https://github.com/vercel-labs/agent-browser)). It's stopped after every turn, logs every step with a screenshot, and stops at bot checks instead of fighting them.
-- **Sign-in:** `src/lib/supabase-auth.ts` (Google, GitHub, email codes) or `src/lib/oauth/*` (Grok, ChatGPT), then an HMAC-signed session cookie (`src/lib/session.ts`).
+- **Sign-in:** `src/lib/email-code.ts` (6-digit email codes, sent by Loops) or `src/lib/oauth/*` (Grok, ChatGPT), then an HMAC-signed session cookie (`src/lib/session.ts`).
 
 ## License
 

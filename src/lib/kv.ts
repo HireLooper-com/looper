@@ -5,8 +5,8 @@ import { attachDatabasePool } from "@vercel/functions";
 import { Pool } from "pg";
 
 /**
- * Tiny JSON key-value store. Postgres when DATABASE_URL (or POSTGRES_URL, which the Supabase and
- * Neon integrations on Vercel set) is there, so every server instance
+ * Tiny JSON key-value store. Postgres when DATABASE_URL (or POSTGRES_URL, which the Neon
+ * integration on Vercel sets) is there, so every server instance
  * shares state; local JSON files otherwise, for zero-setup development.
  * `update` is a locked read-modify-write: SELECT … FOR UPDATE in Postgres, a per-key queue on disk.
  */

@@ -82,7 +82,7 @@ export async function allWorkspaceIds(): Promise<string[]> {
 }
 
 /**
- * Sign in: find the user behind an identity (e.g. "supabase:<id>", "xai:<sub>"), else one with the
+ * Sign in: find the user behind an identity (e.g. "email:<address>", "xai:<sub>"), else one with the
  * same verified email (so a new sign-in method lands in the same account), else create one.
  * `linkTo` attaches the identity to that signed-in user instead.
  */

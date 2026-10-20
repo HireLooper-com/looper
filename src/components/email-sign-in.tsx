@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { finishSupabaseSignIn } from "@/app/auth-actions";
-import { safeNext, supabase } from "@/lib/supabase-browser";
+import { sendEmailCode, signInWithEmailCode } from "@/app/auth-actions";
 import { cx } from "./ui";
+
+/** Where to go after signing in: only paths on this site. */
+const safeNext = (next: string | undefined) => (next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
 
 const button = "flex h-12 w-full items-center justify-center gap-2.5 rounded-full px-5 text-[0.9375rem] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
 /** A 6-digit code by email. */
-export function SupabaseSignIn({ next }: { next?: string }) {
+export function EmailSignIn({ next }: { next?: string }) {
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -21,8 +23,8 @@ export function SupabaseSignIn({ next }: { next?: string }) {
       setError(null);
       const e = email.trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return setError("Enter a valid email address.");
-      const { error } = await supabase().auth.signInWithOtp({ email: e, options: { shouldCreateUser: true } });
-      if (error) return setError(error.message);
+      const r = await sendEmailCode(e);
+      if (r) return setError(r.error);
       setSentTo(e);
       setCode("");
     });
@@ -30,10 +32,7 @@ export function SupabaseSignIn({ next }: { next?: string }) {
   const verify = (token: string) =>
     start(async () => {
       setError(null);
-      const { data, error } = await supabase().auth.verifyOtp({ email: sentTo!, token, type: "email" });
-      if (error || !data.session) return setError(error?.message ?? "That code didn't work. Try again or send a new one.");
-      const r = await finishSupabaseSignIn(data.session.access_token);
-      await supabase().auth.signOut({ scope: "local" });
+      const r = await signInWithEmailCode(sentTo!, token);
       if (r) return setError(r.error);
       window.location.assign(target);
     });

@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { LogoMark } from "@/components/brand";
 import { ChatGPTButton, GrokSignIn } from "@/components/sign-in";
-import { SupabaseSignIn } from "@/components/supabase-sign-in";
-import { hasSupabaseAuth } from "@/lib/supabase-auth";
+import { EmailSignIn } from "@/components/email-sign-in";
+import { hasEmailCodes } from "@/lib/email-code";
 import { isLocalServer } from "@/lib/db";
 import { currentUser } from "@/lib/session";
 
@@ -28,7 +28,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           ? `/hire?template=${tpl}`
           : "/";
   if (await currentUser()) redirect(target);
-  const hosted = hasSupabaseAuth();
+  const hosted = hasEmailCodes();
   const notice = typeof chatgpt === "string" ? MESSAGES[chatgpt] : undefined;
   const isLocal = isLocalServer();
 
@@ -51,7 +51,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <div className="mt-8 flex flex-col gap-3 text-left">
             {hosted ? (
               <>
-                <SupabaseSignIn next={target} />
+                <EmailSignIn next={target} />
                 <div className="my-1 flex items-center gap-3 text-[0.75rem] text-faint">
                   <span className="h-px flex-1 bg-line" />
                   or

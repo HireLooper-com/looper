@@ -1,20 +1,27 @@
 "use server";
 
 import { emailAllowed } from "@/lib/db";
+import { checkCode, emailCode } from "@/lib/email-code";
 import { setSession, setWorkspace } from "@/lib/session";
-import { verifySupabaseToken } from "@/lib/supabase-auth";
 import { upsertUser } from "@/lib/workspace";
 
-/** Turn a fresh Supabase sign-in into our session. Returns an error to show, or null. */
-export async function finishSupabaseSignIn(accessToken: string): Promise<{ error: string } | null> {
-  try {
-    const who = await verifySupabaseToken(accessToken);
-    if (!emailAllowed(who.email)) return { error: "This account isn't on the allowed list for this workspace." };
-    const user = await upsertUser({ identity: `supabase:${who.id}`, email: who.email, name: who.name, avatar: who.avatar, provider: who.provider });
-    await setSession(user.id);
-    await setWorkspace(user.id);
-    return null;
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Sign-in didn't complete. Try again." };
-  }
+const clean = (email: string) => email.trim().toLowerCase();
+
+/** Email a 6-digit sign-in code. Returns an error to show, or null. */
+export async function sendEmailCode(email: string): Promise<{ error: string } | null> {
+  const e = clean(email);
+  if (!emailAllowed(e)) return { error: "This email isn't on the allowed list for this workspace." };
+  const error = await emailCode(e);
+  return error ? { error } : null;
+}
+
+/** Sign in with the code from the email. Returns an error to show, or null. */
+export async function signInWithEmailCode(email: string, code: string): Promise<{ error: string } | null> {
+  const e = clean(email);
+  if (!emailAllowed(e)) return { error: "This email isn't on the allowed list for this workspace." };
+  if (!(await checkCode(e, code))) return { error: "That code didn't work. Try again or send a new one." };
+  const user = await upsertUser({ identity: `email:${e}`, email: e, provider: "email" });
+  await setSession(user.id);
+  await setWorkspace(user.id);
+  return null;
 }

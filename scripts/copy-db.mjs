@@ -1,4 +1,4 @@
-// Copy every row of the key-value table from one Postgres to another (e.g. Neon → Supabase).
+// Copy every row of the key-value table from one Postgres to another (e.g. one Neon branch to another).
 // Only inserts or updates rows in the target; never deletes anything in either database.
 //   SOURCE_DATABASE_URL=… TARGET_DATABASE_URL=… node scripts/copy-db.mjs           (dry run: counts only)
 //   SOURCE_DATABASE_URL=… TARGET_DATABASE_URL=… node scripts/copy-db.mjs --write
