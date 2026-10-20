@@ -42,28 +42,7 @@ export const infraSpent = (ws: Workspace | undefined) => (ws?.infra?.month === m
 
 // — Metering —
 
-// Claude Sonnet 5.5 list prices per token (USD). Opus 5.5 is double.
-const PRICES: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  "claude-sonnet-5-5": { input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.1e-6 },
-  "claude-opus-5-5": { input: 4e-6, output: 20e-6, cacheWrite: 5e-6, cacheRead: 0.2e-6 },
-  "claude-haiku-5-5": { input: 0.1e-6, output: 0.5e-6, cacheWrite: 0.125e-6, cacheRead: 0.01e-6 },
-};
-
-export interface UsageLike {
-  inputTokens?: number;
-  outputTokens?: number;
-  inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number; noCacheTokens?: number };
-  cachedInputTokens?: number;
-}
-
-/** What a model call cost, from its token usage. Unknown models are priced as Opus to be safe. */
-export function costOf(model: string, u: UsageLike) {
-  const p = PRICES[model] ?? PRICES["claude-opus-5-5"];
-  const cacheRead = u.inputTokenDetails?.cacheReadTokens ?? u.cachedInputTokens ?? 0;
-  const cacheWrite = u.inputTokenDetails?.cacheWriteTokens ?? 0;
-  const plain = Math.max(0, (u.inputTokens ?? 0) - cacheRead - cacheWrite);
-  return plain * p.input + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite + (u.outputTokens ?? 0) * p.output;
-}
+// Hosted model calls are priced from the model catalog (./models) and spent here.
 
 export async function spendCredits(wsId: string, usd: number) {
   if (!(usd > 0)) return;

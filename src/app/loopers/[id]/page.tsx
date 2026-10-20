@@ -5,6 +5,8 @@ import { LooperView } from "@/components/looper-view";
 import { readCanvas } from "@/lib/canvas";
 import { computerSummary, hasComputer } from "@/lib/computer";
 import { readDatabase } from "@/lib/database";
+import { read } from "@/lib/db";
+import { modelMenu } from "@/lib/llm";
 import { requireUser } from "@/lib/session";
 import { modelReady } from "@/lib/types";
 
@@ -19,10 +21,11 @@ export default async function LooperPage({ params, searchParams }: PageProps<"/l
   const state = await getState();
   const looper = state.loopers.find((l) => l.id === id);
   if (!looper) notFound();
-  const [table, canvas, computer] = await Promise.all([
+  const [table, canvas, computer, menu] = await Promise.all([
     readDatabase(user.ws, id),
     readCanvas(user.ws, id).catch(() => null),
     hasComputer() ? computerSummary(user.ws, id).catch(() => null) : null,
+    read(user.ws).then((db) => modelMenu(user.ws, db.settings, db.chatModels?.[id])),
   ]);
 
   return (
@@ -38,6 +41,7 @@ export default async function LooperPage({ params, searchParams }: PageProps<"/l
       canvasItems={canvas?.items.filter((i) => i.kind !== "arrow").length ?? 0}
       chat={state.chats?.[id] ?? []}
       ready={modelReady(state.settings)}
+      menu={menu}
       tab={typeof tab === "string" ? tab : "chat"}
     />
   );

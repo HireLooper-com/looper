@@ -146,6 +146,7 @@ export async function finishSignIn(url: URL): Promise<string> {
     };
     d.settings.authMode.openai = "oauth";
     d.settings.provider = "openai";
+    delete d.settings.defaultModel;
   });
 
   const code = b64url(randomBytes(24));
