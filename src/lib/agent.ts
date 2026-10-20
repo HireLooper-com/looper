@@ -1073,6 +1073,30 @@ export async function fillDatabase(uid: string, looperId: string, trigger: Run["
   return runSkill(uid, looperId, skill.id, trigger, skill, 60);
 }
 
+/**
+ * Work the looper's open cards now: one card when cardId is given, else every "To do" card
+ * assigned to the looper. Logged as a run like any skill.
+ */
+export async function workCards(uid: string, looperId: string, cardId?: string, trigger: Run["trigger"] = "manual") {
+  const db = await read(uid);
+  const card = cardId ? db.cards.find((c) => c.id === cardId && c.looperId === looperId) : undefined;
+  if (cardId && !card) throw new Error("Card not found");
+  const skill: Skill = {
+    id: card ? `card-${card.id}` : "work-cards",
+    name: card ? `Work card: ${card.title}` : "Work to do cards",
+    kind: "work",
+    schedule: { type: "manual", time: "09:00", days: [] },
+    instructions: [
+      card
+        ? `Work on this card now, start to finish:\n${card.id}: ${card.title}${card.description ? `\n${card.description}` : ""}`
+        : `Work through your "To do" cards that are yours (not waiting on the owner), most important first, as many as you can finish in this run.`,
+      `Move a card to doing (kanban_move_card) when you start it and to done when it's finished, with a note on what you did. If you get blocked, leave it in doing with a note and add a card for the owner (for: 'you') saying exactly what you need.`,
+      `End with which cards you finished, which are blocked and why.`,
+    ].join("\n"),
+  };
+  return runSkill(uid, looperId, skill.id, trigger, skill, 40);
+}
+
 // ——— Chatting with a looper ———
 
 /** Talk to one looper directly. It answers with its own tools: board, database, apps; it can also
