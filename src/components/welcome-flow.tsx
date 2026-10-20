@@ -9,7 +9,7 @@ import type { LooperSpec } from "@/lib/agent";
 import { templateBySlug } from "@/lib/looper-templates";
 import type { Accent, BusinessProfile, MetricSuggestion } from "@/lib/types";
 import { AppsPanel } from "./apps-panel";
-import { Review } from "./hire-flow";
+import { ReviewChat } from "./hire-flow";
 import { Bot, Button, cx } from "./ui";
 
 type Hired = { id: string; name: string; color?: Accent; firstSkillId?: string; firstSkillName?: string };
@@ -237,8 +237,8 @@ export function WelcomeFlow(props: {
       {step === "review" && spec && (
         <div className="fade-up mt-8">
           <h1 className="text-[2rem] font-semibold tracking-[-0.03em]">Meet {spec.name || "your looper"}</h1>
-          <p className="mt-1 text-[1rem] text-mute">Set where the number is today and where you want it. Nothing runs until you hire.</p>
-          <Review spec={spec} onChange={setSpec} taken={props.taken} color={props.nextColor} />
+          <p className="mt-1 text-[1rem] text-mute">Set where the number is today and where you want it, and tell Chief what to change. Nothing runs until you hire.</p>
+          <ReviewChat spec={spec} onChange={setSpec} taken={props.taken} color={props.nextColor} canChat={props.ready} />
           {error && <p className="mt-3 text-[0.875rem] text-red">{error}</p>}
           <div className="mt-6 flex items-center justify-between gap-3">
             <button onClick={() => setStep("metric")} className="text-[0.875rem] text-mute hover:text-ink">
