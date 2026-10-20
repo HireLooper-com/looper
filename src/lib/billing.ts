@@ -1,17 +1,24 @@
 import "server-only";
 import Stripe from "stripe";
 import { loopsContact, loopsEvent } from "./loops";
-import { getUser, getWorkspace, mutateWorkspace, type Plan, type Workspace } from "./workspace";
+import { getUser, getWorkspace, mutateWorkspace, type Interval, type Plan, type Workspace } from "./workspace";
 
 // Hosted plans. Without STRIPE_SECRET_KEY (self-hosted) everything is open and nothing is metered.
-//   Personal $49/month: unlimited loopers, $49 of AI credits once.
-//   Team $199/month: unlimited collaborators and loopers, $199 of AI credits once.
-// Each workspace may spend up to $5 a month on computers and storage.
+//   Personal $49/month or $294/year: unlimited loopers, $49 of AI credits once.
+//   Team $199/month or $1,194/year: unlimited collaborators and loopers, $199 of AI credits once.
+// Yearly is half the monthly price. Each workspace may spend up to $5 a month on computers and storage.
 
-export const PLANS: Record<Plan, { name: string; usd: number; credits: number; priceEnv: string; blurb: string }> = {
-  personal: { name: "Personal", usd: 49, credits: 49, priceEnv: "STRIPE_PRICE_PERSONAL", blurb: "Unlimited loopers, just you" },
-  team: { name: "Team", usd: 199, credits: 199, priceEnv: "STRIPE_PRICE_TEAM", blurb: "Unlimited collaborators and loopers" },
+export const PLANS: Record<Plan, { name: string; usd: Record<Interval, number>; credits: number; blurb: string }> = {
+  personal: { name: "Personal", usd: { month: 49, year: 294 }, credits: 49, blurb: "Unlimited loopers, just you" },
+  team: { name: "Team", usd: { month: 199, year: 1194 }, credits: 199, blurb: "Unlimited collaborators and loopers" },
 };
+
+// Each Stripe price is found by its lookup key; an env var with the price id overrides it.
+const PRICE_ENV: Record<Plan, Record<Interval, string>> = {
+  personal: { month: "STRIPE_PRICE_PERSONAL", year: "STRIPE_PRICE_PERSONAL_YEARLY" },
+  team: { month: "STRIPE_PRICE_TEAM", year: "STRIPE_PRICE_TEAM_YEARLY" },
+};
+export const lookupKey = (plan: Plan, interval: Interval) => `looper_${plan}_${interval === "year" ? "yearly" : "monthly"}`;
 
 export const INFRA_CAP_USD = 5;
 
@@ -70,25 +77,36 @@ export async function assertInfraBudget(wsId: string) {
 
 // — Stripe —
 
-const priceOf = (plan: Plan) => {
-  const id = process.env[PLANS[plan].priceEnv];
-  if (!id) throw new Error(`Set ${PLANS[plan].priceEnv} to the Stripe price for the ${PLANS[plan].name} plan.`);
-  return id;
-};
+async function priceOf(plan: Plan, interval: Interval) {
+  const id = process.env[PRICE_ENV[plan][interval]];
+  if (id) return id;
+  const { data } = await stripe().prices.list({ lookup_keys: [lookupKey(plan, interval)], active: true, limit: 1 });
+  if (!data[0]) throw new Error(`No Stripe price for ${PLANS[plan].name} (${interval}ly). Give one the lookup key ${lookupKey(plan, interval)} or set ${PRICE_ENV[plan][interval]}.`);
+  return data[0].id;
+}
 
-const planOfPrice = (priceId?: string): Plan | undefined => (Object.keys(PLANS) as Plan[]).find((p) => process.env[PLANS[p].priceEnv] === priceId);
+const PLAN_PRICES = (Object.keys(PLANS) as Plan[]).flatMap((plan) => (["month", "year"] as Interval[]).map((interval) => ({ plan, interval })));
 
-export async function checkoutUrl(ws: Workspace, plan: Plan, email: string | undefined, origin: string, template?: string) {
+function planOfPrice(price?: Stripe.Price) {
+  if (!price) return undefined;
+  return PLAN_PRICES.find(({ plan, interval }) => process.env[PRICE_ENV[plan][interval]] === price.id || lookupKey(plan, interval) === price.lookup_key);
+}
+
+const isActive = (ws: Workspace) => !!ws.billing?.subscriptionId && ACTIVE.has(ws.billing.status);
+
+export async function checkoutUrl(ws: Workspace, plan: Plan, interval: Interval, email: string | undefined, origin: string, template?: string) {
+  // Already subscribed: changes happen in the portal, never in a second subscription.
+  if (isActive(ws)) return portalUrl(ws, origin);
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: priceOf(plan), quantity: 1 }],
+    line_items: [{ price: await priceOf(plan, interval), quantity: 1 }],
     client_reference_id: ws.id,
-    metadata: { workspaceId: ws.id, plan },
-    subscription_data: { metadata: { workspaceId: ws.id, plan } },
+    metadata: { workspaceId: ws.id, plan, interval },
+    subscription_data: { metadata: { workspaceId: ws.id, plan, interval } },
     ...(ws.billing?.customerId ? { customer: ws.billing.customerId } : { customer_email: email }),
     allow_promotion_codes: true,
     success_url: `${origin}/billing?welcome=1${template ? `&template=${encodeURIComponent(template)}` : ""}`,
-    cancel_url: `${origin}/billing?plan=${plan}`,
+    cancel_url: `${origin}/billing?plan=${plan}&interval=${interval}`,
   });
   return session.url!;
 }
@@ -103,17 +121,23 @@ export async function portalUrl(ws: Workspace, origin: string) {
 export async function syncSubscription(sub: Stripe.Subscription) {
   const wsId = sub.metadata?.workspaceId;
   if (!wsId) return;
-  const plan = planOfPrice(sub.items.data[0]?.price.id) ?? (sub.metadata.plan as Plan | undefined);
-  if (!plan) return;
-  const periodEnd = sub.items.data[0]?.current_period_end;
+  const item = sub.items.data[0];
+  const known = planOfPrice(item?.price);
+  const plan = known?.plan ?? (sub.metadata.plan as Plan | undefined);
+  if (!plan || !PLANS[plan]) return;
+  const interval: Interval = known?.interval ?? (item?.price.recurring?.interval === "year" ? "year" : "month");
+  const periodEnd = item?.current_period_end;
+  const cancelAt = sub.cancel_at ?? (sub.cancel_at_period_end ? periodEnd : null);
   const before = (await getWorkspace(wsId))?.billing?.status;
   const ws = await mutateWorkspace(wsId, (w) => {
     w.billing = {
       plan,
+      interval,
       status: sub.status,
       customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
       subscriptionId: sub.id,
       periodEnd: periodEnd ? new Date(periodEnd * 1000).toISOString() : undefined,
+      cancelAt: cancelAt && sub.status !== "canceled" ? new Date(cancelAt * 1000).toISOString() : undefined,
     };
     const grants = new Set(w.creditGrants ?? []);
     if (ACTIVE.has(sub.status) && !grants.has(plan)) {

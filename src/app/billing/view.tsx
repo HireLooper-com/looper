@@ -5,6 +5,7 @@ import { openBillingPortal, startCheckout } from "@/app/billing-actions";
 import { Bot, Button, cx } from "@/components/ui";
 
 type Plan = "personal" | "team";
+type Interval = "month" | "year";
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 const price = (n: number) => `$${Math.round(n)}`;
@@ -15,13 +16,14 @@ const FEATURES: Record<Plan, string[]> = {
 
 export function BillingView(props: {
   workspace: { name: string; kind: "personal" | "team"; isOwner: boolean };
-  billing: { plan: Plan; status: string; periodEnd?: string } | null;
+  billing: { plan: Plan; interval: Interval; status: string; periodEnd?: string; cancelAt?: string; hasCustomer: boolean } | null;
   access: boolean;
   comped: boolean;
   credits: { left: number; granted: number };
   infra: { spent: number; cap: number };
-  plans: { id: Plan; name: string; usd: number; credits: number; blurb: string }[];
+  plans: { id: Plan; name: string; usd: Record<Interval, number>; credits: number; blurb: string }[];
   want?: Plan;
+  wantInterval: Interval;
   welcome: boolean;
   template?: string;
 }) {
@@ -29,6 +31,7 @@ export function BillingView(props: {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [teamName, setTeamName] = useState("");
+  const [interval, setCycle] = useState<Interval>(props.wantInterval);
   const [busy, setBusy] = useState<string | null>(null);
 
   const go = (fn: () => Promise<{ ok: true; url: string } | { ok: false; error: string }>, key: string) =>
@@ -65,22 +68,38 @@ export function BillingView(props: {
 
       {props.access && (
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <Stat label="Plan" value={props.comped ? "Complimentary" : billing ? `${billing.plan === "team" ? "Team" : "Personal"}` : "—"} note={billing ? statusNote(billing) : props.comped ? "On the house" : ""} />
+          <Stat label="Plan" value={props.comped ? "Complimentary" : billing ? `${billing.plan === "team" ? "Team" : "Personal"}${billing.interval === "year" ? " · yearly" : ""}` : "—"} note={billing ? statusNote(billing) : props.comped ? "On the house" : ""} />
           <Stat label="AI credits left" value={money(props.credits.left)} note={props.credits.granted ? `of ${price(props.credits.granted)} included` : "Use your own Grok, ChatGPT or key"} />
           <Stat label="Computers this month" value={money(props.infra.spent)} note={`of ${price(props.infra.cap)} included`} bar={props.infra.spent / props.infra.cap} />
         </div>
       )}
 
-      {props.access && billing && workspace.isOwner && (
+      {billing?.hasCustomer && workspace.isOwner && (
         <div className="mt-4">
           <Button variant="soft" size="sm" disabled={pending} onClick={() => go(openBillingPortal, "portal")}>
-            {busy === "portal" ? "Opening…" : "Manage subscription, invoices and card"}
+            {busy === "portal" ? "Opening…" : props.access ? "Manage subscription, invoices and card" : "Past invoices and card"}
           </Button>
         </div>
       )}
 
       {(!props.access || !billing) && !props.comped && (
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
+        <div role="radiogroup" aria-label="Billing period" className="mt-8 inline-flex rounded-full bg-ink/[0.05] p-1 text-[0.875rem]">
+          {(["month", "year"] as const).map((i) => (
+            <button
+              key={i}
+              role="radio"
+              aria-checked={interval === i}
+              onClick={() => setCycle(i)}
+              className={cx("rounded-full px-4 py-1.5 font-medium", interval === i ? "bg-page shadow-sm" : "text-mute hover:text-ink")}
+            >
+              {i === "month" ? "Monthly" : "Yearly · 50% off"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(!props.access || !billing) && !props.comped && (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
           {props.plans.map((p) => {
             const teamNeedsName = p.id === "team" && workspace.kind === "personal";
             const disabled = pending || (p.id === "personal" && workspace.kind === "team");
@@ -89,11 +108,19 @@ export function BillingView(props: {
                 <div className="flex items-baseline justify-between">
                   <div className="text-[1.125rem] font-semibold">{p.name}</div>
                   <div>
-                    <span className="text-[1.75rem] font-semibold tracking-[-0.03em]">${p.usd}</span>
+                    <span className="text-[1.75rem] font-semibold tracking-[-0.03em]">{interval === "year" ? perMonth(p.usd.year) : `$${p.usd.month}`}</span>
                     <span className="text-[0.875rem] text-mute"> / month</span>
                   </div>
                 </div>
-                <p className="mt-1 text-[0.875rem] text-mute">{p.blurb}</p>
+                <p className="mt-1 text-[0.875rem] text-mute">
+                  {interval === "year" ? (
+                    <>
+                      ${p.usd.year.toLocaleString("en-US")} billed yearly <span className="line-through">${(p.usd.month * 12).toLocaleString("en-US")}</span> · {p.blurb}
+                    </>
+                  ) : (
+                    p.blurb
+                  )}
+                </p>
                 <div className="mt-4 rounded-[12px] bg-ink/[0.05] px-3.5 py-2.5 text-[0.875rem]">
                   <span className="font-semibold">${p.credits} in AI credits</span> <span className="text-mute">included once</span>
                 </div>
@@ -114,7 +141,7 @@ export function BillingView(props: {
                     className="mt-4 h-10 rounded-full bg-ink/[0.05] px-4 text-[0.875rem] outline-none focus:bg-ink/[0.08]"
                   />
                 )}
-                <Button className="mt-4 w-full" disabled={disabled || !workspace.isOwner} onClick={() => go(() => startCheckout(p.id, teamName.trim() || undefined, props.template), p.id)}>
+                <Button className="mt-4 w-full" disabled={disabled || !workspace.isOwner} onClick={() => go(() => startCheckout(p.id, interval, teamName.trim() || undefined, props.template), p.id)}>
                   {busy === p.id ? "Opening checkout…" : p.id === "team" && teamNeedsName ? "Create team & subscribe" : `Get ${p.name}`}
                 </Button>
                 {p.id === "personal" && workspace.kind === "team" && <p className="mt-2 text-[0.75rem] text-mute">Personal is for your personal workspace. Switch to it to subscribe.</p>}
@@ -138,8 +165,16 @@ export function BillingView(props: {
   );
 }
 
-function statusNote(b: { status: string; periodEnd?: string }) {
-  const end = b.periodEnd ? new Date(b.periodEnd).toLocaleDateString([], { day: "numeric", month: "short" }) : "";
+const perMonth = (yearly: number) => {
+  const m = yearly / 12;
+  return `$${Number.isInteger(m) ? m : m.toFixed(2)}`;
+};
+
+const day = (iso: string) => new Date(iso).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+
+function statusNote(b: { status: string; periodEnd?: string; cancelAt?: string }) {
+  if (b.cancelAt && b.status !== "canceled") return `Cancels ${day(b.cancelAt)}`;
+  const end = b.periodEnd ? day(b.periodEnd) : "";
   if (b.status === "active" || b.status === "trialing") return end ? `Renews ${end}` : "Active";
   if (b.status === "past_due") return "Payment failed — update your card";
   return b.status === "canceled" ? "Canceled" : b.status;

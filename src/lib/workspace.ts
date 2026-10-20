@@ -18,14 +18,19 @@ const LEGACY_USERS = "users";
 
 export type Role = "owner" | "member";
 export type Plan = "personal" | "team";
+export type Interval = "month" | "year";
 
 export interface Billing {
   plan: Plan;
+  /** Billed monthly or yearly; older records without it are monthly. */
+  interval?: Interval;
   /** Stripe subscription status: active, trialing, past_due, canceled, … */
   status: string;
   customerId?: string;
   subscriptionId?: string;
   periodEnd?: string;
+  /** Set when the owner cancelled: access ends then. */
+  cancelAt?: string;
 }
 
 export interface Workspace {
