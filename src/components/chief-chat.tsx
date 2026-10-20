@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { askChief, clearChief } from "@/app/actions";
 import type { BriefLine } from "@/lib/inbox";
-import type { ChiefMessage } from "@/lib/types";
+import type { ChiefMessage, ModelMenu } from "@/lib/types";
 import { DailyBrief } from "./daily-brief";
 import { ChatPanel } from "./chat-panel";
+import { ChatModelPicker } from "./model-picker";
 
 const STARTERS = [
   "Hire a looper to grow LinkedIn impressions to 50k/month",
@@ -15,7 +16,7 @@ const STARTERS = [
   "What should I focus on today?",
 ];
 
-export function ChiefChat({ messages, ready, brief, email, inbox }: { messages: ChiefMessage[]; ready: boolean; brief: BriefLine[]; email?: string; inbox: number }) {
+export function ChiefChat({ messages, ready, brief, email, inbox, menu }: { messages: ChiefMessage[]; ready: boolean; brief: BriefLine[]; email?: string; inbox: number; menu: ModelMenu }) {
   return (
     <ChatPanel
       bot={{ name: "Chief", dark: true, seed: "chief" }}
@@ -34,6 +35,7 @@ export function ChiefChat({ messages, ready, brief, email, inbox }: { messages: 
       send={askChief}
       progressTarget="chief"
       clear={clearChief}
+      model={<ChatModelPicker target="chief" menu={menu} />}
     />
   );
 }

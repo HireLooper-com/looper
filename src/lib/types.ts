@@ -1,10 +1,47 @@
 export type Provider = "openai" | "xai" | "anthropic";
 
-export const PROVIDERS: { id: Provider; label: string; plan: string; defaultModel: string; keyHint: string }[] = [
-  { id: "openai", label: "OpenAI", plan: "ChatGPT", defaultModel: "gpt-5.6", keyHint: "sk-…" },
-  { id: "xai", label: "xAI", plan: "Grok", defaultModel: "grok-4.7", keyHint: "xai-…" },
-  { id: "anthropic", label: "Anthropic", plan: "Claude", defaultModel: "claude-sonnet-5-5", keyHint: "sk-ant-…" },
+export const PROVIDERS: { id: Provider; label: string; plan: string; keyHint: string }[] = [
+  { id: "openai", label: "OpenAI", plan: "ChatGPT", keyHint: "sk-…" },
+  { id: "xai", label: "xAI", plan: "Grok", keyHint: "xai-…" },
+  { id: "anthropic", label: "Anthropic", plan: "Claude", keyHint: "sk-ant-…" },
 ];
+
+/** A model to call. No model id means the provider's recommended (newest mid-priced) model. */
+export interface ModelChoice {
+  provider: Provider;
+  model?: string;
+}
+
+/** USD per million tokens, at the provider's API list price. */
+export interface ModelPrice {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
+/** The model picker for one conversation, or for the workspace default. */
+export interface ModelMenu {
+  options: ModelOption[];
+  /** this conversation's pick; unset means the default */
+  picked?: ModelChoice;
+  /** what an unset pick runs on now */
+  fallback?: ModelOption;
+}
+
+/** Who pays for a model call: us (included credits on our key), the user's own API key, or the user's plan (no per-call bill). */
+export type Payer = "us" | "key" | "plan";
+
+/** A model the workspace can pick right now, with how it's paid for. */
+export interface ModelOption {
+  provider: Provider;
+  id: string;
+  name: string;
+  price?: ModelPrice;
+  payer: Payer;
+  /** the one the provider gets when no model is picked */
+  recommended?: boolean;
+}
 
 export interface User {
   id: string;
@@ -66,7 +103,8 @@ export type GrokRoute = "api" | "cli-proxy";
 export interface Settings {
   provider: Provider;
   apiKeys: Partial<Record<Provider, string>>;
-  models: Record<Provider, string>;
+  /** Default for runs and for chats with no model picked. Unset: `provider`'s recommended model. */
+  defaultModel?: ModelChoice;
   integrations: Integration[];
   authMode: Partial<Record<Provider, AuthMode>>;
   oauth: { openai?: OAuthCredential; xai?: OAuthCredential; anthropic?: never };
@@ -254,6 +292,8 @@ export interface DB {
   /** one conversation per looper */
   chats?: Record<string, ChiefMessage[]>;
   asks: Ask[];
+  /** model picked per conversation: "chief" or a looper id */
+  chatModels?: Record<string, ModelChoice>;
 }
 
 /** Settings with secrets masked, safe to send to the browser. */
@@ -343,9 +383,14 @@ export interface LooperCanvas {
   items: CanvasItem[];
 }
 
-/** Can loopers call a model with these settings: a sign-in, a key, or included credits left. */
-export function modelReady(s: PublicSettings) {
-  const mode = s.authMode[s.provider] ?? (s.subscriptions[s.provider] ? "oauth" : "key");
-  if (mode === "credits") return (s.creditsLeft ?? 0) > 0;
-  return mode === "oauth" ? !!s.subscriptions[s.provider] : s.keysSet[s.provider];
+/** Can loopers call this provider: a sign-in, a key, or included credits left. */
+export function providerReady(s: PublicSettings, p: Provider) {
+  const mode = s.authMode[p] ?? (s.subscriptions[p] ? "oauth" : "key");
+  if (mode === "credits") return p === "anthropic" && (s.creditsLeft ?? 0) > 0;
+  // ChatGPT plans only work when Looper runs on the user's own machine.
+  if (mode === "oauth") return !!s.subscriptions[p] && (p !== "openai" || s.isLocal);
+  return s.keysSet[p];
 }
+
+/** Can loopers call any model with these settings. */
+export const modelReady = (s: PublicSettings) => PROVIDERS.some((p) => providerReady(s, p.id));

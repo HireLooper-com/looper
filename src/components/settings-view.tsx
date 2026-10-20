@@ -1,20 +1,23 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import {
   addIntegration,
   checkIntegration,
   disconnectSubscription,
-  listPlanModels,
   removeIntegration,
   removeKey,
-  saveModelSettings,
+  saveApiKey,
+  setConnection,
+  setDefaultModel,
   setGrokRoute,
   toggleIntegration,
 } from "@/app/actions";
-import type { IntegrationKind, Provider, PublicSettings } from "@/lib/types";
+import type { UsageSummary, UsageTotals } from "@/lib/usage";
+import type { IntegrationKind, ModelMenu, Payer, Provider, PublicSettings } from "@/lib/types";
 import { PROVIDERS } from "@/lib/types";
+import { ModelOptions, optionValue, parseOption, price, usd } from "./model-picker";
 import { ChatGPTButton, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
 import { Button, Field, Input, Panel, Pill, Select, cx } from "./ui";
 
@@ -60,20 +63,44 @@ export interface ConnectedApp {
   loopers: { id: string; name: string }[];
 }
 
-export function SettingsView({ settings, apps, notice }: { settings: PublicSettings; apps: ConnectedApp[]; notice?: string }) {
+type Labeled = Omit<UsageSummary, "byModel" | "bySource"> & {
+  byModel: (UsageSummary["byModel"][number] & { name: string })[];
+  bySource: (UsageSummary["bySource"][number] & { name: string })[];
+};
+export interface UsageProps {
+  workspace: Labeled;
+  /** operators only: every workspace */
+  all?: Labeled & { workspaces: number };
+}
+
+export function SettingsView({ settings, menu, usage, apps, notice }: { settings: PublicSettings; menu: ModelMenu; usage: UsageProps; apps: ConnectedApp[]; notice?: string }) {
   return (
-    <div className="mx-auto max-w-5xl px-6 pb-16 pt-10">
+    <div className="mx-auto max-w-5xl px-4 pb-16 pt-10 sm:px-6">
       <h1 className="display text-[2.5rem] sm:text-[3rem]">Settings</h1>
-      <p className="mt-2 max-w-[60ch] text-[1rem] text-mute">Choose which plan your loopers run on, and connect the apps they can use.</p>
+      <p className="mt-2 max-w-[60ch] text-[1rem] text-mute">Connect the AI your loopers run on and the apps they can use.</p>
       {notice && <div className="mt-6 rounded-[12px] bg-blue/10 px-4 py-3 text-[0.875rem] text-blue">{notice}</div>}
 
       <section className="mt-10">
-        <h2 className="mb-3 text-[1.25rem] font-semibold tracking-[-0.01em]">AI plan</h2>
+        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">AI</h2>
+        <p className="mb-4 text-[0.875rem] text-mute">Connect any of these. Every chat has its own model picker with the models they give you, always the current ones.</p>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {PROVIDERS.map((p) => (
             <ProviderCard key={p.id} id={p.id} settings={settings} />
           ))}
         </div>
+        <DefaultModel menu={menu} />
+      </section>
+
+      <section className="mt-12">
+        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Usage this month</h2>
+        <p className="mb-4 text-[0.875rem] text-mute">Every model call, by who pays for it. Plan usage is shown at what the same tokens would cost on the API.</p>
+        <Usage usage={usage.workspace} />
+        {usage.all && (
+          <div className="mt-8">
+            <h3 className="mb-3 text-[1rem] font-semibold">All workspaces <span className="text-[0.8125rem] font-normal text-mute">operators only · {usage.all.workspaces} with usage</span></h3>
+            <Usage usage={usage.all} sources={false} />
+          </div>
+        )}
       </section>
 
       <section className="mt-12">
@@ -113,153 +140,220 @@ export function SettingsView({ settings, apps, notice }: { settings: PublicSetti
   );
 }
 
+const BILLED: Record<Payer, string> = {
+  us: "Included with your Looper plan",
+  key: "Billed per token by the provider",
+  plan: "Counts against your plan's limits",
+};
+
 function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings }) {
   const router = useRouter();
   const meta = PROVIDERS.find((p) => p.id === id)!;
-  const active = settings.provider === id;
   const sub = settings.subscriptions[id];
-  const mode = settings.authMode[id] ?? (sub ? "oauth" : "key");
   const hasKey = settings.keysSet[id];
+  const credits = id === "anthropic" ? settings.creditsLeft : undefined;
+  const mode = settings.authMode[id] ?? (sub ? "oauth" : hasKey ? "key" : credits !== undefined ? "credits" : "key");
   const [key, setKey] = useState("");
-  const [model, setModel] = useState(settings.models[id]);
-  const [planModels, setPlanModels] = useState<{ id: string; name: string }[]>([]);
   const [showKey, setShowKey] = useState(false);
   const [pending, start] = useTransition();
-  const refresh = () => router.refresh();
-
-  useEffect(() => {
-    if (id !== "openai" || !sub) return;
-    listPlanModels("openai").then(setPlanModels).catch(() => setPlanModels([]));
-  }, [id, sub]);
+  const act = (fn: () => Promise<unknown>) => start(async () => { await fn(); router.refresh(); });
 
   const Mark = id === "openai" ? OpenAIMark : id === "anthropic" ? ClaudeMark : GrokMark;
-  const credits = id === "anthropic" ? settings.creditsLeft : undefined;
-  const usable = mode === "credits" ? (credits ?? 0) > 0 : mode === "oauth" ? !!sub : hasKey;
+  const usable = mode === "credits" ? (credits ?? 0) > 0 : mode === "oauth" ? !!sub && (id !== "openai" || settings.isLocal) : hasKey;
+  const payer: Payer = mode === "credits" ? "us" : mode === "oauth" ? "plan" : "key";
+  const how =
+    mode === "credits"
+      ? `Included credits · $${(credits ?? 0).toFixed(2)} left`
+      : mode === "oauth" && sub
+        ? `${meta.plan} plan${sub.email ? ` · ${sub.email}` : ""}`
+        : hasKey
+          ? `${meta.label} API key`
+          : "Not connected";
 
   return (
-    <Panel className={cx("flex flex-col gap-5 p-6", active && "ring-2 ring-blue")}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {id === "xai" ? (
-            <Mark className="h-11 w-11" />
-          ) : (
-            <span className="flex h-11 w-11 items-center justify-center rounded-[22%] bg-ink text-page">
-              <Mark className="h-5 w-5" />
-            </span>
-          )}
-          <div>
-            <div className="text-[1.0625rem] font-semibold">{meta.plan}</div>
-            <div className="text-[0.8125rem] text-mute">
-              {id === "anthropic"
-                ? mode === "credits"
-                  ? `Included credits · $${(credits ?? 0).toFixed(2)} left`
-                  : hasKey
-                    ? "Your API key"
-                    : credits !== undefined
-                      ? `$${credits.toFixed(2)} of included credits`
-                      : "API key"
-                : sub
-                  ? `Signed in${sub.email ? ` as ${sub.email}` : ""}`
-                  : "Not connected"}
-            </div>
+    <Panel className="flex flex-col gap-5 p-6">
+      <div className="flex items-start gap-3">
+        {id === "xai" ? (
+          <Mark className="h-11 w-11 shrink-0" />
+        ) : (
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[22%] bg-ink text-page">
+            <Mark className="h-5 w-5" />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[1.0625rem] font-semibold">{meta.plan}</span>
+            {usable && <Pill tone="green">Connected</Pill>}
           </div>
+          <div className="truncate text-[0.8125rem] text-mute" title={how}>{how}</div>
+          {usable && <div className="text-[0.75rem] text-faint">{BILLED[payer]}</div>}
         </div>
-        {active ? <Pill tone="blue">In use</Pill> : usable ? <Pill tone="green">Ready</Pill> : null}
       </div>
 
       {id === "anthropic" ? (
-        credits !== undefined ? (
-          mode === "credits" ? (
-            <p className="text-[0.8125rem] text-mute">Loopers run on Claude using the credits included with your plan. When they run out, add your own key here or switch to Grok or ChatGPT.</p>
-          ) : (
-            <div>
-              <Button size="sm" variant="soft" disabled={pending || credits <= 0} onClick={() => start(async () => { await saveModelSettings({ provider: id, model, useCredits: true }); refresh(); })}>
-                Use included credits
-              </Button>
-            </div>
-          )
-        ) : null
+        credits !== undefined && mode !== "credits" && (
+          <div>
+            <Button size="sm" variant="soft" disabled={pending || credits <= 0} onClick={() => act(() => setConnection(id, "credits"))}>
+              Use included credits · ${credits.toFixed(2)} left
+            </Button>
+          </div>
+        )
       ) : sub ? (
         <div className="flex flex-col gap-3">
           {id === "openai" && !settings.subscriptions.openai?.sharing && (
             <p className="text-[0.8125rem] text-red">Plan usage wasn&apos;t granted. Sign in again and allow plan usage.</p>
           )}
           <div className="flex flex-wrap gap-2">
-            {mode === "oauth" && hasKey && (
-              <Button size="sm" variant="soft" onClick={() => start(async () => { await saveModelSettings({ provider: id, model, useKey: true }); refresh(); })}>
-                Use API key instead
-              </Button>
-            )}
             {mode === "key" && (
-              <Button size="sm" variant="soft" onClick={() => start(async () => { await saveModelSettings({ provider: id, model, useKey: false }); refresh(); })}>
+              <Button size="sm" variant="soft" disabled={pending} onClick={() => act(() => setConnection(id, "oauth"))}>
                 Use my {meta.plan} plan
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={() => start(async () => { await disconnectSubscription(id); refresh(); })}>
-              Disconnect
+            <Button size="sm" variant="ghost" disabled={pending} onClick={() => act(() => disconnectSubscription(id))}>
+              Disconnect {meta.plan}
             </Button>
           </div>
         </div>
       ) : id === "openai" ? (
         <ChatGPTButton isLocal={settings.isLocal} label="Connect ChatGPT plan" />
       ) : (
-        <GrokSignIn label="Connect Grok plan" onConnected={refresh} />
+        <GrokSignIn label="Connect Grok plan" onConnected={() => router.refresh()} />
       )}
-
-      <Field label="Model">
-        {id === "openai" && mode === "oauth" && planModels.length > 0 ? (
-          <Select value={model} onChange={(e) => setModel(e.target.value)}>
-            {!planModels.some((m) => m.id === model) && <option value={model}>{model}</option>}
-            {planModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </Select>
-        ) : (
-          <Input value={model} onChange={(e) => setModel(e.target.value)} />
-        )}
-      </Field>
 
       {id === "xai" && sub && mode === "oauth" && (
         <Field label="Send Grok requests to" hint="Some SuperGrok tiers get a 403 on xAI's API. The Grok CLI endpoint is what the Grok CLI uses; it's unofficial and identifies as the Grok CLI.">
-          <Select value={settings.grokRoute} onChange={(e) => start(async () => { await setGrokRoute(e.target.value as "api" | "cli-proxy"); refresh(); })}>
+          <Select value={settings.grokRoute} onChange={(e) => act(() => setGrokRoute(e.target.value as "api" | "cli-proxy"))}>
             <option value="api">xAI API (api.x.ai)</option>
             <option value="cli-proxy">Grok CLI endpoint (unofficial)</option>
           </Select>
         </Field>
       )}
 
-      <div>
-        <button className="text-[0.8125rem] text-blue hover:underline" onClick={() => setShowKey((s) => !s)}>
-          {showKey ? "Hide API key" : hasKey ? "API key saved · change" : `Use an ${meta.label} API key instead`}
+      <div className="mt-auto">
+        {hasKey && mode !== "key" && (
+          <Button size="sm" variant="soft" className="mb-3" disabled={pending} onClick={() => act(() => setConnection(id, "key"))}>
+            Use my API key
+          </Button>
+        )}
+        <button className="block text-[0.8125rem] text-blue hover:underline" onClick={() => setShowKey((s) => !s)}>
+          {showKey ? "Hide API key" : hasKey ? "API key saved · change" : `Use an ${meta.label} API key`}
         </button>
         {showKey && (
-          <div className="mt-3 flex gap-2">
+          <form
+            className="mt-3 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              act(async () => {
+                await saveApiKey(id, key);
+                setKey("");
+                setShowKey(false);
+              });
+            }}
+          >
             <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? "Paste to replace" : meta.keyHint} autoComplete="off" />
-            {hasKey && (
-              <Button size="sm" variant="ghost" className="!h-10" onClick={() => start(async () => { await removeKey(id); refresh(); })}>
-                Remove
+            {key ? (
+              <Button size="sm" type="submit" className="!h-10" disabled={pending}>
+                Save
               </Button>
+            ) : (
+              hasKey && (
+                <Button size="sm" type="button" variant="ghost" className="!h-10" onClick={() => act(() => removeKey(id))}>
+                  Remove
+                </Button>
+              )
             )}
-          </div>
+          </form>
         )}
       </div>
+    </Panel>
+  );
+}
 
-      <div className="mt-auto flex justify-end">
-        <Button
-          size="sm"
-          disabled={pending || (!usable && !key)}
-          onClick={() =>
+/** The model for scheduled runs and for chats with nothing picked. */
+function DefaultModel({ menu }: { menu: ModelMenu }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const current = menu.fallback;
+  return (
+    <div className="tile mt-4 flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="text-[0.9375rem] font-semibold">Default model</div>
+        <div className="text-[0.8125rem] text-mute">
+          {current
+            ? `For scheduled runs and chats with no model picked.${current.price ? ` ${price(current.price)} per million tokens in / out.` : ""}`
+            : "Connect one of the above to pick a model."}
+        </div>
+      </div>
+      {menu.options.length > 0 && (
+        <Select
+          className="sm:max-w-[320px]"
+          disabled={pending}
+          value={current ? optionValue(current) : ""}
+          onChange={(e) =>
             start(async () => {
-              await saveModelSettings({ provider: id, model, apiKey: key || undefined, useKey: key ? true : undefined, useCredits: !key && mode === "credits" ? true : undefined });
-              setKey("");
-              refresh();
+              await setDefaultModel(parseOption(e.target.value));
+              router.refresh();
             })
           }
         >
-          {active ? "Save" : `Use ${meta.plan}`}
-        </Button>
+          <ModelOptions options={menu.options} />
+        </Select>
+      )}
+    </div>
+  );
+}
+
+const PAYERS: { id: Payer; label: string; hint: string }[] = [
+  { id: "us", label: "Included credits", hint: "Paid by Looper from your plan" },
+  { id: "key", label: "Your API keys", hint: "Billed to you by the provider" },
+  { id: "plan", label: "Your plans", hint: "API value of ChatGPT and Grok plan usage" },
+];
+
+const tokens = (n: number) => Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+const line = (t: UsageTotals) => `${tokens(t.tokens)} tokens · ${t.calls} call${t.calls === 1 ? "" : "s"}`;
+
+function Usage({ usage, sources = true }: { usage: Labeled; sources?: boolean }) {
+  if (!usage.total.calls) return <p className="tile px-4 py-4 text-[0.875rem] text-mute">No model calls yet this month.</p>;
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {PAYERS.map((p) => {
+          const t = usage.byPayer[p.id];
+          return (
+            <div key={p.id} className="tile p-4">
+              <div className="text-[0.8125rem] text-mute">{p.label}</div>
+              <div className="mt-1 text-[1.5rem] font-semibold tracking-[-0.02em] tabular-nums">{usd(t.usd)}</div>
+              <div className="text-[0.75rem] text-faint">{t.calls ? line(t) : p.hint}</div>
+              {t.unpriced > 0 && <div className="text-[0.75rem] text-faint">{t.unpriced} calls on models without a known price</div>}
+            </div>
+          );
+        })}
       </div>
-    </Panel>
+      <div className={cx("grid grid-cols-1 gap-3", sources && "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]")}>
+        <div className="tile divide-y divide-line overflow-hidden">
+          {usage.byModel.map((m) => (
+            <div key={`${m.provider}|${m.model}|${m.payer}`} className="flex items-center gap-3 px-4 py-2.5 text-[0.875rem]">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">{m.name}</div>
+                <div className="truncate text-[0.75rem] text-mute">{PAYERS.find((p) => p.id === m.payer)!.label} · {line(m)}</div>
+              </div>
+              <div className="shrink-0 tabular-nums">{usd(m.usd)}</div>
+            </div>
+          ))}
+        </div>
+        {sources && (
+          <div className="tile divide-y divide-line self-start overflow-hidden">
+            {usage.bySource.map((x) => (
+              <div key={x.source} className="flex items-center gap-3 px-4 py-2.5 text-[0.875rem]">
+                <div className="min-w-0 flex-1 truncate">{x.name}</div>
+                <div className="shrink-0 text-[0.75rem] text-mute">{tokens(x.tokens)}</div>
+                <div className="w-16 shrink-0 text-right tabular-nums">{usd(x.usd)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

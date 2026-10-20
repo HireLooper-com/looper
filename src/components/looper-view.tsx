@@ -6,12 +6,13 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { askLooper, clearLooperChat, updateLooper } from "@/app/actions";
 import { occurrences } from "@/lib/schedule";
-import type { Ask, Card, ChiefMessage, Looper, PublicSettings, Retro, Run } from "@/lib/types";
+import type { Ask, Card, ChiefMessage, Looper, ModelMenu, PublicSettings, Retro, Run } from "@/lib/types";
 import { cardAssignee } from "@/lib/types";
 import { AppsPanel } from "./apps-panel";
 import { ComputerCard } from "./computer-card";
 import { ComputerView } from "./computer-view";
 import { ChatPanel } from "./chat-panel";
+import { ChatModelPicker } from "./model-picker";
 import { CalendarView } from "./calendar";
 import { CanvasBoard } from "./canvas-board";
 import { DatabaseView } from "./database-view";
@@ -48,6 +49,7 @@ export function LooperView(props: {
   computer: { sessions: number; lastAt?: string; live: boolean } | null;
   chat: ChiefMessage[];
   ready: boolean;
+  menu: ModelMenu;
   tab: string;
 }) {
   const { looper, cards, runs, retros, database } = props;
@@ -199,7 +201,7 @@ export function LooperView(props: {
       {view === "chat" || view === "canvas" ? (
         <div key={view} className="fade-up min-h-0 flex-1">
           {view === "chat" ? (
-            <LooperChat looper={looper} messages={props.chat} runs={runs} asks={props.asks} ready={props.ready} />
+            <LooperChat looper={looper} messages={props.chat} runs={runs} asks={props.asks} ready={props.ready} menu={props.menu} />
           ) : (
             <CanvasBoard looper={{ id: looper.id, name: looper.name, color: looper.color }} running={!!running} />
           )}
@@ -469,7 +471,7 @@ function StatusCard({ looper: saved, now }: { looper: Looper; now: number }) {
   );
 }
 
-function LooperChat({ looper, messages, runs, asks, ready }: { looper: Looper; messages: ChiefMessage[]; runs: Run[]; asks: Ask[]; ready: boolean }) {
+function LooperChat({ looper, messages, runs, asks, ready, menu }: { looper: Looper; messages: ChiefMessage[]; runs: Run[]; asks: Ask[]; ready: boolean; menu: ModelMenu }) {
   return (
     <ChatPanel
       bot={{ name: looper.name, color: looper.color, seed: looper.id }}
@@ -485,6 +487,7 @@ function LooperChat({ looper, messages, runs, asks, ready }: { looper: Looper; m
       send={(t) => askLooper(looper.id, t)}
       progressTarget={`chat:${looper.id}`}
       clear={() => clearLooperChat(looper.id)}
+      model={<ChatModelPicker target={looper.id} menu={menu} />}
     />
   );
 }
