@@ -15,7 +15,9 @@ import { notifyNeedsYou } from "./loops";
 import { describeTool, progressWriter } from "./progress";
 import { describeSchedule, isDue } from "./schedule";
 import { appFromName } from "./apps";
-import type { AppRef, Ask, Card, ChiefMessage, Column, DB, DbValue, Looper, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
+import { LOOPER_TEMPLATES } from "./looper-templates";
+import { normalizeUrl, readSite } from "./site";
+import type { AppRef, Ask, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -614,6 +616,63 @@ export async function hireLooper(uid: string, input: LooperSpec) {
   return r;
 }
 
+/** The owner's business in a few lines, so Chief's drafts and replies fit it. */
+function businessLine(db: DB) {
+  const p = db.profile;
+  return p ? `\nThe business: ${p.name} (${p.url}). ${p.summary}${p.customers ? ` Customers: ${p.customers}` : ""}` : "";
+}
+
+const profileSchema = z.object({
+  name: z.string().describe("the business or product name"),
+  summary: z.string().describe("2 short sentences: what it sells and how it makes money, in plain words"),
+  customers: z.string().describe("who buys, in one short line, e.g. 'Dutch freelancers and small agencies'"),
+  suggestions: z
+    .array(
+      z.object({
+        metric: z.string().describe("the metric, short, e.g. 'Organic signups per week'"),
+        why: z.string().describe("one short sentence on why this one, for this business"),
+        goal: z.string().describe("lowercase phrase that completes 'Hire a looper to …', e.g. 'grow organic signups from search to 100 a week'"),
+        template: z.enum(["none", ...LOOPER_TEMPLATES.map((t) => t.slug)]).describe("a ready-made looper that fits exactly, else 'none'"),
+      }),
+    )
+    .length(3),
+});
+
+/** Without a model (or a readable site) onboarding still offers the ready-made loopers. */
+const templateSuggestions = () =>
+  LOOPER_TEMPLATES.map((t) => ({ metric: t.spec.metric.name, why: t.pitch, goal: `${t.spec.metric.direction === "up" ? "grow" : "cut"} ${t.spec.metric.name.toLowerCase()}`, template: t.slug }));
+
+/** Onboarding: read the business's website and suggest the three metrics worth a looper first. */
+export async function profileBusiness(uid: string, url: string): Promise<BusinessProfile> {
+  const start = normalizeUrl(url);
+  const [site, db] = await Promise.all([readSite(start.toString()).catch(() => null), read(uid)]);
+  const host = new URL(site?.url ?? start).hostname.replace(/^www\./, "");
+  const fallback: BusinessProfile = { url: site?.url ?? start.toString(), name: site?.title.split(/\s[|–—-]\s|[|:]/)[0].trim() || host, summary: site?.description ?? "", customers: "", suggestions: templateSuggestions(), at: now() };
+  if (!site || !hasCredentials(db.settings)) return fallback;
+  const templates = LOOPER_TEMPLATES.map((t) => `- ${t.slug}: ${t.title}, owns "${t.spec.metric.name}". ${t.pitch}`).join("\n");
+  // A model hiccup shouldn't block onboarding: fall back to the ready-made loopers.
+  const out = await callModel(
+    uid,
+    db.settings,
+    {
+      instructions: `${CHIEF_INSTRUCTIONS}\n\nA new owner just gave you their website. Read it and say what the business is, then pick the three business metrics a looper should move first. Prefer numbers that bring revenue or customers and that a looper can move with everyday apps (Gmail, Search Console, social, CRM, docs). Make the three different from each other. Use a ready-made looper when one fits exactly:\n${templates}`,
+      prompt: `Website: ${site.url}\nTitle: ${site.title}\nDescription: ${site.description}\n\n${site.text}`,
+      maxSteps: 1,
+    },
+    Output.object({ schema: profileSchema }),
+  )
+    .then((r) => r.output as Promise<z.infer<typeof profileSchema>>)
+    .catch((e) => (console.error("[onboarding] profile", e), null));
+  if (!out) return fallback;
+  return {
+    ...fallback,
+    name: out.name || fallback.name,
+    summary: out.summary,
+    customers: out.customers,
+    suggestions: out.suggestions.map((s) => ({ metric: s.metric, why: s.why, goal: s.goal, ...(s.template !== "none" ? { template: s.template } : {}) })),
+  };
+}
+
 /** Chief drafts a looper for a goal without hiring it, so the owner can review it first. */
 export async function proposeLooper(uid: string, goal: string): Promise<LooperSpec> {
   const db = await read(uid);
@@ -622,7 +681,7 @@ export async function proposeLooper(uid: string, goal: string): Promise<LooperSp
     uid,
     db.settings,
     {
-      instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}. Current team (pick a name that isn't taken):\n${team}`,
+      instructions: `${CHIEF_INSTRUCTIONS}${businessLine(db)}\n\nToday is ${new Date().toDateString()}. Current team (pick a name that isn't taken):\n${team}`,
       prompt: `Draft one looper for this goal, ready to hire: ${goal}\n\nInclude the apps it needs, a database (5–10 columns), 1–3 skills on sensible schedules whose instructions name the apps, and up to 3 starter cards. If the goal doesn't say the current value, leave metric.current out.`,
       maxSteps: 1,
     },
@@ -835,7 +894,7 @@ async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) 
     const team = db.loopers.map((l) => `- ${l.name} (${l.status}): ${metricLine(l)}${l.apps?.length ? `; apps: ${conn.appsLine(l)}` : ""}`).join("\n") || "- nobody hired yet";
     const result = await callModel(uid, db.settings, {
       progress: live.push,
-      instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}.\nCurrent team:\n${team}\nConnected apps: ${conn.connected.join(", ") || "none yet"}\nMCP hubs: ${conn.hubs.join(", ") || "none (optional)"}`,
+      instructions: `${CHIEF_INSTRUCTIONS}${businessLine(db)}\n\nToday is ${new Date().toDateString()}.\nCurrent team:\n${team}\nConnected apps: ${conn.connected.join(", ") || "none yet"}\nMCP hubs: ${conn.hubs.join(", ") || "none (optional)"}`,
       messages: history,
       tools: chiefTools(uid, actions, links),
       maxSteps: 12,

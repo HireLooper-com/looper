@@ -422,11 +422,11 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
 
 /** Start Composio's hosted connect page for one app; returns the URL to open.
  * `another` adds a further account of an app that's already connected (e.g. a second Stripe). */
-export async function connectApp(looperId: string, slug: string, another = false, returnTo?: "hire") {
+export async function connectApp(looperId: string, slug: string, another = false, returnTo?: "hire" | "welcome") {
   return attempt(() => connectAppInner(looperId, slug, another, returnTo));
 }
 
-async function connectAppInner(looperId: string, slug: string, another: boolean, returnTo?: "hire") {
+async function connectAppInner(looperId: string, slug: string, another: boolean, returnTo?: "hire" | "welcome") {
   const uid = await requireUid();
   let alias: string | undefined;
   if (another) {
@@ -438,7 +438,7 @@ async function connectAppInner(looperId: string, slug: string, another: boolean,
   }
   const h = await headers();
   const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
-  const callback = `${origin}/connect/callback?looper=${encodeURIComponent(looperId)}&app=${encodeURIComponent(slug)}${returnTo === "hire" ? "&return=hire" : ""}`;
+  const callback = `${origin}/connect/callback?looper=${encodeURIComponent(looperId)}&app=${encodeURIComponent(slug)}${returnTo === "hire" || returnTo === "welcome" ? `&return=${returnTo}` : ""}`;
   const link = await composioApi.linkAccount(uid, slug, callback, alias);
   // The callback's query string isn't proof: remember which account we started for whom.
   await kv.set(`composio-link:${link.connected_account_id}`, { uid, looperId, slug }, 3600);

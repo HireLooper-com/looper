@@ -9,10 +9,11 @@ export async function GET(request: NextRequest) {
   const accountId = q.get("connected_account_id") ?? "";
   const looper = q.get("looper") ?? "";
   const app = q.get("app") ?? "";
-  // Connections started while hiring go back to the hiring flow's connect step.
+  // Connections started while hiring or onboarding go back to that flow's connect step.
+  const flow = q.get("return");
   const back = (result: string) =>
     NextResponse.redirect(
-      new URL(q.get("return") === "hire" ? `/hire?looper=${encodeURIComponent(looper)}&${result}` : `/loopers/${encodeURIComponent(looper)}?tab=apps&${result}`, request.url),
+      new URL(flow === "hire" || flow === "welcome" ? `/${flow}?looper=${encodeURIComponent(looper)}&${result}` : `/loopers/${encodeURIComponent(looper)}?tab=apps&${result}`, request.url),
     );
 
   const user = await currentUser();

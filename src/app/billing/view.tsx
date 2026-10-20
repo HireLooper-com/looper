@@ -50,10 +50,10 @@ export function BillingView(props: {
           <Bot dark seed="chief" size={48} className="looping" />
           <div>
             <div className="text-[1.0625rem] font-semibold">You&apos;re in. Welcome to Looper.</div>
-            <p className="text-[0.875rem] text-mute">Your credits are ready. Hire your first looper from a template or tell Chief which business metric to move.</p>
+            <p className="text-[0.875rem] text-mute">Your credits are ready. Tell Chief about your business and hire your first looper in three steps.</p>
           </div>
-          <a href={props.template ? `/hire?template=${encodeURIComponent(props.template)}` : "/hire"} className="ml-auto shrink-0 rounded-full bg-ink px-4 py-2 text-[0.875rem] font-medium text-page hover:bg-ink-2">
-            Hire a looper
+          <a href={props.template ? `/hire?template=${encodeURIComponent(props.template)}` : "/welcome"} className="ml-auto shrink-0 rounded-full bg-ink px-4 py-2 text-[0.875rem] font-medium text-page hover:bg-ink-2">
+            {props.template ? "Hire a looper" : "Get started"}
           </a>
         </div>
       )}

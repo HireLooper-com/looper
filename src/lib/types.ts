@@ -244,8 +244,31 @@ export interface ChiefMessage {
 }
 
 /** One user's private workspace. */
+/** One metric Chief thinks this business should move first, from onboarding. */
+export interface MetricSuggestion {
+  metric: string;
+  why: string;
+  /** "grow organic signups from 40 to 100 a week": becomes "Hire a looper to …" */
+  goal: string;
+  /** a ready-made looper that fits, by slug */
+  template?: string;
+}
+
+/** What Chief knows about the business, read from its website during onboarding. */
+export interface BusinessProfile {
+  url: string;
+  name: string;
+  summary: string;
+  customers: string;
+  suggestions: MetricSuggestion[];
+  at: string;
+}
+
 export interface DB {
   settings: Settings;
+  profile?: BusinessProfile;
+  /** when the owner finished or skipped onboarding */
+  onboarded?: string;
   loopers: Looper[];
   cards: Card[];
   runs: Run[];
