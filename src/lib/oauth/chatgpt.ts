@@ -13,7 +13,7 @@ export const RESOURCE = "https://api.openai.com/v1";
 const SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 const SHARING_SCOPE = "chatgpt.tokens.use.direct";
 const DYNAMIC_CLIENT = "dynamic_agent_client";
-const APP_NAME = "Chieflooper";
+const APP_NAME = "Looper";
 export const CALLBACK_PATH = "/auth/callback";
 export const USAGE_URL = "https://chatgpt.com/settings/usage";
 
