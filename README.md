@@ -34,7 +34,7 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 | Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so)) |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
-| See model spend across all workspaces in Settings | `ADMIN_EMAILS` (comma-separated) |
+| An operators page at `/admin`: onboarding funnel, costs, most active workspaces, who needs a nudge | `ADMIN_EMAILS` (comma-separated) |
 
 Billing (Stripe) and included Claude credits are for the hosted service only; they stay off unless their keys are set.
 

@@ -9,6 +9,7 @@ import { redirect } from "next/navigation";
 import { billingEnabled, creditsLeft, hasAccess } from "@/lib/billing";
 import { hasHostedCredits } from "@/lib/llm";
 import { currentUser } from "@/lib/session";
+import { isAdmin } from "@/lib/usage";
 import { getUser, getWorkspace, workspacesOf } from "@/lib/workspace";
 import { Notices } from "./activity";
 import { CommandPalette } from "./command-palette";
@@ -68,6 +69,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
         workspaces={all.map((w) => ({ id: w.id, name: w.name, kind: w.kind }))}
         billing={billingEnabled()}
         credits={credits}
+        admin={isAdmin(user.email)}
       />
       <main className="min-w-0 flex-1 lg:h-dvh lg:overflow-y-auto">{children}</main>
       <CommandPalette loopers={loopers.map(({ id, name, color, skills }) => ({ id, name, color, skills }))} />

@@ -106,14 +106,7 @@ export function summarize(rows: UsageRow[], month = thisMonth()): UsageSummary {
   return s;
 }
 
-/** Every workspace's usage this month, for the operators: what we pay for, and what runs on users' own keys and plans. */
-export async function allUsage(month = thisMonth()) {
-  const keys = (await kv.keys("usage:")).filter((k) => k.endsWith(`:${month}`));
-  const rows = (await Promise.all(keys.map((k) => kv.get<UsageMonth>(k)))).flatMap((m) => Object.values(m?.rows ?? {}));
-  return { summary: summarize(rows, month), workspaces: keys.length };
-}
-
-/** Operators see the all-workspaces burn: ADMIN_EMAILS="you@company.com,…". */
+/** Operators see /admin, every workspace's funnel, costs and nudges: ADMIN_EMAILS="you@company.com,…". */
 export function isAdmin(email?: string) {
   const list = (process.env.ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   return !!email && list.includes(email.toLowerCase());

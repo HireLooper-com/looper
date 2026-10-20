@@ -59,14 +59,12 @@ export interface ConnectedApp {
   loopers: { id: string; name: string }[];
 }
 
-type Labeled = Omit<UsageSummary, "byModel" | "bySource"> & {
+export type Labeled = Omit<UsageSummary, "byModel" | "bySource"> & {
   byModel: (UsageSummary["byModel"][number] & { name: string })[];
   bySource: (UsageSummary["bySource"][number] & { name: string })[];
 };
 export interface UsageProps {
   workspace: Labeled;
-  /** operators only: every workspace */
-  all?: Labeled & { workspaces: number };
 }
 
 export function SettingsView({ settings, menu, usage, apps, notice }: { settings: PublicSettings; menu: ModelMenu; usage: UsageProps; apps: ConnectedApp[]; notice?: string }) {
@@ -91,12 +89,6 @@ export function SettingsView({ settings, menu, usage, apps, notice }: { settings
         <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Usage this month</h2>
         <p className="mb-4 text-[0.875rem] text-mute">Every model call, by who pays for it. Plan usage is shown at what the same tokens would cost on the API.</p>
         <Usage usage={usage.workspace} />
-        {usage.all && (
-          <div className="mt-8">
-            <h3 className="mb-3 text-[1rem] font-semibold">All workspaces <span className="text-[0.8125rem] font-normal text-mute">operators only · {usage.all.workspaces} with usage</span></h3>
-            <Usage usage={usage.all} sources={false} />
-          </div>
-        )}
       </section>
 
       <section className="mt-12">
@@ -325,7 +317,7 @@ const PAYERS: { id: Payer; label: string; hint: string }[] = [
 const tokens = (n: number) => Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 const line = (t: UsageTotals) => `${tokens(t.tokens)} tokens · ${t.calls} call${t.calls === 1 ? "" : "s"}`;
 
-function Usage({ usage, sources = true }: { usage: Labeled; sources?: boolean }) {
+export function Usage({ usage, sources = true }: { usage: Labeled; sources?: boolean }) {
   if (!usage.total.calls) return <p className="tile px-4 py-4 text-[0.875rem] text-mute">No model calls yet this month.</p>;
   return (
     <div className="flex flex-col gap-4">

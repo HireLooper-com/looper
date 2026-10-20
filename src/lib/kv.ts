@@ -17,6 +17,8 @@ export interface KV {
   update<T, R>(key: string, fallback: () => T, fn: (value: T) => R | Promise<R>): Promise<R>;
   /** Keys starting with `prefix` (live ones only). */
   keys(prefix: string): Promise<string[]>;
+  /** Every live key starting with `prefix` with its value, in one read (for operator overviews). */
+  entries<T>(prefix: string): Promise<[string, T][]>;
 }
 
 // — Postgres —
@@ -90,6 +92,12 @@ const postgres: KV = {
     const r = await pool().query(`SELECT key FROM chieflooper_kv WHERE key LIKE $1 AND ${live}`, [like]);
     return r.rows.map((row) => row.key as string);
   },
+  async entries<T>(prefix: string) {
+    await ensureSchema();
+    const like = prefix.replace(/[\\%_]/g, (c) => `\\${c}`) + "%";
+    const r = await pool().query(`SELECT key, value FROM chieflooper_kv WHERE key LIKE $1 AND ${live}`, [like]);
+    return r.rows.map((row) => [row.key as string, row.value as T] as [string, T]);
+  },
   async update(key, fallback, fn) {
     await ensureSchema();
     const client = await pool().connect();
@@ -148,6 +156,11 @@ const files: KV = {
   keys: async (prefix) => {
     const names = await fs.readdir(path.join(DATA_DIR, "kv")).catch(() => [] as string[]);
     return names.filter((n) => n.endsWith(".json")).map((n) => decodeURIComponent(n.slice(0, -5))).filter((k) => k.startsWith(prefix));
+  },
+  entries: async <T,>(prefix: string) => {
+    const keys = await files.keys(prefix);
+    const values = await Promise.all(keys.map((k) => files.get<T>(k)));
+    return keys.flatMap((k, i) => (values[i] === undefined ? [] : [[k, values[i]] as [string, T]]));
   },
   update: (key, fallback, fn) =>
     serialized(key, async () => {
