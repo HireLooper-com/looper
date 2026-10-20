@@ -34,6 +34,7 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 | Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_TX_NEEDS_YOU` ([Loops](https://loops.so)) |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
+| See model spend across all workspaces in Settings | `ADMIN_EMAILS` (comma-separated) |
 
 Billing (Stripe) and included Claude credits are for the hosted service only; they stay off unless their keys are set.
 
@@ -50,7 +51,8 @@ The button copies this repository to your GitHub, creates a Vercel project and a
 ## How it works
 
 - **Storage:** one key-value table (Postgres) or files. Users and workspaces live in `src/lib/workspace.ts`. A workspace's data is keyed by its id; your personal workspace has your user id.
-- **Models:** `src/lib/llm.ts` resolves the workspace's model: a Grok or ChatGPT plan, an API key, or hosted credits (metered in `src/lib/billing.ts`).
+- **Models:** `src/lib/models.ts` keeps the list of current models and their API prices, fetched from [models.dev](https://models.dev) twice a day. Each chat picks its model from what the workspace has connected (a looper's runs use its chat's pick); `src/lib/llm.ts` resolves it to a Grok or ChatGPT plan, an API key, or hosted credits.
+- **Usage:** every call's tokens and list-price cost are logged per workspace in `src/lib/usage.ts`, split by who pays: included credits (us), the user's API key, or the user's plan.
 - **Runs:** `src/lib/agent.ts` runs skills, retros, Chief and the scheduler. App tools stay out of the model's context until the looper finds them with `find_tools`, so thousands of tools cost a few definitions per step.
 - **Computer:** `src/lib/computer.ts` gives each looper a persistent Vercel Sandbox with Chrome ([agent-browser](https://github.com/vercel-labs/agent-browser)). It's stopped after every turn, logs every step with a screenshot, and stops at bot checks instead of fighting them.
 - **Sign-in:** `src/lib/email-code.ts` (6-digit email codes, sent by Loops) or `src/lib/oauth/*` (Grok, ChatGPT), then an HMAC-signed session cookie (`src/lib/session.ts`).

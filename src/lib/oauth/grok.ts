@@ -136,6 +136,7 @@ export async function pollDevice(flowId: string): Promise<PollResult> {
     db.settings.oauth.xai = { ...credentialFrom(data), ...identity };
     db.settings.authMode.xai = "oauth";
     db.settings.provider = "xai";
+    delete db.settings.defaultModel;
   });
   return { status: "connected", uid: user.id, linked: !!d.linkUid };
 }

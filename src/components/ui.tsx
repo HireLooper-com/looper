@@ -68,7 +68,7 @@ export function Pill({ children, tone = "grey" }: { children: ReactNode; tone?: 
   return (
     <span
       className={cx(
-        "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[0.75rem] font-medium",
+        "inline-flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[0.75rem] font-medium",
         tone === "grey" && "bg-ink/[0.05] text-ink-2",
         tone === "green" && "bg-green/15 text-green-deep",
         tone === "orange" && "bg-orange/12 text-orange",

@@ -20,7 +20,7 @@ import { testIntegration } from "@/lib/integrations";
 import * as chatgpt from "@/lib/oauth/chatgpt";
 import * as grok from "@/lib/oauth/grok";
 import { clearSession, currentUser, requireSessionUser, requireUid, requireUser, setSession } from "@/lib/session";
-import type { AppRef, Card, Column, GrokRoute, Integration, IntegrationKind, Looper, Provider, Skill } from "@/lib/types";
+import type { AppRef, AuthMode, Card, Column, GrokRoute, Integration, IntegrationKind, Looper, ModelChoice, Provider, Skill } from "@/lib/types";
 import { ACCENTS } from "@/lib/types";
 
 const now = () => new Date().toISOString();
@@ -100,15 +100,46 @@ export async function disconnectSubscription(provider: Provider) {
 
 // — Model settings —
 
-export async function saveModelSettings(input: { provider: Provider; model: string; apiKey?: string; useKey?: boolean; useCredits?: boolean }) {
+/** How loopers reach a provider: its included credits, the signed-in plan, or the saved API key. */
+export async function setConnection(provider: Provider, mode: AuthMode) {
   const uid = await requireUid();
-  if (input.useCredits && (input.provider !== "anthropic" || !hasHostedCredits())) throw new Error("Included credits aren't available here.");
+  if (mode === "credits" && (provider !== "anthropic" || !hasHostedCredits())) throw new Error("Included credits aren't available here.");
   await mutate(uid, (db) => {
-    db.settings.provider = input.provider;
-    if (input.model.trim()) db.settings.models[input.provider] = input.model.trim();
-    if (input.apiKey?.trim()) db.settings.apiKeys[input.provider] = input.apiKey.trim();
-    if (input.useCredits) db.settings.authMode[input.provider] = "credits";
-    else if (input.useKey !== undefined) db.settings.authMode[input.provider] = input.useKey ? "key" : "oauth";
+    if (mode === "key" && !db.settings.apiKeys[provider]) throw new Error("Add an API key first.");
+    if (mode === "oauth" && !db.settings.oauth[provider]) throw new Error("Sign in first.");
+    db.settings.authMode[provider] = mode;
+  });
+  return done(true);
+}
+
+export async function saveApiKey(provider: Provider, apiKey: string) {
+  const uid = await requireUid();
+  if (!apiKey.trim()) throw new Error("Paste an API key.");
+  await mutate(uid, (db) => {
+    db.settings.apiKeys[provider] = apiKey.trim();
+    db.settings.authMode[provider] = "key";
+  });
+  return done(true);
+}
+
+/** The model for scheduled runs and for chats with no model picked. */
+export async function setDefaultModel(choice: ModelChoice) {
+  const uid = await requireUid();
+  await mutate(uid, (db) => {
+    db.settings.provider = choice.provider;
+    db.settings.defaultModel = { provider: choice.provider, model: choice.model };
+  });
+  return done(true);
+}
+
+/** Pick the model for one conversation: "chief" or a looper id (a looper's runs use it too). null goes back to the default. */
+export async function setChatModel(target: string, choice: ModelChoice | null) {
+  const uid = await requireUid();
+  await mutate(uid, (db) => {
+    if (target !== "chief" && !db.loopers.some((l) => l.id === target)) throw new Error("Looper not found");
+    db.chatModels ??= {};
+    if (choice) db.chatModels[target] = { provider: choice.provider, model: choice.model };
+    else delete db.chatModels[target];
   });
   return done(true);
 }
@@ -127,12 +158,6 @@ export async function setGrokRoute(route: GrokRoute) {
   const uid = await requireUid();
   await mutate(uid, (db) => void (db.settings.grokRoute = route));
   return done(true);
-}
-
-export async function listPlanModels(provider: Provider) {
-  const uid = await requireUid();
-  if (provider === "openai") return chatgpt.listChatGPTModels(uid);
-  return [];
 }
 
 // — Chief —

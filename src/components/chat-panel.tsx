@@ -54,6 +54,8 @@ export function ChatPanel(props: {
   progressTarget: string;
   /** shown above the conversation, e.g. Chief's daily brief */
   header?: React.ReactNode;
+  /** the model picker, shown next to send */
+  model?: React.ReactNode;
 }) {
   const { bot, messages, runs = [], asks = [], ready } = props;
   const router = useRouter();
@@ -189,8 +191,9 @@ export function ChatPanel(props: {
             rows={1}
             disabled={!ready}
             placeholder={ready ? props.placeholder : "Connect your plan in Settings to chat"}
-            className="max-h-40 min-h-9 flex-1 resize-none bg-transparent py-2 text-[0.9375rem] outline-none placeholder:text-faint"
+            className="max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-[0.9375rem] outline-none placeholder:text-faint"
           />
+          {props.model}
           <button
             type="submit"
             disabled={!ready || working || !text.trim()}

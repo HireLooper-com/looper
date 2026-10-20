@@ -1,5 +1,5 @@
 import "server-only";
-import { isStepCount, Output, streamText, tool, type ModelMessage, type ToolSet } from "ai";
+import { isStepCount, Output, streamText, tool, type LanguageModelUsage, type ModelMessage, type ToolSet } from "ai";
 import { nanoid } from "nanoid";
 import { after } from "next/server";
 import { z } from "zod";
@@ -10,12 +10,14 @@ import { activeAccounts, composioTools, hasComposio, resolveApps } from "./compo
 import { computerSession, hasComputer, wipeComputer } from "./computer";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
-import { getModel, hasCredentials } from "./llm";
+import { getModel, hasCredentials, type ResolvedModel } from "./llm";
 import { notifyNeedsYou } from "./loops";
 import { describeTool, progressWriter } from "./progress";
 import { describeSchedule, isDue } from "./schedule";
+import { usdOf } from "./models";
+import { recordUsage, type UsageRow } from "./usage";
 import { appFromName } from "./apps";
-import type { AppRef, Ask, Card, ChiefMessage, Column, DB, DbValue, Looper, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
+import type { AppRef, Ask, Card, ChiefMessage, Column, DB, DbValue, Looper, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -59,17 +61,26 @@ interface CallOptions {
   onText?: (soFar: string) => void;
   /** quick back-and-forth (chat): ask for less reasoning where the model allows it */
   fast?: boolean;
+  /** the conversation's picked model; the workspace default otherwise */
+  model?: ModelChoice;
+  /** who the tokens are logged against: "chief" or a looper id, in a chat or a run */
+  usage: { source: string; kind: UsageRow["kind"] };
 }
 
 // Models that refused a reasoning-effort setting; we stop sending it to them.
 const noEffort = new Set<string>();
 
-function fastOptions(settings: Settings, base: Record<string, Record<string, unknown>> | undefined) {
-  const key = `${settings.provider}:${settings.models[settings.provider]}`;
-  if (noEffort.has(key)) return base;
-  const provider = settings.provider === "openai" ? "openai" : "xai";
-  return { ...base, [provider]: { ...base?.[provider], reasoningEffort: "low" } };
+function fastOptions(m: ResolvedModel, base: Record<string, Record<string, unknown>> | undefined) {
+  if (noEffort.has(`${m.provider}:${m.modelId}`) || m.provider === "anthropic") return base;
+  return { ...base, [m.provider]: { ...base?.[m.provider], reasoningEffort: "low" } };
 }
+
+const tokensOf = (u: LanguageModelUsage) => ({
+  input: u.inputTokens ?? 0,
+  output: u.outputTokens ?? 0,
+  cacheRead: u.inputTokenDetails?.cacheReadTokens ?? 0,
+  cacheWrite: u.inputTokenDetails?.cacheWriteTokens ?? 0,
+});
 
 /**
  * Every call streams: ChatGPT plan usage requires stream:true and store:false, and the same
@@ -77,20 +88,20 @@ function fastOptions(settings: Settings, base: Record<string, Record<string, unk
  * so a hub with thousands of tools costs a handful of definitions per step.
  */
 async function callModel(uid: string, settings: Settings, opts: CallOptions, output?: Parameters<typeof streamText>[0]["output"]) {
+  const m = await getModel(uid, settings, opts.model);
   try {
-    return await callModelOnce(uid, settings, opts, output, !!opts.fast);
+    return await callModelOnce(uid, m, opts, output, !!opts.fast);
   } catch (e) {
     // Some models don't take a reasoning effort; remember and retry without it.
     if (opts.fast && /reasoning/i.test(e instanceof Error ? e.message : String(e))) {
-      noEffort.add(`${settings.provider}:${settings.models[settings.provider]}`);
-      return callModelOnce(uid, settings, opts, output, false);
+      noEffort.add(`${m.provider}:${m.modelId}`);
+      return callModelOnce(uid, m, opts, output, false);
     }
     throw e;
   }
 }
 
-async function callModelOnce(uid: string, settings: Settings, opts: CallOptions, output: Parameters<typeof streamText>[0]["output"], fast: boolean) {
-  const m = await getModel(uid, settings);
+async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, output: Parameters<typeof streamText>[0]["output"], fast: boolean) {
   const base = opts.tools ?? {};
   const external = opts.external ?? {};
   const hasExternal = Object.keys(external).length > 0;
@@ -120,7 +131,7 @@ async function callModelOnce(uid: string, settings: Settings, opts: CallOptions,
     instructions: opts.instructions,
     ...(opts.messages ? { messages: opts.messages } : { prompt: opts.prompt ?? "" }),
     tools: Object.keys(all).length ? m.wrapTools(all) : undefined,
-    providerOptions: (fast ? fastOptions(settings, m.providerOptions as Record<string, Record<string, unknown>>) : m.providerOptions) as typeof m.providerOptions,
+    providerOptions: (fast ? fastOptions(m, m.providerOptions as Record<string, Record<string, unknown>>) : m.providerOptions) as typeof m.providerOptions,
     stopWhen: isStepCount(opts.maxSteps ?? 12),
     prepareStep: () => {
       if (Date.now() - startedAt > SOFT_BUDGET_MS) {
@@ -137,7 +148,7 @@ async function callModelOnce(uid: string, settings: Settings, opts: CallOptions,
     abortSignal: AbortSignal.timeout(HARD_LIMIT_MS),
     output,
     // Subscription usage errors (limits) shouldn't be retried automatically.
-    maxRetries: (settings.authMode[settings.provider] ?? "key") === "oauth" ? 0 : 2,
+    maxRetries: m.payer === "plan" ? 0 : 2,
     onError: ({ error }) => {
       failure = error;
     },
@@ -157,8 +168,15 @@ async function callModelOnce(uid: string, settings: Settings, opts: CallOptions,
     },
   });
   await result.consumeStream();
-  // Spend hosted credits even when the call failed partway: the tokens were used.
-  if (m.meter) await Promise.resolve(result.totalUsage).then(m.meter).catch(() => undefined);
+  // Log the tokens (and spend hosted credits) even when the call failed partway: they were used.
+  await Promise.resolve(result.totalUsage)
+    .then(async (u) => {
+      const tokens = tokensOf(u);
+      if (!tokens.input && !tokens.output) return;
+      const usd = m.price && usdOf(m.price, tokens);
+      await Promise.all([m.meter?.(tokens), recordUsage(uid, { provider: m.provider, model: m.modelId, payer: m.payer, ...opts.usage, tokens, usd })]);
+    })
+    .catch((e) => console.error("[usage]", e));
   if (failure) throw failure;
   return result;
 }
@@ -387,6 +405,8 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
     const table = (await readDatabase(uid, looper.id)) ?? (await designDatabase(uid, looper.id).catch(() => null));
     const database = [describeDatabase(table), describeCanvas(await readCanvas(uid, looper.id))].filter(Boolean).join("\n\n");
     const result = await callModel(uid, db.settings, {
+      model: db.chatModels?.[looper.id],
+      usage: { source: looper.id, kind: "run" },
       instructions: looperBrief(db, looper, database),
       prompt: [
         `Run your skill "${skill.name}" now.`,
@@ -455,6 +475,8 @@ export async function runRetro(uid: string, looperId: string, trigger: Run["trig
       uid,
       db.settings,
       {
+        model: db.chatModels?.[looper.id],
+        usage: { source: looper.id, kind: "run" },
         instructions: looperBrief(db, looper),
         progress: live.push,
         prompt: [
@@ -622,6 +644,8 @@ export async function proposeLooper(uid: string, goal: string): Promise<LooperSp
     uid,
     db.settings,
     {
+      model: db.chatModels?.chief,
+      usage: { source: "chief", kind: "chat" },
       instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}. Current team (pick a name that isn't taken):\n${team}`,
       prompt: `Draft one looper for this goal, ready to hire: ${goal}\n\nInclude the apps it needs, a database (5–10 columns), 1–3 skills on sensible schedules whose instructions name the apps, and up to 3 starter cards. If the goal doesn't say the current value, leave metric.current out.`,
       maxSteps: 1,
@@ -834,6 +858,8 @@ async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) 
     const conn = await appConnections(uid, db);
     const team = db.loopers.map((l) => `- ${l.name} (${l.status}): ${metricLine(l)}${l.apps?.length ? `; apps: ${conn.appsLine(l)}` : ""}`).join("\n") || "- nobody hired yet";
     const result = await callModel(uid, db.settings, {
+      model: db.chatModels?.chief,
+      usage: { source: "chief", kind: "chat" },
       progress: live.push,
       instructions: `${CHIEF_INSTRUCTIONS}\n\nToday is ${new Date().toDateString()}.\nCurrent team:\n${team}\nConnected apps: ${conn.connected.join(", ") || "none yet"}\nMCP hubs: ${conn.hubs.join(", ") || "none (optional)"}`,
       messages: history,
@@ -891,6 +917,8 @@ export async function designDatabase(uid: string, looperId: string) {
     uid,
     db.settings,
     {
+      model: db.chatModels?.[looper.id],
+      usage: { source: looper.id, kind: "run" },
       instructions: looperBrief(db, looper, ""),
       prompt: [
         `Design your database: the table you'll keep current on every run. One row = one unit of your work (for a VAT looper: one bank transaction; for an SEO looper: one blog post or idea; for sales: one lead).`,
@@ -1033,6 +1061,8 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
       }),
     };
     const result = await callModel(uid, db.settings, {
+      model: db.chatModels?.[looperId],
+      usage: { source: looperId, kind: "chat" },
       instructions: [
         looperBrief(db, looper, [describeDatabase(table), describeCanvas(canvas)].filter(Boolean).join("\n\n")),
         `You're chatting with your owner. Answer as ${looper.name}, briefly and concretely, in first person. Use your tools to look things up instead of guessing; you can change your own instructions and skills when asked.`,
