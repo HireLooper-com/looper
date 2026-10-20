@@ -3,6 +3,7 @@ import { tickUser } from "@/lib/agent";
 import { read } from "@/lib/db";
 import { inboxItems, metricDelta, metricNow, trend } from "@/lib/inbox";
 import { isDue } from "@/lib/schedule";
+import { areaOf } from "@/lib/types";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { billingEnabled, hasAccess } from "@/lib/billing";
@@ -42,6 +43,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
       name: l.name,
       color: l.color,
       metricName: l.metric.name,
+      area: areaOf(l),
       paused: l.status === "paused",
       metric: value === undefined ? "No reading yet" : `${fmt(value)} now · target ${fmt(l.metric.target)}`,
       trend: t.text,

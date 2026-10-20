@@ -123,9 +123,23 @@ export interface Looper {
   apps?: AppRef[];
   /** short role tag shown next to the name, e.g. "Accounting" */
   role?: string;
+  /** Sidebar group. Unset on older loopers; see areaOf. */
+  area?: Area;
   status: "active" | "paused";
   createdAt: string;
 }
+
+/** Distribution loopers grow reach, traffic, leads or revenue; operations loopers keep the business running. */
+export type Area = "distribution" | "operations";
+export const AREAS: { id: Area; label: string }[] = [
+  { id: "distribution", label: "Distribution" },
+  { id: "operations", label: "Operations" },
+];
+
+const DISTRIBUTION = /\b(seo|geo|social|marketing|content|ads?|ppc|sales|growth|leads?|outreach|linkedin|newsletter|pr|brand|community|impressions|traffic|clicks|signups|revenue|roas|demos?)\b/i;
+
+/** A looper's sidebar group: its own, or guessed from its role and business metric. */
+export const areaOf = (l: Pick<Looper, "area" | "role" | "metric">): Area => l.area ?? (DISTRIBUTION.test(`${l.role ?? ""} ${l.metric.name}`) ? "distribution" : "operations");
 
 export type Accent = "green" | "orange" | "lavender" | "blue" | "ink";
 export const ACCENTS: Accent[] = ["green", "orange", "lavender", "blue", "ink"];

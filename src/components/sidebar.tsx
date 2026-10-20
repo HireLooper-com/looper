@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { signOutApp } from "@/app/actions";
 import { switchWorkspace } from "@/app/workspace-actions";
-import type { Accent } from "@/lib/types";
+import { AREAS, type Accent, type Area } from "@/lib/types";
 import { WorkingTray } from "./activity";
 import { openPalette } from "./command-palette";
 import { Bot, cx } from "./ui";
@@ -16,6 +16,8 @@ export interface SidebarLooper {
   color: Accent;
   /** "missing invoices", shown next to the name */
   metricName: string;
+  /** Sidebar group: Distribution or Operations */
+  area: Area;
   paused: boolean;
   /** "26 now · target 0" */
   metric: string;
@@ -136,23 +138,28 @@ export function Sidebar({
 
           <WorkingTray loopers={loopers} />
 
-          <div className="eyebrow px-3 pb-1 pt-4">Team</div>
-          {loopers.map((l) => (
-            <Link key={l.id} href={`/loopers/${l.id}`} className={row(path.startsWith(`/loopers/${l.id}`))} title={l.running ? `${l.name} is working` : undefined}>
-              <Bot color={l.color} seed={l.id} size={44} className={cx(l.running && "looping", l.paused && "opacity-40 grayscale")} />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="shrink-0 text-[0.9375rem] font-medium">{l.name}</span>
-                  <span className="min-w-0 truncate rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute" title={l.metricName}>{l.metricName}</span>
-                  <Count n={l.needsYou} />
-                </span>
-                <span className="flex items-center gap-2 text-[0.8125rem] text-mute">
-                  <span className="min-w-0 flex-1 truncate">{l.paused ? "Paused" : l.running ? "Working…" : l.metric}</span>
-                  {!l.paused && !l.running && l.trend && <span className="shrink-0 tabular-nums text-[0.75rem]">{l.trend}</span>}
-                </span>
-              </span>
-            </Link>
-          ))}
+          {AREAS.map(({ id, label }) => {
+            const group = loopers.filter((l) => l.area === id);
+            return group.length > 0 && [
+              <div key={id} className="eyebrow px-3 pb-1 pt-4">{label}</div>,
+              ...group.map((l) => (
+                <Link key={l.id} href={`/loopers/${l.id}`} className={row(path.startsWith(`/loopers/${l.id}`))} title={l.running ? `${l.name} is working` : undefined}>
+                  <Bot color={l.color} seed={l.id} size={44} className={cx(l.running && "looping", l.paused && "opacity-40 grayscale")} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="shrink-0 text-[0.9375rem] font-medium">{l.name}</span>
+                      <span className="min-w-0 truncate rounded-[5px] bg-ink/[0.05] px-1.5 text-[0.6875rem] text-mute" title={l.metricName}>{l.metricName}</span>
+                      <Count n={l.needsYou} />
+                    </span>
+                    <span className="flex items-center gap-2 text-[0.8125rem] text-mute">
+                      <span className="min-w-0 flex-1 truncate">{l.paused ? "Paused" : l.running ? "Working…" : l.metric}</span>
+                      {!l.paused && !l.running && l.trend && <span className="shrink-0 tabular-nums text-[0.75rem]">{l.trend}</span>}
+                    </span>
+                  </span>
+                </Link>
+              )),
+            ];
+          })}
           {loopers.length === 0 && (
             <Link href="/hire" className="mx-1 mt-1 block rounded-[14px] border border-dashed border-ink/15 px-3 py-4 text-center text-[0.8125rem] text-mute hover:text-ink">
               Hire your first looper

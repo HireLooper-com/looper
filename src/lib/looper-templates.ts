@@ -23,6 +23,7 @@ export const LOOPER_TEMPLATES: LooperTemplate[] = [
     spec: {
       name: "Sage",
       role: "SEO",
+      area: "distribution",
       emoji: "🔎",
       mission:
         "Grow organic search traffic and visibility in AI answers (GEO). Work from real data in Google Search Console, find the pages and questions with the biggest upside, and improve them one at a time: better titles and descriptions, clear answers near the top, FAQ sections, structured data, internal links, and an llms.txt. Check how search engines and AI assistants answer our key questions, and close the gaps where competitors are cited and we're not. " +
@@ -85,6 +86,7 @@ export const LOOPER_TEMPLATES: LooperTemplate[] = [
     spec: {
       name: "Juno",
       role: "Support",
+      area: "operations",
       emoji: "💬",
       mission:
         "Make every customer feel heard quickly. Watch the support inbox, triage new conversations, and draft accurate, warm replies grounded in our docs, pricing and past answers (pinned on the canvas). Keep first response time low, flag urgent and angry customers to the owner at once, and turn repeated questions into FAQ entries and repeated problems into bug cards. Drafts only: " +
@@ -146,6 +148,7 @@ export const LOOPER_TEMPLATES: LooperTemplate[] = [
     spec: {
       name: "Echo",
       role: "Social",
+      area: "distribution",
       emoji: "📣",
       mission:
         "Share our progress every week, in public, in the owner's voice: what we shipped, what we learnt (including what didn't work), and the numbers that moved. Gather facts from GitHub, Linear and the owner's notes, write one honest, specific post for LinkedIn and X plus a short changelog, and grow the audience week over week. No hype, no invented metrics; concrete beats clever. " +

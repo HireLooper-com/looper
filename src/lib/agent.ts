@@ -553,6 +553,10 @@ function dedupeApps(apps: AppRef[]) {
 export const looperSpec = z.object({
   name: z.string().describe("short, human first name–style, e.g. 'Ivy'"),
   role: z.string().max(24).optional().describe("one-word role tag, e.g. 'Accounting', 'SEO', 'Sales'"),
+  area: z
+    .enum(["distribution", "operations"])
+    .optional()
+    .describe("'distribution' if it grows reach, traffic, leads or revenue (SEO, social, ads, sales); 'operations' if it keeps the business running (support, bugs, finance)"),
   emoji: z.string().default("◎"),
   mission: z.string(),
   metric: z.object({ name: z.string(), unit: z.string(), direction: z.enum(["up", "down"]), target: z.number(), current: z.number().optional() }),
@@ -590,6 +594,7 @@ export async function hireLooper(uid: string, input: LooperSpec) {
       integrationIds: "all",
       apps,
       role: input.role,
+      area: input.area,
       status: "active",
       createdAt: now(),
     };
