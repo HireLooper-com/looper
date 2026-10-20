@@ -238,10 +238,11 @@ function build({ meta, db, usage, users, nudged, teamOnly }: Raw, now: number, s
     members: meta.members.length,
     createdAt: signup,
     lastSeen,
-    plan: meta.billing ? PLANS[meta.billing.plan]?.name : undefined,
+    plan: meta.billing ? `${PLANS[meta.billing.plan]?.name}${meta.billing.interval === "year" ? " yearly" : ""}` : undefined,
     status: meta.billing?.status,
     comped: !!meta.comped,
-    mrr: plan && meta.billing?.status === "active" && !meta.comped ? PLANS[plan].usd : 0,
+    // Yearly plans count as a twelfth of their price each month.
+    mrr: plan && meta.billing?.status === "active" && !meta.comped ? (meta.billing.interval === "year" ? PLANS[plan].usd.year / 12 : PLANS[plan].usd.month) : 0,
     reached,
     at: { signup, profile: db.profile?.at, hire, run: firstOk },
     site: db.profile?.url,
