@@ -4,6 +4,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
 import type { LanguageModel, ToolSet } from "ai";
 import { chatgptAccessToken, listChatGPTModels, RESOURCE, USAGE_URL } from "./oauth/chatgpt";
+import { codexAuth, CODEX_BASE, codexBody, codexHeaders } from "./oauth/codex";
 import { API_BASE, CLI_PROXY_BASE, cliProxyHeaders, grokAccessToken, GROK_USAGE_URL, isGrokEntitlementError } from "./oauth/grok";
 import { creditsLeft, spendCredits } from "./billing";
 import { isLocalServer } from "./db";
@@ -38,11 +39,14 @@ const identity = <T,>(t: T) => t;
 const modeOf = (settings: Settings, p: Provider) => settings.authMode[p] ?? (settings.oauth[p] ? "oauth" : "key");
 const payerOf = (mode: string): Payer => (mode === "credits" ? "us" : mode === "oauth" ? "plan" : "key");
 
-/** Can this provider be called: included credits on this server, a sign-in (ChatGPT only on your own machine), or a key. */
+/** ChatGPT signed in through the Codex CLI's login; it runs anywhere and uses the API's model ids. */
+const viaCodex = (settings: Settings) => settings.oauth.openai?.via === "codex";
+
+/** Can this provider be called: included credits on this server, a sign-in (official ChatGPT only on your own machine), or a key. */
 export function usable(settings: Settings, p: Provider) {
   const mode = modeOf(settings, p);
   if (mode === "credits") return p === "anthropic" && hasHostedCredits();
-  if (mode === "oauth") return !!settings.oauth[p] && (p !== "openai" || isLocalServer());
+  if (mode === "oauth") return !!settings.oauth[p] && (p !== "openai" || isLocalServer() || viaCodex(settings));
   return !!settings.apiKeys[p];
 }
 
@@ -66,16 +70,42 @@ export async function getModel(uid: string, settings: Settings, choice?: ModelCh
   const mode = modeOf(settings, provider);
   let modelId = picked.model || recommendedModel(catalog, provider).id;
   // A ChatGPT plan may not offer the API's recommended model; then take the plan's first.
-  if (!picked.model && provider === "openai" && mode === "oauth") {
+  if (!picked.model && provider === "openai" && mode === "oauth" && !viaCodex(settings)) {
     const plan = await listChatGPTModels(uid).catch(() => []);
     if (plan.length && !plan.some((m) => m.id === modelId)) modelId = plan[0].id;
   }
   const price = priceOf(catalog, provider, modelId);
   const meta = { provider, modelId, payer: payerOf(mode), price };
 
+  if (provider === "openai" && mode === "oauth" && viaCodex(settings)) {
+    const openai = createOpenAI({
+      apiKey: "chatgpt-plan",
+      baseURL: CODEX_BASE,
+      fetch: async (url, init) => {
+        const send = async (force: boolean) => {
+          const { token, accountId } = await codexAuth(uid, force);
+          const headers = new Headers(init?.headers);
+          headers.set("authorization", `Bearer ${token}`);
+          for (const [k, v] of Object.entries(codexHeaders(accountId))) headers.set(k, v);
+          headers.delete("openai-organization");
+          headers.delete("openai-project");
+          const body = typeof init?.body === "string" ? codexBody(init.body) : init?.body;
+          return fetch(url, { ...init, headers, body, redirect: "error" });
+        };
+        let res = await send(false);
+        if (res.status === 401) res = await send(true);
+        if (!res.ok) throw await chatgptError(res);
+        return res;
+      },
+    });
+    // Callers always use streamText, which the Codex endpoint requires.
+    return { model: openai.responses(modelId), providerOptions: { openai: { store: false } }, wrapTools: identity, label: "ChatGPT plan (Codex CLI)", ...meta };
+  }
+
   if (provider === "openai" && mode === "oauth") {
     // OpenAI allows plan usage only from apps running on the user's machine.
-    if (!isLocalServer()) throw new Error("ChatGPT plans can only run loopers when Looper runs on your own machine. Switch to Grok or an OpenAI API key in Settings.");
+    if (!isLocalServer())
+      throw new Error("Official ChatGPT sign-in only runs loopers when Looper runs on your own machine. Reconnect ChatGPT through the Codex CLI in Settings, or use an OpenAI API key.");
     const openai = createOpenAI({
       apiKey: "chatgpt-plan",
       baseURL: RESOURCE,
@@ -188,7 +218,7 @@ export async function availableModels(uid: string, settings: Settings): Promise<
       const recommended = recommendedModel(catalog, provider).id;
       let models: { id: string; name: string }[] = catalog.models[provider];
       // A ChatGPT plan offers its own set of models; ask it which.
-      if (provider === "openai" && payer === "plan") models = await listChatGPTModels(uid).catch(() => models);
+      if (provider === "openai" && payer === "plan" && !viaCodex(settings)) models = await listChatGPTModels(uid).catch(() => models);
       const options = models.map((m) => ({ provider, id: m.id, name: m.name, price: priceOf(catalog, provider, m.id), payer, recommended: m.id === recommended }));
       return options.some((o) => o.recommended) ? options : options.map((o, i) => ({ ...o, recommended: i === 0 }));
     }),
@@ -202,6 +232,8 @@ const CHATGPT_ERRORS: Record<string, string> = {
   subscription_sharing_user_unavailable: "ChatGPT plan usage is temporarily unavailable. Try again shortly.",
   subscription_sharing_user_not_eligible: "This ChatGPT account isn't eligible for plan usage in other apps (Plus or Pro required).",
   subscription_sharing_invalid_user: "ChatGPT didn't accept this account. Sign in with ChatGPT again.",
+  usage_limit_reached: `You've reached your ChatGPT plan's Codex usage limit. Check https://chatgpt.com/codex/settings/usage, or use an OpenAI API key.`,
+  usage_not_included: "This ChatGPT plan doesn't include Codex usage (Plus, Pro, Business or Enterprise required).",
 };
 
 async function chatgptError(res: Response) {
@@ -211,7 +243,7 @@ async function chatgptError(res: Response) {
   let param = "";
   try {
     const j = JSON.parse(text);
-    code = j.error?.code ?? "";
+    code = j.error?.code ?? j.error?.type ?? "";
     param = j.error?.param ?? "";
     message = j.error?.message ?? j.detail ?? message;
   } catch {}

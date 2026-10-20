@@ -18,7 +18,7 @@ import type { UsageSummary, UsageTotals } from "@/lib/usage";
 import type { IntegrationKind, ModelMenu, Payer, Provider, PublicSettings } from "@/lib/types";
 import { PROVIDERS } from "@/lib/types";
 import { ModelOptions, optionValue, parseOption, price, usd } from "./model-picker";
-import { ChatGPTButton, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
+import { ChatGPTButton, CodexSignIn, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
 import { Button, Field, Input, Panel, Pill, Select, cx } from "./ui";
 
 const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; header?: string; tone: string }[] = [
@@ -159,13 +159,13 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
   const act = (fn: () => Promise<unknown>) => start(async () => { await fn(); router.refresh(); });
 
   const Mark = id === "openai" ? OpenAIMark : id === "anthropic" ? ClaudeMark : GrokMark;
-  const usable = mode === "credits" ? (credits ?? 0) > 0 : mode === "oauth" ? !!sub && (id !== "openai" || settings.isLocal) : hasKey;
+  const usable = mode === "credits" ? (credits ?? 0) > 0 : mode === "oauth" ? !!sub && (id !== "openai" || settings.isLocal || settings.subscriptions.openai?.via === "codex") : hasKey;
   const payer: Payer = mode === "credits" ? "us" : mode === "oauth" ? "plan" : "key";
   const how =
     mode === "credits"
       ? `Included credits · $${(credits ?? 0).toFixed(2)} left`
       : mode === "oauth" && sub
-        ? `${meta.plan} plan${sub.email ? ` · ${sub.email}` : ""}`
+        ? `${meta.plan} plan${"via" in sub && sub.via === "codex" ? " via Codex CLI" : ""}${sub.email ? ` · ${sub.email}` : ""}`
         : hasKey
           ? `${meta.label} API key`
           : "Not connected";
@@ -215,7 +215,16 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
           </div>
         </div>
       ) : id === "openai" ? (
-        <ChatGPTButton isLocal={settings.isLocal} label="Connect ChatGPT plan" />
+        settings.isLocal ? (
+          <ChatGPTButton isLocal label="Connect ChatGPT plan" />
+        ) : (
+          <div className="flex flex-col gap-2">
+            <CodexSignIn onConnected={() => router.refresh()} />
+            <p className="text-[0.75rem] leading-snug text-mute">
+              Signs in the way the Codex CLI does and runs loopers on your plan&apos;s Codex usage (Plus, Pro, Business or Enterprise). Unofficial and identifies as the Codex CLI. If OpenAI says device codes are off, turn on device code sign-in for Codex in ChatGPT&apos;s security settings.
+            </p>
+          </div>
+        )
       ) : (
         <GrokSignIn label="Connect Grok plan" onConnected={() => router.refresh()} />
       )}

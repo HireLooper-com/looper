@@ -18,6 +18,7 @@ import { wipeComputer } from "@/lib/computer";
 import { deleteDatabase } from "@/lib/database";
 import { testIntegration } from "@/lib/integrations";
 import * as chatgpt from "@/lib/oauth/chatgpt";
+import * as codex from "@/lib/oauth/codex";
 import * as grok from "@/lib/oauth/grok";
 import { clearSession, currentUser, requireSessionUser, requireUid, requireUser, setSession } from "@/lib/session";
 import type { AppRef, AuthMode, Card, Column, GrokRoute, Integration, IntegrationKind, Looper, ModelChoice, Provider, Skill } from "@/lib/types";
@@ -86,6 +87,23 @@ export async function pollGrokLogin(flowId: string) {
   return done({ status: "connected" as const });
 }
 
+export async function startCodexLogin() {
+  return attempt(async () => {
+    const u = await currentUser();
+    return codex.startDevice(u?.id, u?.ws);
+  });
+}
+
+export async function pollCodexLogin(flowId: string) {
+  const r = await codex.pollDevice(flowId);
+  if (r.status !== "connected") return { status: r.status };
+  if (!r.linked) {
+    await setSession(r.uid);
+    (await cookies()).set(HINT_COOKIE, r.uid, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 365 * 86400 });
+  }
+  return done({ status: "connected" as const });
+}
+
 export async function signOutApp() {
   await clearSession();
   return true;
@@ -93,7 +111,10 @@ export async function signOutApp() {
 
 export async function disconnectSubscription(provider: Provider) {
   const uid = await requireUid();
-  if (provider === "openai") await chatgpt.signOut(uid);
+  if (provider === "openai") {
+    if ((await read(uid)).settings.oauth.openai?.via === "codex") await codex.signOut(uid);
+    else await chatgpt.signOut(uid);
+  }
   else await grok.signOut(uid);
   return done(true);
 }
