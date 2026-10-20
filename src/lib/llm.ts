@@ -3,12 +3,14 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
 import type { LanguageModel, ToolSet } from "ai";
-import { chatgptAccessToken, RESOURCE, USAGE_URL } from "./oauth/chatgpt";
+import { chatgptAccessToken, listChatGPTModels, RESOURCE, USAGE_URL } from "./oauth/chatgpt";
+import { codexAuth, CODEX_BASE, codexBody, codexHeaders } from "./oauth/codex";
 import { API_BASE, CLI_PROXY_BASE, cliProxyHeaders, grokAccessToken, GROK_USAGE_URL, isGrokEntitlementError } from "./oauth/grok";
-import { costOf, creditsLeft, spendCredits, type UsageLike } from "./billing";
+import { creditsLeft, spendCredits } from "./billing";
 import { isLocalServer } from "./db";
+import { getCatalog, priceOf, recommendedModel, usdOf, type Catalog, type TokenUsage } from "./models";
 import { getWorkspace } from "./workspace";
-import type { Settings } from "./types";
+import type { ModelChoice, ModelMenu, ModelOption, ModelPrice, Payer, Provider, Settings } from "./types";
 import { PROVIDERS } from "./types";
 
 type ProviderOptions = Record<string, Record<string, string | number | boolean | null>>;
@@ -20,8 +22,13 @@ export interface ResolvedModel {
   wrapTools: <T extends ToolSet>(tools: T) => T;
   /** Human label for errors and UI */
   label: string;
+  provider: Provider;
+  modelId: string;
+  payer: Payer;
+  /** list price; undefined for models the catalog doesn't know */
+  price?: ModelPrice;
   /** Called with each call's token usage (hosted credits are spent here). */
-  meter?: (usage: UsageLike) => Promise<void>;
+  meter?: (tokens: TokenUsage) => Promise<void>;
 }
 
 /** Hosted Claude runs on our key and the workspace's included credits. */
@@ -29,15 +36,76 @@ export const hasHostedCredits = () => !!process.env.ANTHROPIC_API_KEY;
 
 const identity = <T,>(t: T) => t;
 
-/** Resolve the model from the user's own subscription (OAuth) or API key. */
-export async function getModel(uid: string, settings: Settings): Promise<ResolvedModel> {
-  const provider = settings.provider;
-  const modelId = settings.models[provider];
-  const mode = settings.authMode[provider] ?? "key";
+const modeOf = (settings: Settings, p: Provider) => settings.authMode[p] ?? (settings.oauth[p] ? "oauth" : "key");
+const payerOf = (mode: string): Payer => (mode === "credits" ? "us" : mode === "oauth" ? "plan" : "key");
+
+/** ChatGPT signed in through the Codex CLI's login; it runs anywhere and uses the API's model ids. */
+const viaCodex = (settings: Settings) => settings.oauth.openai?.via === "codex";
+
+/** Can this provider be called: included credits on this server, a sign-in (official ChatGPT only on your own machine), or a key. */
+export function usable(settings: Settings, p: Provider) {
+  const mode = modeOf(settings, p);
+  if (mode === "credits") return p === "anthropic" && hasHostedCredits();
+  if (mode === "oauth") return !!settings.oauth[p] && (p !== "openai" || isLocalServer() || viaCodex(settings));
+  return !!settings.apiKeys[p];
+}
+
+/** The workspace default: the picked default model, else the active provider's recommended one. */
+export const defaultChoice = (settings: Settings): ModelChoice => settings.defaultModel ?? { provider: settings.provider };
+
+/**
+ * The model a call uses: the chat's pick, else the workspace default, else any connected provider.
+ * A pick whose provider was disconnected falls through to the next.
+ */
+export function resolveChoice(settings: Settings, choice?: ModelChoice): ModelChoice {
+  const candidates = [choice, settings.defaultModel, { provider: settings.provider }, ...PROVIDERS.map((p) => ({ provider: p.id }))];
+  return candidates.find((c): c is ModelChoice => !!c && usable(settings, c.provider)) ?? choice ?? defaultChoice(settings);
+}
+
+/** Resolve the model from the user's own subscription (OAuth), API key, or included credits. */
+export async function getModel(uid: string, settings: Settings, choice?: ModelChoice): Promise<ResolvedModel> {
+  const catalog = await getCatalog();
+  const picked = resolveChoice(settings, choice);
+  const provider = picked.provider;
+  const mode = modeOf(settings, provider);
+  let modelId = picked.model || recommendedModel(catalog, provider).id;
+  // A ChatGPT plan may not offer the API's recommended model; then take the plan's first.
+  if (!picked.model && provider === "openai" && mode === "oauth" && !viaCodex(settings)) {
+    const plan = await listChatGPTModels(uid).catch(() => []);
+    if (plan.length && !plan.some((m) => m.id === modelId)) modelId = plan[0].id;
+  }
+  const price = priceOf(catalog, provider, modelId);
+  const meta = { provider, modelId, payer: payerOf(mode), price };
+
+  if (provider === "openai" && mode === "oauth" && viaCodex(settings)) {
+    const openai = createOpenAI({
+      apiKey: "chatgpt-plan",
+      baseURL: CODEX_BASE,
+      fetch: async (url, init) => {
+        const send = async (force: boolean) => {
+          const { token, accountId } = await codexAuth(uid, force);
+          const headers = new Headers(init?.headers);
+          headers.set("authorization", `Bearer ${token}`);
+          for (const [k, v] of Object.entries(codexHeaders(accountId))) headers.set(k, v);
+          headers.delete("openai-organization");
+          headers.delete("openai-project");
+          const body = typeof init?.body === "string" ? codexBody(init.body) : init?.body;
+          return fetch(url, { ...init, headers, body, redirect: "error" });
+        };
+        let res = await send(false);
+        if (res.status === 401) res = await send(true);
+        if (!res.ok) throw await chatgptError(res);
+        return res;
+      },
+    });
+    // Callers always use streamText, which the Codex endpoint requires.
+    return { model: openai.responses(modelId), providerOptions: { openai: { store: false } }, wrapTools: identity, label: "ChatGPT plan (Codex CLI)", ...meta };
+  }
 
   if (provider === "openai" && mode === "oauth") {
     // OpenAI allows plan usage only from apps running on the user's machine.
-    if (!isLocalServer()) throw new Error("ChatGPT plans can only run loopers when Looper runs on your own machine. Switch to Grok or an OpenAI API key in Settings.");
+    if (!isLocalServer())
+      throw new Error("Official ChatGPT sign-in only runs loopers when Looper runs on your own machine. Reconnect ChatGPT through the Codex CLI in Settings, or use an OpenAI API key.");
     const openai = createOpenAI({
       apiKey: "chatgpt-plan",
       baseURL: RESOURCE,
@@ -63,6 +131,7 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
           ]),
         ) as unknown as typeof tools,
       label: "ChatGPT plan",
+      ...meta,
     };
   }
 
@@ -101,7 +170,7 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
         return res;
       },
     });
-    return { model: xai.responses(modelId), wrapTools: identity, label: "Grok plan" };
+    return { model: xai.responses(modelId), wrapTools: identity, label: "Grok plan", ...meta };
   }
 
   if (provider === "anthropic" && mode === "credits") {
@@ -112,7 +181,9 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
       model: createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })(modelId),
       wrapTools: identity,
       label: "Included credits",
-      meter: (usage) => spendCredits(uid, costOf(modelId, usage)),
+      ...meta,
+      // A model without a known price is charged as the priciest Claude, to be safe.
+      meter: (tokens) => spendCredits(uid, usdOf(price ?? priciest(catalog), tokens)),
     };
   }
 
@@ -123,21 +194,36 @@ export async function getModel(uid: string, settings: Settings): Promise<Resolve
   }
   switch (provider) {
     case "xai":
-      return { model: createXai({ apiKey })(modelId), wrapTools: identity, label: "xAI API key" };
+      return { model: createXai({ apiKey })(modelId), wrapTools: identity, label: "xAI API key", ...meta };
     case "openai":
-      return { model: createOpenAI({ apiKey })(modelId), wrapTools: identity, label: "OpenAI API key" };
+      return { model: createOpenAI({ apiKey })(modelId), wrapTools: identity, label: "OpenAI API key", ...meta };
     case "anthropic":
-      return { model: createAnthropic({ apiKey })(modelId), wrapTools: identity, label: "Anthropic API key" };
+      return { model: createAnthropic({ apiKey })(modelId), wrapTools: identity, label: "Anthropic API key", ...meta };
   }
 }
 
-/** True when the active provider has a usable sign-in or key. */
+const priciest = (catalog: Catalog) => catalog.models.anthropic.reduce<ModelPrice>((a, m) => (m.price.output > a.output ? m.price : a), { input: 0, output: 0 });
+
+/** True when any provider has a usable sign-in, key or included credits. */
 export function hasCredentials(settings: Settings) {
-  const p = settings.provider;
-  const mode = settings.authMode[p] ?? "key";
-  if (mode === "credits") return hasHostedCredits();
-  if (mode === "oauth") return !!settings.oauth[p];
-  return !!settings.apiKeys[p];
+  return PROVIDERS.some((p) => usable(settings, p.id));
+}
+
+/** Every model the workspace can pick now, across its connected providers, with how each is paid for. */
+export async function availableModels(uid: string, settings: Settings): Promise<ModelOption[]> {
+  const catalog = await getCatalog();
+  const lists = await Promise.all(
+    PROVIDERS.filter((p) => usable(settings, p.id)).map(async ({ id: provider }) => {
+      const payer = payerOf(modeOf(settings, provider));
+      const recommended = recommendedModel(catalog, provider).id;
+      let models: { id: string; name: string }[] = catalog.models[provider];
+      // A ChatGPT plan offers its own set of models; ask it which.
+      if (provider === "openai" && payer === "plan" && !viaCodex(settings)) models = await listChatGPTModels(uid).catch(() => models);
+      const options = models.map((m) => ({ provider, id: m.id, name: m.name, price: priceOf(catalog, provider, m.id), payer, recommended: m.id === recommended }));
+      return options.some((o) => o.recommended) ? options : options.map((o, i) => ({ ...o, recommended: i === 0 }));
+    }),
+  );
+  return lists.flat();
 }
 
 const CHATGPT_ERRORS: Record<string, string> = {
@@ -146,6 +232,8 @@ const CHATGPT_ERRORS: Record<string, string> = {
   subscription_sharing_user_unavailable: "ChatGPT plan usage is temporarily unavailable. Try again shortly.",
   subscription_sharing_user_not_eligible: "This ChatGPT account isn't eligible for plan usage in other apps (Plus or Pro required).",
   subscription_sharing_invalid_user: "ChatGPT didn't accept this account. Sign in with ChatGPT again.",
+  usage_limit_reached: `You've reached your ChatGPT plan's Codex usage limit. Check https://chatgpt.com/codex/settings/usage, or use an OpenAI API key.`,
+  usage_not_included: "This ChatGPT plan doesn't include Codex usage (Plus, Pro, Business or Enterprise required).",
 };
 
 async function chatgptError(res: Response) {
@@ -155,9 +243,18 @@ async function chatgptError(res: Response) {
   let param = "";
   try {
     const j = JSON.parse(text);
-    code = j.error?.code ?? "";
+    code = j.error?.code ?? j.error?.type ?? "";
     param = j.error?.param ?? "";
     message = j.error?.message ?? j.detail ?? message;
   } catch {}
   return new Error(CHATGPT_ERRORS[code] ?? `ChatGPT plan request failed (${res.status}${code ? ` ${code}` : ""}${param ? `, ${param}` : ""}): ${message}`);
+}
+
+/** The picker for one conversation: what can be picked, its pick, and what it runs on without one (the workspace default). */
+export async function modelMenu(uid: string, settings: Settings, picked?: ModelChoice): Promise<ModelMenu> {
+  const options = await availableModels(uid, settings);
+  const d = resolveChoice(settings);
+  const inProvider = options.filter((o) => o.provider === d.provider);
+  const fallback = inProvider.find((o) => o.id === d.model) ?? inProvider.find((o) => o.recommended);
+  return { options, picked, fallback };
 }

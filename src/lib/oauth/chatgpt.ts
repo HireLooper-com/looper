@@ -146,6 +146,7 @@ export async function finishSignIn(url: URL): Promise<string> {
     };
     d.settings.authMode.openai = "oauth";
     d.settings.provider = "openai";
+    delete d.settings.defaultModel;
   });
 
   const code = b64url(randomBytes(24));
@@ -168,7 +169,7 @@ const RELOGIN = new Set(["invalid_grant", "invalid_refresh_token", "token_expire
 export async function chatgptAccessToken(uid: string): Promise<string> {
   const db0 = await read(uid);
   const cred = db0.settings.oauth.openai;
-  if (!cred) throw new Error("ChatGPT isn't connected. Use “Continue with ChatGPT”.");
+  if (!cred || cred.via === "codex") throw new Error("ChatGPT isn't connected. Use “Continue with ChatGPT”.");
   if (!cred.scopes.includes(SHARING_SCOPE)) throw new Error("ChatGPT plan sharing wasn't granted. Sign in again and allow plan usage.");
   const fresh = cred.expiresAt - Date.now() > 60_000;
   const tooEarly = cred.earliestRefreshAt && Date.now() < cred.earliestRefreshAt;
@@ -209,7 +210,7 @@ export async function signOut(uid: string) {
   const db = await read(uid);
   const cred = db.settings.oauth.openai;
   const clientId = db.settings.chatgptClientId;
-  if (cred && clientId) {
+  if (cred && cred.via !== "codex" && clientId) {
     await fetch(`${ISSUER}/api/accounts/oauth/revoke`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },

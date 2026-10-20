@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { getState } from "../actions";
 import { ChiefChat } from "@/components/chief-chat";
-import { requireUser } from "@/lib/session";
 import { modelReady } from "@/lib/types";
 import { dailyBrief, inboxItems } from "@/lib/inbox";
+import { read } from "@/lib/db";
+import { modelMenu } from "@/lib/llm";
+import { requireUser } from "@/lib/session";
 import { getWorkspace } from "@/lib/workspace";
 
 // Server actions on this page can run a looper (model calls + tools), so allow the full 5 minutes.
@@ -17,7 +19,8 @@ export default async function ChiefPage() {
   if (!state.onboarded && state.loopers.length === 0 && state.chief.length === 0) redirect("/welcome");
   const s = state.settings;
   const ready = modelReady(s);
-  const ws = await getWorkspace(user.ws);
+  const [db, ws] = await Promise.all([read(user.ws), getWorkspace(user.ws)]);
+  const menu = await modelMenu(user.ws, db.settings, db.chatModels?.chief);
   // Invite the team once there's something to show: a team of one with a looper that has finished a run.
   const invite = ws?.kind === "team" && ws.members.length === 1 && ws.ownerId === user.id && state.runs.some((r) => r.status === "success");
   const starters = state.profile?.suggestions.length
@@ -27,7 +30,7 @@ export default async function ChiefPage() {
   return (
     <div className="flex h-[calc(100dvh-58px)] flex-col lg:h-dvh">
       <div className="min-h-0 flex-1">
-        <ChiefChat messages={state.chief} ready={ready} brief={dailyBrief(state)} email={state.user.email} inbox={inboxItems(state).length} starters={starters} invite={invite} />
+        <ChiefChat messages={state.chief} ready={ready} brief={dailyBrief(state)} email={state.user.email} inbox={inboxItems(state).length} menu={menu} starters={starters} invite={invite} />
       </div>
     </div>
   );

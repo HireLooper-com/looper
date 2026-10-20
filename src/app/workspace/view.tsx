@@ -47,6 +47,16 @@ export function WorkspaceView(props: { me: string; workspace: { id: string; name
     </section>
   );
 
+  // Opened from "+ New team workspace": show only the create form, so the current
+  // workspace's settings below it don't read as part of the new team.
+  if (props.creating)
+    return (
+      <div className="mx-auto flex max-w-[720px] flex-col gap-4 px-4 py-8 sm:px-6">
+        {create}
+        {error && <p className="text-[0.875rem] text-red">{error}</p>}
+      </div>
+    );
+
   return (
     <div className="mx-auto flex max-w-[720px] flex-col gap-4 px-4 py-8 sm:px-6">
       <div>
@@ -54,7 +64,7 @@ export function WorkspaceView(props: { me: string; workspace: { id: string; name
         <p className="mt-1 text-[0.9375rem] text-mute">{workspace.kind === "team" ? `${props.members.length} member${props.members.length === 1 ? "" : "s"}` : "Only you. Create a team workspace to work with others."}</p>
       </div>
 
-      {(props.creating || workspace.kind === "personal") && create}
+      {workspace.kind === "personal" && create}
 
       {workspace.kind === "team" && (
         <>

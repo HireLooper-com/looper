@@ -14,7 +14,6 @@ function empty(): DB {
     settings: {
       provider: hosted ? "anthropic" : "xai",
       apiKeys: {},
-      models: Object.fromEntries(PROVIDERS.map((p) => [p.id, p.defaultModel])) as Record<Provider, string>,
       integrations: [],
       authMode: hosted ? { anthropic: "credits" } : {},
       oauth: {},
@@ -37,8 +36,8 @@ function normalize(db: Partial<DB>): DB {
   const base = empty();
   for (const k of Object.keys(base) as (keyof DB)[]) if (db[k] === undefined) (db as Record<string, unknown>)[k] = base[k];
   db.settings = Object.assign(base.settings, db.settings);
-  // Providers added later get their default model.
-  db.settings.models = { ...base.settings.models, ...db.settings.models };
+  // Model ids used to be typed in per provider; models now come from the live catalog.
+  delete (db.settings as { models?: unknown }).models;
   if (db.runs && db.runs.length > 1000) db.runs.splice(0, db.runs.length - 1000);
   // A run still "running" long after the 5-minute function limit was cut off and never finished.
   for (const r of db.runs ?? [])
@@ -93,7 +92,11 @@ export function toPublic(db: DB, user: User): PublicState {
       ...rest,
       keysSet: Object.fromEntries(PROVIDERS.map((p) => [p.id, Boolean(apiKeys[p.id])])) as Record<Provider, boolean>,
       subscriptions: {
-        openai: oauth.openai && { email: oauth.openai.email, sharing: oauth.openai.scopes.includes("chatgpt.tokens.use.direct") },
+        openai: oauth.openai && {
+          email: oauth.openai.email,
+          sharing: oauth.openai.via === "codex" || oauth.openai.scopes.includes("chatgpt.tokens.use.direct"),
+          via: oauth.openai.via,
+        },
         xai: oauth.xai && { email: oauth.xai.email },
       },
       isLocal: isLocalServer(),
