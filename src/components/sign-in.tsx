@@ -56,7 +56,7 @@ export function ChatGPTButton({ isLocal, label = "Continue with ChatGPT", classN
 type Device = Extract<Awaited<ReturnType<typeof startGrokLogin>>, { ok: true }>["value"];
 
 /** "Continue with Grok": device code confirmed on x.ai, then polled from here. */
-export function GrokSignIn({ label = "Continue with Grok", onConnected, className }: { label?: string; onConnected?: () => void; className?: string }) {
+export function GrokSignIn({ label = "Continue with Grok", onConnected, next = "/", className }: { label?: string; onConnected?: () => void; next?: string; className?: string }) {
   const router = useRouter();
   const [device, setDevice] = useState<Device | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -73,7 +73,7 @@ export function GrokSignIn({ label = "Continue with Grok", onConnected, classNam
         setDevice(null);
         if (r.status === "connected") {
           if (onConnected) onConnected();
-          else router.push("/");
+          else router.push(next);
           router.refresh();
           return;
         }

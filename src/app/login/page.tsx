@@ -50,11 +50,19 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
           <div className="mt-8 flex flex-col gap-3 text-left">
             {hosted ? (
-              <SupabaseSignIn next={target} />
+              <>
+                <SupabaseSignIn next={target} />
+                <div className="my-1 flex items-center gap-3 text-[0.75rem] text-faint">
+                  <span className="h-px flex-1 bg-line" />
+                  or
+                  <span className="h-px flex-1 bg-line" />
+                </div>
+                <GrokSignIn next={target} />
+              </>
             ) : (
               <>
                 <ChatGPTButton isLocal={isLocal} />
-                <GrokSignIn />
+                <GrokSignIn next={target} />
               </>
             )}
           </div>
@@ -62,21 +70,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
         {hosted ? (
           <p className="mt-6 max-w-[38ch] text-center text-[0.75rem] leading-relaxed text-faint">
-            By continuing you agree to the{" "}
-            <a
-              href="https://hirelooper.com/terms"
-              className="underline hover:text-ink"
-            >
-              terms
-            </a>{" "}
-            and{" "}
-            <a
-              href="https://hirelooper.com/privacy"
-              className="underline hover:text-ink"
-            >
-              privacy policy
-            </a>
-            .
+            Grok sign-in uses your SuperGrok or X Premium subscription through the Grok CLI sign-in, which xAI hasn&apos;t officially opened to other apps, so it may change.
           </p>
         ) : (
           <p className="mt-6 max-w-[38ch] text-center text-[0.75rem] leading-relaxed text-faint">
