@@ -123,6 +123,11 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
   let failure: unknown;
   let writing = false;
   let soFar = "";
+  // The current step's text, for the loop check. Kept apart from soFar, which only tracks when the UI asks.
+  let stepText = "";
+  let checkedAt = 0;
+  let stuck = false;
+  const stop = new AbortController();
   opts.progress?.("Thinking…");
   // Vercel functions stop at 5 minutes. Past the soft budget the model gets no more tools and must
   // wrap up; the hard limit aborts just before the platform would kill the run silently.
@@ -142,12 +147,12 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
         return {
           activeTools: [],
           toolChoice: "none" as const,
-          instructions: `${opts.instructions}\n\nTime is up for this run. Don't call tools. Summarise what you did, what you saved, and exactly what's left for the next run.`,
+          instructions: `${opts.instructions}\n\nTime is up for this run. Your tools are switched off for this last step, so a tool call written as text won't run either. Reply in plain prose: summarise what you did, what you saved, and exactly what's left for the next run.`,
         };
       }
       return hasExternal ? { activeTools: [...Object.keys(base), "find_tools", ...discovered] } : {};
     },
-    abortSignal: AbortSignal.timeout(HARD_LIMIT_MS),
+    abortSignal: AbortSignal.any([AbortSignal.timeout(HARD_LIMIT_MS), stop.signal]),
     output,
     // Subscription usage errors (limits) shouldn't be retried automatically.
     maxRetries: m.payer === "plan" ? 0 : 2,
@@ -155,6 +160,20 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
       failure = error;
     },
     onChunk: ({ chunk }) => {
+      if (chunk.type === "text-delta") {
+        stepText += chunk.text;
+        if (stepText.length - checkedAt > 500) {
+          checkedAt = stepText.length;
+          if (isLooping(stepText)) {
+            stuck = true;
+            stop.abort();
+            return;
+          }
+        }
+      } else if (chunk.type === "tool-result") {
+        stepText = "";
+        checkedAt = 0;
+      }
       if (!opts.progress) return;
       if (chunk.type === "tool-call") opts.progress(describeTool(chunk.toolName, chunk.input));
       else if (chunk.type === "text-delta") {
@@ -179,8 +198,26 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
       await Promise.all([m.meter?.(tokens), recordUsage(uid, { provider: m.provider, model: m.modelId, payer: m.payer, ...opts.usage, tokens, usd })]);
     })
     .catch((e) => console.error("[usage]", e));
+  if (stuck) throw new Error(STUCK);
   if (failure) throw failure;
   return result;
+}
+
+const STUCK = "The model got stuck repeating itself, so Looper stopped it. Anything already saved (rows, cards) is kept. Run it again, or pick another model if it keeps happening.";
+
+/**
+ * Some models (seen with Grok) fall into a degenerate loop: "Yes. OK. Now. Call tools. Yes. OK…"
+ * until the time limit. Real replies, tables and lists included, rarely repeat a sentence; a loop
+ * repeats a handful of them over and over.
+ */
+function isLooping(text: string) {
+  const sentences = text
+    .slice(-6000)
+    .split(/[.!?\n]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(-150);
+  return sentences.length >= 80 && new Set(sentences).size / sentences.length < 0.3;
 }
 
 const SOFT_BUDGET_MS = 210_000;
