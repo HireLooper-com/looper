@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useOptimistic, useState, useTransition } from "react";
+import { useLayoutEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { addCard, deleteCard, editCard, moveCard, workOnCards } from "@/app/actions";
 import type { Accent, Card, Column } from "@/lib/types";
 import { refreshActivity } from "./live";
@@ -189,6 +189,14 @@ function CardSheet({ card, looperName, busy, onRun, onClose, onMove }: { card: C
   const [desc, setDesc] = useState(card.description);
   const [assignee, setAssignee] = useState(cardAssignee(card));
   const [pending, start] = useTransition();
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  // Grow the title field with its content so long titles wrap instead of scrolling sideways.
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title]);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 backdrop-blur-sm sm:items-center" onClick={onClose}>
       <div className="w-full max-w-lg tile p-6" onClick={(e) => e.stopPropagation()}>
@@ -196,7 +204,14 @@ function CardSheet({ card, looperName, busy, onRun, onClose, onMove }: { card: C
           <Pill>{card.createdBy === "looper" ? "Created by looper" : card.createdBy === "chief" ? "From Chief" : "Created by you"}</Pill>
           <button onClick={onClose} className="text-mute hover:text-ink" aria-label="Close">✕</button>
         </div>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-4 w-full bg-transparent text-[1.375rem] font-medium tracking-[-0.02em] outline-none" />
+        <textarea
+          ref={titleRef}
+          rows={1}
+          value={title}
+          onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+          onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+          className="mt-4 block w-full resize-none overflow-hidden bg-transparent text-[1.375rem] font-medium leading-snug tracking-[-0.02em] outline-none"
+        />
         <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={6} placeholder="Notes" className="mt-3" />
         <div className="mt-4 flex items-center gap-3 text-[0.8125rem]">
           <span className="text-mute">For</span>
