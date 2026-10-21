@@ -16,8 +16,12 @@ const API = "https://app.loops.so/api/v1";
 
 export const hasLoops = () => !!process.env.LOOPS_API_KEY;
 
-export const appUrl = () =>
-  process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
+/** The app's origin. APP_URL may be set without a scheme ("app.hirelooper.com"); fetch needs one. */
+export const appUrl = () => {
+  const raw = (process.env.APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || "").trim().replace(/\/+$/, "");
+  if (!raw) return "http://localhost:3000";
+  return /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
+};
 
 /** Runs in the background; await the result only when the caller needs to know it was accepted. */
 function send(path: string, body: unknown): Promise<boolean> {
