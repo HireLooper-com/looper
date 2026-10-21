@@ -256,7 +256,7 @@ function looperBrief(db: DB, l: Looper, database = "") {
     `Mission: ${l.mission}`,
     `Your metric — ${metricLine(l)}. Everything you do should move this number.`,
     `Recent metric history: ${l.metric.history.slice(-8).map((p) => `${p.at.slice(0, 10)}=${p.value}`).join(", ") || "none"}.`,
-    `Open kanban cards:\n${cards.map((c) => `- [${c.column}]${c.assignee === "you" ? " (waiting on the owner)" : ""} ${c.id}: ${c.title}`).join("\n") || "- none"}`,
+    `Open kanban cards:\n${cards.map((c) => `- [${c.column}]${c.assignee === "you" ? " (waiting on the owner)" : ""} ${c.id}: ${c.title}${c.comments?.length ? ` (${c.comments.length} replies, kanban_list shows them)` : ""}`).join("\n") || "- none"}`,
     asksLine(db, l.id),
     retro ? `Your last retro said to try next:\n${retro.tryNext.map((t) => `- ${t}`).join("\n")}` : "",
     `Your skills: ${l.skills.map((s) => `${s.name} (${describeSchedule(s.schedule)})`).join("; ")}.`,
@@ -304,6 +304,19 @@ function boardTools(uid: string, looperId: string, actor: Card["createdBy"]): To
           if (note) card.description = `${card.description}\n\n${note}`.trim();
           card.updatedAt = now();
           return card;
+        }),
+    }),
+    kanban_comment: tool({
+      description:
+        "Reply on a card's thread. When the owner replies on a card (a chat message starting 'Reply on card'), answer there: take in what they did or think, update the card (move it, change who it's for) if that changed, and say what you'll do next.",
+      inputSchema: z.object({ cardId: z.string(), text: z.string().min(1) }),
+      execute: ({ cardId, text }) =>
+        mutate(uid, (db) => {
+          const card = db.cards.find((c) => c.id === cardId && c.looperId === looperId);
+          if (!card) throw new Error(`No card ${cardId}`);
+          (card.comments ??= []).push({ id: nanoid(8), by: "looper", text, at: now() });
+          card.updatedAt = now();
+          return { ok: true };
         }),
     }),
     metric_record: tool({
@@ -1125,7 +1138,7 @@ export async function workCards(uid: string, looperId: string, cardId?: string, 
     schedule: { type: "manual", time: "09:00", days: [] },
     instructions: [
       card
-        ? `Work on this card now, start to finish:\n${card.id}: ${card.title}${card.description ? `\n${card.description}` : ""}`
+        ? `Work on this card now, start to finish:\n${card.id}: ${card.title}${card.description ? `\n${card.description}` : ""}${card.comments?.length ? `\n\nThread on the card:\n${card.comments.map((m) => `- ${m.by === "you" ? "Owner" : "You"}: ${m.text}`).join("\n")}` : ""}`
         : `Work through your "To do" cards that are yours (not waiting on the owner), most important first, as many as you can finish in this run.`,
       `Move a card to doing (kanban_move_card) when you start it and to done when it's finished, with a note on what you did. If you get blocked, leave it in doing with a note and add a card for the owner (for: 'you') saying exactly what you need.`,
       `End with which cards you finished, which are blocked and why.`,

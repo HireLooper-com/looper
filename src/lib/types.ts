@@ -203,8 +203,19 @@ export interface Card {
   createdBy: "looper" | "user" | "chief";
   /** who has to do it: the looper itself, or the person (approve, connect, decide). Default looper. */
   assignee?: "looper" | "you";
+  /** replies on the card: the owner's progress or opinion, the looper's answers */
+  comments?: CardComment[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CardComment {
+  id: string;
+  by: "you" | "looper";
+  text: string;
+  at: string;
+  /** who wrote it, in a shared workspace */
+  author?: ChiefMessage["by"];
 }
 
 export interface ToolCallLog {
