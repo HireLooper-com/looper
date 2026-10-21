@@ -7,30 +7,60 @@ export const alt = "Invite to a Looper workspace";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-/** Link preview for an invite: whose workspace, who sent it. */
+const OG = path.join(process.cwd(), "src/app/invite/[token]/og");
+// The landing page's dock order: pink, lime, cyan, violet, green.
+const LOOPS = [0, 4, 1, 3, 6];
+const asset = (file: string) => readFile(path.join(OG, file));
+
+/** Link preview for an invite, in the hirelooper.com hero style: warm wash, Geist SemiBold, frosted pill. */
 export default async function Image({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const [details, icon] = await Promise.all([inviteDetails(token), readFile(path.join(process.cwd(), "src/app/icon.png"), "base64")]);
-  const title = details ? `Join ${details.ws.name}` : "This invite expired";
+  const [details, font, ...loops] = await Promise.all([inviteDetails(token), asset("Geist-SemiBold.ttf"), ...LOOPS.map((i) => asset(`loop-${i}.png`))]);
+  const full = details?.ws.name ?? "";
+  const name = full.length > 34 ? `${full.slice(0, 33).trimEnd()}…` : full;
   const line = details
-    ? `${details.inviter ? `${details.inviter} invited you` : "You're invited"} to work with the AI loopers in this workspace.`
-    : "Invite links last 14 days. Ask whoever sent it for a new one.";
+    ? `${details.inviter ? `${details.inviter} invited you` : "You're invited"} to work with their AI loopers`
+    : "Invite links last 14 days. Ask for a new one.";
+  const nameSize = name.length > 24 ? 58 : name.length > 16 ? 72 : 92;
+  // Geist SemiBold at the landing page's -0.045em; satori only takes px.
+  const track = (px: number) => -Math.round(px * 0.045 * 10) / 10;
 
   return new ImageResponse(
     (
-      <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 80, background: "#f5f5f7", color: "#1d1d1f" }}>
-        <img src={`data:image/png;base64,${icon}`} width={112} height={112} alt="" style={{ borderRadius: 26 }} />
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: title.length > 26 ? 64 : 84, letterSpacing: "-0.035em", lineHeight: 1.05 }}>{title}</div>
-          <div style={{ marginTop: 24, fontSize: 36, lineHeight: 1.3, color: "#6e6e73", maxWidth: 1040 }}>{line}</div>
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundImage: "radial-gradient(circle at 60% 0%, #f7e1e4 0%, #f1dbc3 55%, #eac39a 100%)",
+          color: "#111111",
+          fontFamily: "Geist",
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, marginBottom: 36 }}>
+          {loops.map((png, i) => (
+            <img key={i} src={`data:image/png;base64,${png.toString("base64")}`} width={80} height={80} alt="" />
+          ))}
         </div>
-        <div style={{ display: "flex", alignItems: "center", fontSize: 28, color: "#6e6e73" }}>
-          <span style={{ color: "#1d1d1f" }}>Looper</span>
-          <span style={{ margin: "0 14px" }}>·</span>
-          <span>Hire AI loopers that drive your business metrics</span>
+        {details ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ fontSize: 92, lineHeight: 1, letterSpacing: track(92) }}>Join</div>
+            <div style={{ display: "flex", marginTop: 10, padding: "6px 28px 14px", borderRadius: 32, background: "rgba(255,255,255,0.5)", fontSize: nameSize, lineHeight: 1.08, letterSpacing: track(nameSize) }}>
+              {name}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 84, lineHeight: 1, letterSpacing: track(84) }}>This invite expired</div>
+        )}
+        <div style={{ marginTop: 30, fontSize: 34, color: "#5f5a53", letterSpacing: track(34) / 2 }}>{line}</div>
+        <div style={{ display: "flex", marginTop: 36, padding: "16px 30px", borderRadius: 16, background: "#111111", color: "#ffffff", fontSize: 28, letterSpacing: track(28) / 2 }}>
+          {details ? "Accept invite" : "hirelooper.com"}
         </div>
       </div>
     ),
-    size,
+    { ...size, fonts: [{ name: "Geist", data: font, weight: 600, style: "normal" }] },
   );
 }
