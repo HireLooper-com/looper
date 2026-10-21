@@ -1,5 +1,7 @@
 # Looper
 
+![Looper: hire AI loopers that each own one business metric](.github/assets/hero.png)
+
 Hire AI **loopers**: autonomous operators that each own exactly one business metric and work it every day. Hosted at [hirelooper.com](https://hirelooper.com), or deploy your own on Vercel with Neon ([one click](#on-vercel-with-neon)).
 
 Each looper has:
