@@ -8,14 +8,12 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 const OG = path.join(process.cwd(), "src/app/invite/[token]/og");
-// The landing page's dock order: pink, lime, cyan, violet, green.
-const LOOPS = [0, 4, 1, 3, 6];
 const asset = (file: string) => readFile(path.join(OG, file));
 
 /** Link preview for an invite, in the hirelooper.com hero style: warm wash, Geist SemiBold, frosted pill. */
 export default async function Image({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const [details, font, ...loops] = await Promise.all([inviteDetails(token), asset("Geist-SemiBold.ttf"), ...LOOPS.map((i) => asset(`loop-${i}.png`))]);
+  const [details, font, logo] = await Promise.all([inviteDetails(token), asset("Geist-SemiBold.ttf"), asset("logo.png")]);
   const full = details?.ws.name ?? "";
   const name = full.length > 34 ? `${full.slice(0, 33).trimEnd()}…` : full;
   const line = details
@@ -40,10 +38,9 @@ export default async function Image({ params }: { params: Promise<{ token: strin
           fontFamily: "Geist",
         }}
       >
-        <div style={{ display: "flex", gap: 10, marginBottom: 36 }}>
-          {loops.map((png, i) => (
-            <img key={i} src={`data:image/png;base64,${png.toString("base64")}`} width={80} height={80} alt="" />
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 40 }}>
+          <img src={`data:image/png;base64,${logo.toString("base64")}`} width={68} height={68} alt="" />
+          <div style={{ fontSize: 44, letterSpacing: track(44) }}>Looper</div>
         </div>
         {details ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
