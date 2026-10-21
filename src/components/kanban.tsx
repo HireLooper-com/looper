@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useOptimistic, useState, useTransition } from "react";
-import { addCard, deleteCard, editCard, moveCard, workOnCards } from "@/app/actions";
-import type { Accent, Card, Column } from "@/lib/types";
+import { addCard, deleteCard, editCard, moveCard, replyToCard, workOnCards } from "@/app/actions";
+import type { Accent, Card, CardComment, Column } from "@/lib/types";
 import { refreshActivity } from "./live";
 import { cardAssignee, COLUMNS } from "@/lib/types";
 import { Bot, Button, Pill, Textarea, cx, timeAgo } from "./ui";
@@ -31,7 +31,9 @@ export function Kanban({ looperId, cards, looperName, color, running }: { looper
   );
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<Column | null>(null);
-  const [open, setOpen] = useState<Card | null>(null);
+  const [openId, setOpen] = useState<string | null>(null);
+  // Follows refreshes, so the looper's answers show up in an open card.
+  const open = optimistic.find((c) => c.id === openId) ?? null;
   const [filter, setFilter] = useState<Filter>("all");
   const forYou = optimistic.filter((c) => cardAssignee(c) === "you" && c.column !== "done").length;
 
@@ -120,7 +122,7 @@ export function Kanban({ looperId, cards, looperName, color, running }: { looper
                     draggable
                     onDragStart={() => setDragging(c.id)}
                     onDragEnd={() => setDragging(null)}
-                    onClick={() => setOpen(c)}
+                    onClick={() => setOpen(c.id)}
                     className={cx(
                       "cursor-grab rounded-[12px] bg-panel p-3 text-left shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-opacity active:cursor-grabbing",
                       cardAssignee(c) === "you" && c.column !== "done" && "ring-2 ring-blue/50",
@@ -141,7 +143,7 @@ export function Kanban({ looperId, cards, looperName, color, running }: { looper
           );
         })}
       </div>
-      {open && <CardSheet card={open} looperName={looperName} busy={busy} onRun={() => { runCards(open.id); setOpen(null); }} onClose={() => setOpen(null)} onMove={(col) => { move(open.id, col); setOpen(null); }} />}
+      {open && <CardSheet key={open.id} card={open} looperId={looperId} color={color} looperName={looperName} busy={busy} onRun={() => { runCards(open.id); setOpen(null); }} onClose={() => setOpen(null)} onMove={(col) => { move(open.id, col); setOpen(null); }} />}
     </>
   );
 }
@@ -183,7 +185,71 @@ function AddCard({ looperId, column, assignee }: { looperId: string; column: Col
   );
 }
 
-function CardSheet({ card, looperName, busy, onRun, onClose, onMove }: { card: Card; looperName: string; busy: boolean; onRun: () => void; onClose: () => void; onMove: (c: Column) => void }) {
+function Thread({ card, looperId, looperName, color }: { card: Card; looperId: string; looperName: string; color: Accent }) {
+  const router = useRouter();
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState<CardComment[]>([]);
+  const [pending, start] = useTransition();
+  const saved = card.comments ?? [];
+  const comments = [...saved, ...sent.filter((s) => !saved.some((c) => c.by === "you" && c.text === s.text))];
+  const waiting = comments.at(-1)?.by === "you" && sent.length > 0;
+  const send = () => {
+    const body = text.trim();
+    if (!body || pending) return;
+    setSent((s) => [...s, { id: `local-${s.length}`, by: "you", text: body, at: new Date().toISOString() }]);
+    setText("");
+    start(async () => {
+      await replyToCard(card.id, body);
+      refreshActivity();
+      router.refresh();
+    });
+  };
+  return (
+    <div className="mt-4">
+      {comments.length > 0 && (
+        <div className="mb-3 flex flex-col gap-3">
+          {comments.map((m) => (
+            <div key={m.id} className="text-[0.875rem]">
+              <div className="mb-0.5 flex items-center gap-1.5 text-[0.75rem] text-mute">
+                {m.by === "looper" ? (
+                  <>
+                    <Bot color={color} size={14} seed={looperId} />
+                    {looperName}
+                  </>
+                ) : (
+                  (m.author?.name ?? "You")
+                )}
+                <span className="text-faint">· {timeAgo(m.at)}</span>
+              </div>
+              <div className="whitespace-pre-wrap leading-relaxed">{m.text}</div>
+            </div>
+          ))}
+          {waiting && <div className="text-[0.75rem] text-faint">{looperName} is reading your reply…</div>}
+        </div>
+      )}
+      <div className="flex items-end gap-2">
+        <Textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          rows={2}
+          placeholder={`Reply to ${looperName}: what you've done, or what you think`}
+          className="text-[0.875rem]"
+        />
+        <Button size="sm" variant="ghost" disabled={!text.trim() || pending} onClick={send}>
+          Reply
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CardSheet({ card, looperId, color, looperName, busy, onRun, onClose, onMove }: { card: Card; looperId: string; color: Accent; looperName: string; busy: boolean; onRun: () => void; onClose: () => void; onMove: (c: Column) => void }) {
   const router = useRouter();
   const [title, setTitle] = useState(card.title);
   const [desc, setDesc] = useState(card.description);
@@ -191,13 +257,14 @@ function CardSheet({ card, looperName, busy, onRun, onClose, onMove }: { card: C
   const [pending, start] = useTransition();
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 backdrop-blur-sm sm:items-center" onClick={onClose}>
-      <div className="w-full max-w-lg tile p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto tile p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <Pill>{card.createdBy === "looper" ? "Created by looper" : card.createdBy === "chief" ? "From Chief" : "Created by you"}</Pill>
           <button onClick={onClose} className="text-mute hover:text-ink" aria-label="Close">✕</button>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-4 w-full bg-transparent text-[1.375rem] font-medium tracking-[-0.02em] outline-none" />
         <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={6} placeholder="Notes" className="mt-3" />
+        <Thread card={card} looperId={looperId} looperName={looperName} color={color} />
         <div className="mt-4 flex items-center gap-3 text-[0.8125rem]">
           <span className="text-mute">For</span>
           <div className="inline-flex rounded-[10px] bg-ink/[0.08] p-0.5">

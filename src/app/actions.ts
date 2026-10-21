@@ -397,6 +397,23 @@ export async function editCard(cardId: string, patch: { title?: string; descript
   return done(true);
 }
 
+/** Reply on a card (progress, an opinion). The looper reads it and answers on the card. */
+export async function replyToCard(cardId: string, text: string) {
+  const { uid, by } = await author();
+  const body = text.trim();
+  if (!body) return done(null);
+  const card = await mutate(uid, (db) => {
+    const c = db.cards.find((x) => x.id === cardId);
+    if (!c) throw new Error("Card not found");
+    (c.comments ??= []).push({ id: nanoid(8), by: "you", text: body, at: now(), ...(by ? { author: by } : {}) });
+    c.updatedAt = now();
+    return { looperId: c.looperId, title: c.title };
+  });
+  const reply = await beginLooperReply(uid, card.looperId, `Reply on card "${card.title}" (${cardId}): ${body}`, by);
+  after(reply);
+  return done({ since: reply.since });
+}
+
 export async function deleteCard(cardId: string) {
   const uid = await requireUid();
   await mutate(uid, (db) => void (db.cards = db.cards.filter((x) => x.id !== cardId)));
