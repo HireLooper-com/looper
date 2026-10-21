@@ -3,7 +3,7 @@ import { tool, type ToolSet } from "ai";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { kv } from "./kv";
-import type { DbColumn, DbColumnType, DbRow, DbValue, LooperDatabase } from "./types";
+import type { DbColumn, DbColumnType, DbRow, DbValue, LooperDatabase, MetricCount } from "./types";
 
 // Each looper's database lives under its own key, so a few thousand rows don't bloat the workspace.
 const key = (uid: string, looperId: string) => `db:${uid}:${looperId}`;
@@ -225,3 +225,18 @@ export function describeDatabase(db: LooperDatabase | null) {
   if (!db) return "You have no database yet. If your work has a natural unit (a transaction, a post, a lead), create one with db_create.";
   return `Your database "${db.name}" has ${db.rows.length} rows; one row = one ${db.rowNoun}. Columns: ${db.columns.map((c) => `${c.name} (${c.type}${c.options?.length ? `: ${c.options.join("/")}` : ""})`).join(", ")}. Keep it current: add new ${db.rowNoun}s, update their status as you work, and query it before acting.`;
 }
+
+/** How many rows match a counted metric: every row, or rows whose column equals the value (any case). */
+export function countRows(db: LooperDatabase | null, count: MetricCount) {
+  if (!db) return 0;
+  const col = count.column ? byName(db, count.column) : undefined;
+  if (!col) return db.rows.length;
+  const want = (count.equals ?? "").trim().toLowerCase();
+  return db.rows.filter((r) => {
+    const v = r.cells[col.id];
+    return want ? String(v ?? "").trim().toLowerCase() === want : v !== null && v !== undefined && v !== "" && v !== false;
+  }).length;
+}
+
+/** Changes whenever a row is added or edited, so a batch that touched nothing can be told apart. */
+export const databaseSignature = (db: LooperDatabase | null) => (db ? `${db.rows.length}:${db.rows.reduce((m, r) => (r.updatedAt > m ? r.updatedAt : m), "")}` : "none");

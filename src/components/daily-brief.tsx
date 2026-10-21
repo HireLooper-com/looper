@@ -63,7 +63,7 @@ export function DailyBrief({ lines, email, inbox }: { lines: BriefLine[]; email?
                 </div>
                 {l.latest && <div className="mt-0.5 line-clamp-2 text-[0.8125rem] leading-snug text-ink-2">{l.latest}</div>}
                 <div className="mt-1 text-[0.75rem] text-mute">
-                  {l.looper.status === "paused" ? "Paused" : did.length ? did.join(" · ") : "No runs in the last day"}
+                  {l.looper.status === "paused" ? "Paused" : l.looper.status === "done" ? "Project done" : did.length ? did.join(" · ") : "No runs in the last day"}
                   {l.next && ` · next ${l.next.skill} at ${hhmm(l.next.at)}`}
                 </div>
               </div>

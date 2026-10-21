@@ -12,7 +12,7 @@ import { Bot, Button, cx } from "./ui";
 
 /** Starter roles a founder or freelancer can hire in a minute. */
 
-type Hired = { id: string; name: string; color?: Accent; firstSkillId?: string; firstSkillName?: string };
+type Hired = { id: string; name: string; color?: Accent; firstSkillId?: string; firstSkillName?: string; project?: string };
 type Step = "goal" | "drafting" | "review" | "connect";
 
 const DRAFTING = ["Reading your goal…", "Choosing the business metric to own…", "Picking the apps it needs…", "Designing its database…", "Scheduling its skills…"];
@@ -172,7 +172,7 @@ export function HireFlow({ resume, notice, taken, nextColor, template }: { resum
               Skip for now
             </button>
             <Button onClick={firstRun} disabled={busy}>
-              {busy ? "Starting…" : hired.firstSkillName ? `Start ${hired.firstSkillName} →` : `Open ${hired.name} →`}
+              {busy ? "Starting…" : hired.firstSkillName ? `Start ${hired.firstSkillName} →` : hired.project ? `Watch ${hired.name} work →` : `Open ${hired.name} →`}
             </Button>
           </div>
         </div>
@@ -330,26 +330,37 @@ export function Review({ spec, onChange, taken, color }: { spec: LooperSpec; onC
         </div>
       </div>
 
-      <div className="p-5">
-        <div className="eyebrow">Skills</div>
-        <div className="mt-2 flex flex-col gap-2">
-          {spec.skills.map((s, i) => (
-            <div key={i} className="flex gap-3">
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
-              <div className="min-w-0">
-                <div className="text-[0.9375rem]">
-                  <span className="font-medium">{s.name}</span> <span className="text-mute">· {describeSchedule({ type: s.type, time: s.time, days: s.days })}</span>
+      {spec.project && (
+        <div className="p-5">
+          <div className="eyebrow">One-off project · starts right after hiring</div>
+          <div className="mt-1 text-[0.9375rem] font-medium">{spec.project.name}</div>
+          <div className="text-[0.8125rem] text-mute">Done when {spec.project.goal}</div>
+          <div className="mt-1 line-clamp-2 text-[0.8125rem] text-mute">{spec.project.instructions}</div>
+        </div>
+      )}
+
+      {spec.skills.length > 0 && (
+        <div className="p-5">
+          <div className="eyebrow">{spec.project ? "Then, every day or week" : "Skills"}</div>
+          <div className="mt-2 flex flex-col gap-2">
+            {spec.skills.map((s, i) => (
+              <div key={i} className="flex gap-3">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
+                <div className="min-w-0">
+                  <div className="text-[0.9375rem]">
+                    <span className="font-medium">{s.name}</span> <span className="text-mute">· {describeSchedule({ type: s.type, time: s.time, days: s.days })}</span>
+                  </div>
+                  <div className="line-clamp-2 text-[0.8125rem] text-mute">{s.instructions}</div>
                 </div>
-                <div className="line-clamp-2 text-[0.8125rem] text-mute">{s.instructions}</div>
               </div>
+            ))}
+            <div className="flex gap-3 text-[0.8125rem] text-mute">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
+              Weekly retro, Fridays at 17:00 (added automatically)
             </div>
-          ))}
-          <div className="flex gap-3 text-[0.8125rem] text-mute">
-            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
-            Weekly retro, Fridays at 17:00 (added automatically)
           </div>
         </div>
-      </div>
+      )}
 
       {(spec.apps.length > 0 || spec.database) && (
         <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2">

@@ -1,4 +1,4 @@
-import type { Schedule, Skill } from "./types";
+import type { Looper, Schedule, Skill } from "./types";
 
 const HOUR = 3_600_000;
 
@@ -26,12 +26,26 @@ export function occurrences(schedule: Schedule, from: Date, to: Date): Date[] {
   return out;
 }
 
-/** A skill is due when its latest fire time in the last day hasn't been run yet. */
+// Two servers ticking at once must not both start the next batch of a project.
+const PROJECT_GAP = 15_000;
+
+/**
+ * A skill is due when its latest fire time in the last day hasn't been run yet. A working project
+ * is always due: its next batch starts as soon as the last one ends.
+ */
 export function isDue(skill: Skill, now = new Date()): boolean {
+  if (skill.kind === "project") return skill.project?.status === "working" && (!skill.lastRunAt || now.getTime() - Date.parse(skill.lastRunAt) > PROJECT_GAP);
   const recent = occurrences(skill.schedule, new Date(now.getTime() - 24 * HOUR), new Date(now.getTime() + 1));
   const latest = recent.at(-1);
   if (!latest) return false;
   return !skill.lastRunAt || new Date(skill.lastRunAt) < latest;
+}
+
+/** What a looper runs next: its project while one is working (routines wait for it), else its first due routine. */
+export function dueSkill(l: Pick<Looper, "skills">, now = new Date()): Skill | undefined {
+  const project = l.skills.find((s) => s.kind === "project" && s.project?.status === "working");
+  if (project) return isDue(project, now) ? project : undefined;
+  return l.skills.find((s) => s.kind !== "project" && isDue(s, now));
 }
 
 export function describeSchedule(s: Schedule): string {

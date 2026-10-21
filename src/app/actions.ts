@@ -8,7 +8,7 @@ import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { after } from "next/server";
-import { beginChiefReply, beginLooperReply, defaultRetroSkill, runRetro, runSkill, workCards } from "@/lib/agent";
+import { beginChiefReply, beginLooperReply, defaultRetroSkill, kick, resumeProject, runRetro, runSkill, workCards } from "@/lib/agent";
 import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
@@ -330,6 +330,8 @@ export async function saveSkill(looperId: string, skill: Omit<Skill, "id"> & { i
     const existing = skill.id && l.skills.find((s) => s.id === skill.id);
     if (existing) Object.assign(existing, skill);
     else l.skills.push({ ...skill, id: nanoid(8) });
+    // A routine added to a finished looper puts it back to work.
+    if (l.status === "done" && skill.kind === "work") l.status = "active";
   });
   return done(true);
 }
@@ -341,6 +343,14 @@ export async function deleteSkill(looperId: string, skillId: string) {
     if (l) l.skills = l.skills.filter((s) => s.id !== skillId);
   });
   return done(true);
+}
+
+/** Put a paused or finished project back to work; its next batch starts right away. */
+export async function resumeLooperProject(looperId: string) {
+  const uid = await requireUid();
+  const r = await mutate(uid, (db) => resumeProject(db, looperId));
+  if (r.ok) kick(uid);
+  return done(r.ok);
 }
 
 /** Start a skill in the background; the looper's chat and the Working tray follow it. */

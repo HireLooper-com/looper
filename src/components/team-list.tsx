@@ -56,6 +56,7 @@ export function TeamList({ state }: { state: PublicState }) {
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium">{l.name}</span>
                       {l.status === "paused" && <Pill>Paused</Pill>}
+                      {l.status === "done" && <Pill>Done</Pill>}
                       {lastRun?.status === "running" && <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-green" />}
                     </div>
                     <div className="truncate text-[0.8125rem] text-mute">

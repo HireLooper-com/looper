@@ -132,9 +132,31 @@ export interface Skill {
   name: string;
   instructions: string;
   schedule: Schedule;
-  /** retro skills run a self-reflection instead of regular work */
-  kind: "work" | "retro";
+  /**
+   * work: a routine on a schedule. retro: a self-reflection. project: one-off work with a finish
+   * line, run in back-to-back batches until it's done; routines wait until it finishes.
+   */
+  kind: "work" | "retro" | "project";
+  /** set on project skills */
+  project?: ProjectState;
   lastRunAt?: string;
+}
+
+/** A one-off job's progress. Done when the metric reaches its target, or the sources run dry. */
+export interface ProjectState {
+  /** the finish line in words, e.g. "2,000 founders from the last 12 months with a drafted invite" */
+  goal: string;
+  status: "working" | "done" | "paused";
+  /** batches run so far */
+  batches: number;
+  /** after this many batches it pauses and asks the owner whether to go on, so a stuck job can't burn credits */
+  maxBatches: number;
+  /** batches in a row that added or changed no rows; two means the sources are used up */
+  idle: number;
+  startedAt: string;
+  finishedAt?: string;
+  /** why it stopped, shown on the skill and in the hand-off */
+  outcome?: string;
 }
 
 export interface MetricPoint {
@@ -149,6 +171,13 @@ export interface Metric {
   direction: "up" | "down";
   target: number;
   history: MetricPoint[];
+  /** counted from the looper's database after every run instead of reported by the model: all rows, or rows whose column equals a value */
+  count?: MetricCount;
+}
+
+export interface MetricCount {
+  column?: string;
+  equals?: string;
 }
 
 export interface Looper {
@@ -167,7 +196,8 @@ export interface Looper {
   role?: string;
   /** Sidebar group. Unset on older loopers; see areaOf. */
   area?: Area;
-  status: "active" | "paused";
+  /** done: a project-only looper that finished its job; it no longer runs */
+  status: "active" | "paused" | "done";
   createdAt: string;
 }
 

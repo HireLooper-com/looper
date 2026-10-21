@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { deleteLooper, deleteSkill, runLooperSkill, saveSkill, updateLooper } from "@/app/actions";
+import { deleteLooper, deleteSkill, resumeLooperProject, runLooperSkill, saveSkill, updateLooper } from "@/app/actions";
 import { describeSchedule } from "@/lib/schedule";
-import type { Looper, PublicSettings, Run, ScheduleType, Skill } from "@/lib/types";
+import type { Looper, ProjectState, PublicSettings, Run, ScheduleType, Skill } from "@/lib/types";
 import { refreshActivity } from "./live";
 import { Button, Field, Input, Panel, Pill, Select, Textarea, cx, timeAgo } from "./ui";
 
@@ -22,6 +22,16 @@ export function SkillsPanel({ looper, runs }: { looper: Looper; runs: Run[]; int
     setStartedId(s.id);
     start(async () => {
       await runLooperSkill(looper.id, s.id);
+      refreshActivity();
+      router.refresh();
+      setTimeout(() => setStartedId(null), 8000);
+    });
+  };
+
+  const resume = (s: Skill) => {
+    setStartedId(s.id);
+    start(async () => {
+      await resumeLooperProject(looper.id);
       refreshActivity();
       router.refresh();
       setTimeout(() => setStartedId(null), 8000);
@@ -47,19 +57,27 @@ export function SkillsPanel({ looper, runs }: { looper: Looper; runs: Run[]; int
                   <div className="flex items-center gap-2">
                     <span className="text-[1.0625rem] font-medium tracking-[-0.01em]">{s.name}</span>
                     {s.kind === "retro" && <Pill tone="lavender">Retro</Pill>}
+                    {s.kind === "project" && <Pill tone="blue">Project</Pill>}
                   </div>
                   <div className="mt-0.5 text-[0.8125rem] text-mute">
-                    {describeSchedule(s.schedule)} · last run {timeAgo(s.lastRunAt)}
+                    {s.project ? projectStatus(s.project) : describeSchedule(s.schedule)} · last run {timeAgo(s.lastRunAt)}
                     {last && last.status !== "running" && <span className={last.status === "error" ? " text-orange" : ""}> ({last.status})</span>}
                   </div>
                 </div>
                 <div className="flex gap-1.5">
                   <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>Edit</Button>
-                  <Button size="sm" disabled={runningSkill.has(s.id) || startedId === s.id} onClick={() => runNow(s)}>
-                    {runningSkill.has(s.id) || startedId === s.id ? "Running…" : "Run now"}
-                  </Button>
+                  {s.project && s.project.status !== "working" ? (
+                    <Button size="sm" disabled={startedId === s.id} onClick={() => resume(s)}>
+                      {startedId === s.id ? "Resuming…" : s.project.status === "done" ? "Run again" : "Resume"}
+                    </Button>
+                  ) : (
+                    <Button size="sm" disabled={runningSkill.has(s.id) || startedId === s.id || s.kind === "project"} onClick={() => runNow(s)}>
+                      {runningSkill.has(s.id) || startedId === s.id ? "Running…" : s.kind === "project" ? "Between batches" : "Run now"}
+                    </Button>
+                  )}
                 </div>
               </div>
+              {s.project && <ProjectProgress project={s.project} looper={looper} />}
               <p className="mt-3 whitespace-pre-wrap text-[0.875rem] leading-relaxed text-ink-2">{s.instructions}</p>
               {(runningSkill.has(s.id) || startedId === s.id) && (
                 <a href={`/loopers/${looper.id}?tab=chat`} className="mt-3 inline-block text-[0.8125rem] text-mute hover:text-ink">
@@ -87,6 +105,37 @@ export function SkillsPanel({ looper, runs }: { looper: Looper; runs: Run[]; int
       </div>
 
       {editing && <SkillEditor looperId={looper.id} skill={editing} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+function projectStatus(p: ProjectState) {
+  if (p.status === "working") return `One-off · batch ${p.batches + 1} of up to ${p.maxBatches}`;
+  if (p.status === "paused") return `One-off · paused after ${p.batches} batch${p.batches === 1 ? "" : "es"}`;
+  return `One-off · done ${timeAgo(p.finishedAt)}`;
+}
+
+/** The finish line and how far along it is; the metric is the progress when it's counted from rows. */
+function ProjectProgress({ project, looper }: { project: ProjectState; looper: Looper }) {
+  const value = looper.metric.history.at(-1)?.value ?? 0;
+  const share = looper.metric.target > 0 ? Math.min(1, Math.max(0, value / looper.metric.target)) : 0;
+  return (
+    <div className="mt-3 rounded-[12px] bg-ink/[0.04] px-4 py-3">
+      <div className="text-[0.875rem]">
+        <span className="text-mute">Done when </span>
+        {project.goal}
+      </div>
+      {looper.metric.direction === "up" && (
+        <>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink/[0.08]">
+            <div className="h-full rounded-full bg-blue" style={{ width: `${share * 100}%` }} />
+          </div>
+          <div className="mt-1 text-[0.75rem] tabular-nums text-mute">
+            {value.toLocaleString()} / {looper.metric.target.toLocaleString()} {looper.metric.name.toLowerCase()}
+          </div>
+        </>
+      )}
+      {project.outcome && <div className="mt-2 text-[0.8125rem] text-ink-2">{project.outcome}</div>}
     </div>
   );
 }
@@ -127,6 +176,7 @@ function SkillEditor({ looperId, skill, onClose }: { looperId: string; skill: Pa
             <Select value={kind} onChange={(e) => setKind(e.target.value as Skill["kind"])}>
               <option value="work">Work</option>
               <option value="retro">Retro</option>
+              {kind === "project" && <option value="project">Project</option>}
             </Select>
           </Field>
           <Field label="Runs">

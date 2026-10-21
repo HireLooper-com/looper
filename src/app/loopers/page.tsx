@@ -36,7 +36,7 @@ export default async function LoopersPage() {
                     <div className="text-[0.8125rem] text-mute">{lastRun ? `Last run ${timeAgo(lastRun.startedAt)}` : "Not run yet"}</div>
                   </div>
                 </div>
-                {l.status === "paused" ? <Pill>Paused</Pill> : <Pill tone="green">Active</Pill>}
+                {l.status === "paused" ? <Pill>Paused</Pill> : l.status === "done" ? <Pill>Done</Pill> : <Pill tone="green">Active</Pill>}
               </div>
               <p className="line-clamp-2 min-h-[2.6em] text-[0.875rem] leading-snug text-ink-2">{l.mission}</p>
               <div className="rounded-[14px] bg-well p-4">

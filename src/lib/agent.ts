@@ -1,6 +1,7 @@
 import "server-only";
 import { isStepCount, Output, streamText, tool, type LanguageModelUsage, type ModelMessage, type ToolSet } from "ai";
 import { nanoid } from "nanoid";
+import { waitUntil } from "@vercel/functions";
 import { after } from "next/server";
 import { z } from "zod";
 import { mutate, read } from "./db";
@@ -8,18 +9,18 @@ import { allWorkspaceIds } from "./workspace";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
 import { activeAccounts, composioTools, hasComposio, resolveApps } from "./composio";
 import { computerSession, hasComputer, wipeComputer } from "./computer";
-import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
+import { coerce, columnSpec, countRows, databaseSignature, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials, type ResolvedModel } from "./llm";
-import { notifyNeedsYou } from "./loops";
+import { appUrl, notifyNeedsYou } from "./loops";
 import { describeTool, progressWriter } from "./progress";
-import { describeSchedule, isDue } from "./schedule";
+import { describeSchedule, dueSkill } from "./schedule";
 import { usdOf } from "./models";
 import { recordUsage, type UsageRow } from "./usage";
 import { appFromName } from "./apps";
 import { LOOPER_TEMPLATES } from "./looper-templates";
 import { normalizeUrl, readSite } from "./site";
-import type { AppRef, Ask, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
+import type { AppRef, Ask, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, LooperDatabase, MetricCount, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -196,7 +197,23 @@ const errorText = (e: unknown) => {
 
 function metricLine(l: Looper) {
   const last = l.metric.history.at(-1);
-  return `${l.metric.name}: ${last ? `${last.value} ${l.metric.unit}` : "no reading yet"} (target ${l.metric.target} ${l.metric.unit}, ${l.metric.direction === "up" ? "higher is better" : "lower is better"})`;
+  return `${l.metric.name}: ${last ? `${last.value} ${l.metric.unit}` : "no reading yet"} (target ${l.metric.target} ${l.metric.unit}, ${l.metric.direction === "up" ? "higher is better" : "lower is better"}${l.metric.count ? `; counted from your database: ${countLabel(l.metric.count)}` : ""})`;
+}
+
+const countLabel = (c: MetricCount) => (c.column ? (c.equals ? `rows where ${c.column} = ${c.equals}` : `rows with ${c.column} filled in`) : "all rows");
+
+function skillLine(s: Skill) {
+  if (s.kind !== "project" || !s.project) return `${s.name} (${describeSchedule(s.schedule)})`;
+  const p = s.project;
+  return `${s.name} (project, ${p.status}${p.status === "working" ? `, batch ${p.batches + 1} of up to ${p.maxBatches}` : ""})`;
+}
+
+/** The working project's line for the brief: routines wait until it's done. */
+function projectLine(l: Looper) {
+  const s = l.skills.find((x) => x.kind === "project" && x.project?.status === "working");
+  if (!s?.project) return "";
+  const routines = l.skills.filter((x) => x.kind === "work");
+  return `You're on a project: "${s.name}". Finish line: ${s.project.goal}. It runs in back-to-back batches; each batch picks up from your database, so save rows as you go.${routines.length ? ` Your routines (${routines.map((r) => r.name).join(", ")}) start once it's done.` : " When it's done, your job is finished."}`;
 }
 
 function asksLine(db: DB, looperId: string) {
@@ -222,12 +239,13 @@ function looperBrief(db: DB, l: Looper, database = "") {
     `Open kanban cards:\n${cards.map((c) => `- [${c.column}]${c.assignee === "you" ? " (waiting on the owner)" : ""} ${c.id}: ${c.title}`).join("\n") || "- none"}`,
     asksLine(db, l.id),
     retro ? `Your last retro said to try next:\n${retro.tryNext.map((t) => `- ${t}`).join("\n")}` : "",
-    `Your skills: ${l.skills.map((s) => `${s.name} (${describeSchedule(s.schedule)})`).join("; ")}.`,
+    `Your skills: ${l.skills.map(skillLine).join("; ")}.`,
+    projectLine(l),
     database,
     hasComputer()
       ? "You have your own computer: a private Linux machine with Chrome that remembers logins. Use computer_browse to open and use websites that no connected app covers (search, read, fill forms, check dashboards), computer_read to read a page, computer_screenshot to see it, computer_run for shell work like downloads and scripts. Prefer a connected app when one covers the job. If a site needs a login you don't have, ask the owner; never guess passwords. If a site shows a bot check (CAPTCHA, 'verify you are human'), stop: don't click it, retry or try to get around it. Prefer the site's official API or a connected app (search with find_tools), else another public source (RSS feed, search results, other sites); only if nothing else works, ask_owner whether they want to pass the check themselves. Before a final submit, post, purchase or send on a website, get an approved ask_owner approval, as with apps."
       : "",
-    "Work rules: keep your kanban board current (add cards for work you plan, move them as you go). When you learn the latest metric value from a real source, record it with metric_record. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. When only the owner can decide something, ask with ask_owner (tappable options) instead of guessing, and never send, publish, file, pay or delete without an approved ask_owner approval; keep kanban cards for: 'you' for real tasks that take the owner more than a tap. Finish with a 2–4 sentence summary of what you did and what changed.",
+    `Work rules: keep your kanban board current (add cards for work you plan, move them as you go). ${l.metric.count ? "Your metric is counted from your database after every run, so keep row statuses accurate instead of recording it." : "When you learn the latest metric value from a real source, record it with metric_record."} If your database has a Status column, it is your pipeline: each step picks up rows at one status and moves them to the next, so the next step (or the next batch) knows what's left. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. When only the owner can decide something, ask with ask_owner (tappable options) instead of guessing, and never send, publish, file, pay or delete without an approved ask_owner approval; keep kanban cards for: 'you' for real tasks that take the owner more than a tap. Finish with a 2–4 sentence summary of what you did and what changed.`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -276,6 +294,7 @@ function boardTools(uid: string, looperId: string, actor: Card["createdBy"]): To
         mutate(uid, (db) => {
           const l = db.loopers.find((x) => x.id === looperId);
           if (!l) throw new Error("Looper gone");
+          if (l.metric.count) return { recorded: null, note: `Not recorded: this metric is counted from your database (${countLabel(l.metric.count)}). Update the rows instead.` };
           l.metric.history.push({ at: now(), value, note });
           return { recorded: value };
         }),
@@ -401,10 +420,12 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   const pc = hasComputer() ? computerSession(uid, looper.id, { label: skill.name, progress: live.push }) : null;
   if (ext.connected.length) live.push(`Connected: ${ext.connected.map((c) => c.split(" (")[0]).join(", ")}`);
   let outcome: { ok?: boolean; note?: string; error?: string } = {};
+  let before = "none";
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
     // A looper without a database designs one before it works, so its results land in rows.
     const table = (await readDatabase(uid, looper.id)) ?? (await designDatabase(uid, looper.id).catch(() => null));
+    before = databaseSignature(table);
     const database = [describeDatabase(table), describeCanvas(await readCanvas(uid, looper.id))].filter(Boolean).join("\n\n");
     const result = await callModel(uid, db.settings, {
       model: db.chatModels?.[looper.id],
@@ -413,8 +434,11 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
       prompt: [
         `Run your skill "${skill.name}" now.`,
         skill.instructions,
+        skill.project ? batchBrief(skill.project) : "",
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
-        ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Tools tab.` : "",
+        ext.failed.length
+          ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, ${pc ? "first try to get the same data with your computer (the website itself, its public pages or RSS); only if that fails, " : ""}add a card asking the user to connect it on your Tools tab.`
+          : "",
       ].join("\n\n"),
       tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...askTools(uid, looper.id), ...pc?.tools },
       external: ext.tools,
@@ -435,7 +459,129 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   } finally {
     await Promise.all([ext.close(), pc?.release()]);
     await live.done(outcome);
+    // Counted metrics follow the rows; a project decides whether to start its next batch.
+    const rows = await readDatabase(uid, looper.id).catch(() => null);
+    await syncMetric(uid, looper.id, rows).catch((e) => console.error("[metric]", e));
+    if (skill.kind === "project" && !adhoc) await afterBatch(uid, looper.id, skill.id, before !== databaseSignature(rows), !outcome.error).catch((e) => console.error("[project]", e));
   }
+}
+
+function batchBrief(p: NonNullable<Skill["project"]>) {
+  return [
+    `This is batch ${p.batches + 1} of up to ${p.maxBatches} of a one-off project. Finish line: ${p.goal}.`,
+    "Do as much as you can in this batch and save as you go (db_add_rows / db_update_rows in chunks), because the next batch starts right after this one and continues from your database.",
+    "Run db_query first and never add a row twice. Pick up where the last batch stopped: add new rows, and move existing rows forward through your Status column.",
+    "Don't wait on the owner for anything you can do yourself. End with what this batch added or moved and what's left.",
+  ].join("\n");
+}
+
+/** Push a new reading when a counted metric's row count changed. */
+async function syncMetric(uid: string, looperId: string, table: LooperDatabase | null) {
+  await mutate(uid, (db) => {
+    const l = db.loopers.find((x) => x.id === looperId);
+    if (!l?.metric.count || !table) return;
+    const value = countRows(table, l.metric.count);
+    if (l.metric.history.at(-1)?.value !== value) l.metric.history.push({ at: now(), value, note: `counted: ${countLabel(l.metric.count)}` });
+  });
+}
+
+const reached = (l: Looper) => {
+  const v = l.metric.history.at(-1)?.value;
+  return v !== undefined && (l.metric.direction === "up" ? v >= l.metric.target : v <= l.metric.target);
+};
+
+/**
+ * After each project batch: finish when the metric hits its target or two batches in a row change
+ * nothing (sources used up), pause at the batch cap or when stuck on a missing app, else start the
+ * next batch right away.
+ */
+async function afterBatch(uid: string, looperId: string, skillId: string, moved: boolean, ok: boolean) {
+  const db0 = await read(uid);
+  const l0 = db0.loopers.find((x) => x.id === looperId);
+  // An idle batch with apps still unconnected is stuck, not finished.
+  const conn = !moved && l0?.apps?.length ? await appConnections(uid, db0) : null;
+  const missing = conn ? (l0?.apps ?? []).filter((a) => !conn.isConnected(a)).map((a) => a.name) : [];
+  const next = await mutate(uid, (db) => {
+    const l = db.loopers.find((x) => x.id === looperId);
+    const s = l?.skills.find((x) => x.id === skillId);
+    const p = s?.project;
+    if (!l || !s || !p || p.status !== "working") return null;
+    p.batches++;
+    p.idle = moved ? 0 : p.idle + 1;
+    let ended: "done" | "paused" = "done";
+    const stop = (status: "done" | "paused", why: string) => {
+      ended = status;
+      p.status = status;
+      p.outcome = why;
+      if (status === "done") p.finishedAt = now();
+    };
+    if (reached(l)) stop("done", `Reached the target: ${metricLine(l)}.`);
+    else if (p.idle >= 2 && !ok) stop("paused", "Paused: the last two batches failed. Check the latest run, then resume.");
+    else if (p.idle >= 2 && missing.length) stop("paused", `Paused: stuck without ${missing.join(", ")}. Connect ${missing.length === 1 ? "it" : "them"} on the Tools tab, then resume.`);
+    else if (p.idle >= 2) stop("done", "The last two batches found nothing new, so the sources look used up.");
+    else if (p.batches >= p.maxBatches) stop("paused", `Paused after ${p.batches} batches, the cap for this project.`);
+    else return "next" as const;
+
+    const routines = l.skills.filter((x) => x.kind === "work");
+    const say = (content: string, askId?: string) => ((db.chats ??= {})[l.id] = [...(db.chats[l.id] ?? []), { id: nanoid(8), role: "assistant", content, at: now(), ...(askId ? { askId } : {}) }]);
+    if (ended === "done") {
+      if (!routines.length) l.status = "done";
+      say(
+        `Project finished: ${s.name}. ${p.outcome} ${p.batches} batch${p.batches === 1 ? "" : "es"}, ${metricLine(l)}.` +
+          (routines.length ? ` Switching to my routine now: ${routines.map(skillLine).join("; ")}.` : " I've stopped working."),
+      );
+      if (!routines.length) {
+        const ask: Ask = { id: nanoid(8), looperId: l.id, kind: "choice", question: `Keep ${l.name} on to do this regularly?`, options: ["Yes, daily", "Yes, weekly", "No, I'm done"], status: "open", createdAt: now() };
+        db.asks.push(ask);
+        say(ask.question, ask.id);
+      }
+    } else {
+      const ask: Ask = {
+        id: nanoid(8),
+        looperId: l.id,
+        kind: "approval",
+        question: `Keep going on "${s.name}"?`,
+        detail: `${p.outcome} So far: ${metricLine(l)}. Approving runs up to ${PROJECT_BATCHES} more batches.`,
+        status: "open",
+        createdAt: now(),
+      };
+      db.asks.push(ask);
+      say(ask.question, ask.id);
+    }
+    return ended;
+  });
+  if (next === "next") kick(uid);
+}
+
+const PROJECT_BATCHES = 20;
+
+/** Put a looper's project back to work with a fresh batch allowance. Call inside mutate. */
+export function resumeProject(db: DB, looperId: string, goal?: string) {
+  const l = db.loopers.find((x) => x.id === looperId);
+  const s = l?.skills.find((x) => x.kind === "project");
+  if (!l || !s?.project) return { ok: false as const, error: "No project to resume." };
+  const p = s.project;
+  p.maxBatches = (p.status === "working" ? p.maxBatches : p.batches) + PROJECT_BATCHES;
+  Object.assign(p, { status: "working", idle: 0, outcome: undefined, finishedAt: undefined }, goal ? { goal } : {});
+  if (l.status === "done") l.status = "active";
+  return { ok: true as const, name: s.name };
+}
+
+/**
+ * Start a workspace's due work in a fresh function, so a project's next batch gets its own time
+ * budget. Locally the next tick does it within a minute anyway; we just don't wait for it.
+ */
+export function kick(uid: string) {
+  if (!process.env.VERCEL) {
+    setTimeout(() => void tickUser(uid).catch((e) => console.error("[tick]", e)), 1_000);
+    return;
+  }
+  const secret = process.env.CRON_SECRET;
+  waitUntil(
+    fetch(`${appUrl()}/api/tick?ws=${encodeURIComponent(uid)}`, { headers: secret ? { authorization: `Bearer ${secret}` } : {}, signal: AbortSignal.timeout(10_000) })
+      .then((r) => void (r.ok || console.error("[kick]", r.status)))
+      .catch((e) => console.error("[kick]", e)),
+  );
 }
 
 function firstSentence(s: string) {
@@ -547,7 +693,7 @@ export async function tickUser(uid: string) {
     return db.loopers
       .filter((l) => l.status === "active" && !db.runs.some((r) => r.looperId === l.id && r.status === "running"))
       .flatMap((l) => {
-        const s = l.skills.find((x) => isDue(x));
+        const s = dueSkill(l);
         if (!s) return [];
         s.lastRunAt = at;
         return [{ looperId: l.id, skillId: s.id, label: `${l.name}/${s.name}` }];
@@ -577,6 +723,24 @@ function toSkill(s: z.infer<typeof skillInput>): Skill {
   return { id: nanoid(8), name: s.name, instructions: s.instructions, kind: "work", schedule: { type: s.type, time: s.time, days: s.days } };
 }
 
+const projectInput = z.object({
+  name: z.string().describe("short, e.g. 'Backfill the last 12 months'"),
+  goal: z.string().describe("the finish line in one line, e.g. 'every founder who launched on Product Hunt in the last 12 months, each with a drafted invite'"),
+  instructions: z.string().describe("what one batch does, naming the apps and the Status values it picks up and sets"),
+  maxBatches: z.number().int().min(1).max(60).default(20).describe("batches before it pauses to ask the owner whether to go on; a batch is a few minutes of work"),
+});
+
+function toProject(p: z.infer<typeof projectInput>): Skill {
+  return {
+    id: nanoid(8),
+    name: p.name,
+    instructions: p.instructions,
+    kind: "project",
+    schedule: { type: "manual", time: "09:00", days: [] },
+    project: { goal: p.goal, status: "working", batches: 0, maxBatches: p.maxBatches, idle: 0, startedAt: now() },
+  };
+}
+
 function dedupeApps(apps: AppRef[]) {
   return apps.filter((a, i) => a.slug && apps.findIndex((b) => b.slug === a.slug) === i);
 }
@@ -590,8 +754,19 @@ export const looperSpec = z.object({
     .describe("'distribution' if it grows reach, traffic, leads or revenue (SEO, social, ads, sales); 'operations' if it keeps the business running (support, bugs, finance)"),
   emoji: z.string().default("◎"),
   mission: z.string(),
-  metric: z.object({ name: z.string(), unit: z.string(), direction: z.enum(["up", "down"]), target: z.number(), current: z.number().optional() }),
-  skills: z.array(skillInput).min(1).max(4),
+  metric: z.object({
+    name: z.string(),
+    unit: z.string(),
+    direction: z.enum(["up", "down"]),
+    target: z.number(),
+    current: z.number().optional(),
+    count: z
+      .object({ column: z.string().optional(), equals: z.string().optional() })
+      .optional()
+      .describe("when the metric is a number of database rows, count it from the rows: all rows, or rows whose column equals a value, e.g. {column: 'Status', equals: 'Drafted'}"),
+  }),
+  project: projectInput.optional().describe("one-off work with a finish line (a backfill, 'all X from the past year', a fixed list); runs right after hiring in back-to-back batches, before any skill"),
+  skills: z.array(skillInput).max(4).describe("recurring routines; can be empty when the looper only has a project"),
   apps: z.array(z.string()).max(8).default([]).describe("apps the looper needs, by name, e.g. ['Stripe', 'Gmail', 'bunq']"),
   database: z
     .object({ name: z.string(), rowNoun: z.string().describe("what one row is, e.g. 'bank transaction'"), columns: z.array(columnSpec).min(2).max(15) })
@@ -620,8 +795,10 @@ export async function hireLooper(uid: string, input: LooperSpec) {
         direction: input.metric.direction,
         target: input.metric.target,
         history: input.metric.current === undefined ? [] : [{ at: now(), value: input.metric.current, note: "baseline" }],
+        ...(input.metric.count ? { count: input.metric.count } : {}),
       },
-      skills: [...input.skills.map(toSkill), defaultRetroSkill()],
+      // A project-only looper finishes its job and stops, so it has nothing to hold a retro about.
+      skills: [...(input.project ? [toProject(input.project)] : []), ...input.skills.map(toSkill), ...(input.skills.length ? [defaultRetroSkill()] : [])],
       integrationIds: "all",
       apps,
       role: input.role,
@@ -632,9 +809,11 @@ export async function hireLooper(uid: string, input: LooperSpec) {
     db.loopers.push(looper);
     for (const c of input.starterCards)
       db.cards.push({ id: nanoid(8), looperId: looper.id, title: c.title, description: "", column: "todo", assignee: c.for, createdBy: "chief", createdAt: now(), updatedAt: now() });
-    return { id: looper.id, name: looper.name, apps, firstSkill: looper.skills[0] };
+    // A project starts on its own; only a routine-only looper needs its first run started by hand.
+    return { id: looper.id, name: looper.name, apps, firstSkill: input.project ? undefined : looper.skills[0], project: input.project?.name };
   });
   if (input.database) await mutateDatabase(uid, r.id, (box) => void (box.db ??= newDatabase(input.database!.name, input.database!.rowNoun, input.database!.columns)));
+  if (input.project) kick(uid);
   return r;
 }
 
@@ -708,7 +887,7 @@ export async function proposeLooper(uid: string, goal: string): Promise<LooperSp
       model: db.chatModels?.chief,
       usage: { source: "chief", kind: "chat" },
       instructions: `${CHIEF_INSTRUCTIONS}${businessLine(db)}\n\nToday is ${new Date().toDateString()}. Current team (pick a name that isn't taken):\n${team}`,
-      prompt: `Draft one looper for this goal, ready to hire: ${goal}\n\nInclude the apps it needs, a database (5–10 columns), 1–3 skills on sensible schedules whose instructions name the apps, and up to 3 starter cards. If the goal doesn't say the current value, leave metric.current out.`,
+      prompt: `Draft one looper for this goal, ready to hire: ${goal}\n\nInclude the apps it needs and a database (5–10 columns). Sort the goal: one-off work with a finish line goes in project, recurring work in 0–3 skills on sensible schedules; a goal can need both. Instructions name the apps and the Status values each step picks up and sets. Add up to 3 starter cards. If the goal doesn't say the current value, leave metric.current out.`,
       maxSteps: 1,
     },
     Output.object({ schema: looperSpec }),
@@ -778,7 +957,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
       },
     }),
     create_looper: tool({
-      description: "Hire a new looper. Each looper owns exactly ONE business metric. Give it 1–4 work skills on sensible schedules; a weekly retro skill is added automatically.",
+      description: "Hire a new looper. Each looper owns exactly ONE business metric. Give it a project for one-off work with a finish line, 0–4 routine skills on sensible schedules for recurring work, or both. A project starts at once; a weekly retro is added when it has routines.",
       inputSchema: looperSpec,
       execute: async (input) => {
         const r = await hireLooper(uid, input);
@@ -787,7 +966,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         // Only offer Connect for what isn't connected yet.
         if (missing.length) links.push({ label: `Connect ${missing.map((a) => a.name).join(", ")} for ${r.name}`, href: `/loopers/${r.id}?tab=apps` });
         actions.push(`Hired ${r.name}`);
-        return { id: r.id, name: r.name, appsAlreadyConnected: r.apps.filter((a) => c.isConnected(a)).map((a) => a.name), appsToConnect: missing.map((a) => a.name) };
+        return { id: r.id, name: r.name, projectStarted: r.project, appsAlreadyConnected: r.apps.filter((a) => c.isConnected(a)).map((a) => a.name), appsToConnect: missing.map((a) => a.name) };
       },
     }),
     update_looper: tool({
@@ -909,7 +1088,14 @@ async function appConnections(uid: string, db: DB) {
 
 const CHIEF_INSTRUCTIONS = `You are Chief, the head of a team of loopers. A looper is an AI operator hired to move exactly one business metric. It has one kanban board, a calendar of scheduled skills, and a retro board where it judges its own effectiveness.
 
-Your job: turn the user's goals into loopers, manage them, and report on them. When the user wants something done repeatedly, propose a looper (name, one metric with unit/direction/target, 1–4 scheduled skills that name the apps to use) and hire it with create_looper — don't ask more than one clarifying question first. One metric per looper, always; split goals that have two metrics into two loopers.
+Your job: turn the user's goals into loopers, manage them, and report on them. When the user wants something done, propose a looper (name, one metric with unit/direction/target, its work) and hire it with create_looper — don't ask more than one clarifying question first. One metric per looper, always; split goals that have two metrics into two loopers.
+
+A looper's work comes in two kinds; sort every goal before hiring:
+- A project (create_looper.project): one-off work with a finish line, like "all founders who launched in the past year", "clean up the existing 800 contacts", "a list of 500 agencies". It starts right after hiring and runs in back-to-back batches until the metric hits its target or the sources run dry. Say the finish line in project.goal.
+- Routines (create_looper.skills): recurring work on a schedule, like "every morning add yesterday's launches" or "reply to support emails daily".
+A goal can need both: "find every founder from the past year and keep adding new ones daily" is a project (the backfill) plus a daily routine; the routine starts once the project is done. A goal with only a finish line gets only a project, and the looper stops when it's done. Before hiring, say in one line which kind it is and the finish line, e.g. "One-off project, done at 2,000 founders with a drafted invite, then a daily routine for new launches."
+
+When the work moves through steps (find → enrich → draft), give the database a Status select column whose options are the steps in order (e.g. New, Email found, Drafted, Skipped), and make each skill and the project say which Status it picks up and which it sets. When the metric is a number of rows (founders with a drafted invite, leads found), set metric.count (e.g. column Status, equals Drafted) so it's counted from the database instead of reported. Set targets you can defend from the source's real size, not round wishes.
 
 Give every looper a database (create_looper.database) whose rows are the unit of its work, with 5–10 useful columns: a VAT looper gets one row per bank transaction (date, amount, counterparty, source, VAT rate, VAT amount, invoice found, status); an SEO looper gets one row per blog post or idea (title, status Idea/Drafting/Published, keyword, URL, clicks); a sales looper one row per lead. Use select columns for statuses.
 
@@ -1153,9 +1339,23 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
             const existing = l.skills.find((x) => x.name.toLowerCase() === input.name.toLowerCase());
             if (existing) Object.assign(existing, { instructions: input.instructions, schedule: { type: input.type, time: input.time, days: input.days } });
             else l.skills.push(toSkill(input));
+            // A finished looper the owner keeps on goes back to work, with a retro now that it has routines.
+            if (l.status === "done") l.status = "active";
+            if (!l.skills.some((x) => x.kind === "retro")) l.skills.push(defaultRetroSkill());
             actions.push(`${existing ? "Updated" : "Added"} skill ${input.name}`);
             return { ok: true };
           }),
+      }),
+      resume_project: tool({
+        description: `Resume your paused or finished project (one-off work in batches) when the owner approves going on. Runs up to ${PROJECT_BATCHES} more batches.`,
+        inputSchema: z.object({ goal: z.string().optional().describe("a new finish line, if the owner changed it") }),
+        execute: async ({ goal }) => {
+          const r = await mutate(uid, (d) => resumeProject(d, looperId, goal));
+          if (!r.ok) return r;
+          actions.push(`Resumed ${r.name}`);
+          kick(uid);
+          return r;
+        },
       }),
       start_skill: tool({
         description: "Start one of your skills now in the background; its result appears in this chat when done.",

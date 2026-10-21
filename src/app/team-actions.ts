@@ -118,7 +118,7 @@ export async function confirmHire(spec: LooperSpec) {
   return attempt(async () => {
     const uid = await requireUid();
     const r = await hireLooper(uid, looperSpec.parse(spec));
-    return { id: r.id, name: r.name, firstSkillId: r.firstSkill?.id, firstSkillName: r.firstSkill?.name };
+    return { id: r.id, name: r.name, firstSkillId: r.firstSkill?.id, firstSkillName: r.firstSkill?.name, project: r.project };
   });
 }
 

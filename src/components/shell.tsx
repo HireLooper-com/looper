@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { tickUser } from "@/lib/agent";
 import { read } from "@/lib/db";
 import { inboxItems, metricDelta, metricNow, trend } from "@/lib/inbox";
-import { isDue } from "@/lib/schedule";
+import { dueSkill } from "@/lib/schedule";
 import { areaOf } from "@/lib/types";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -33,7 +33,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   }
   const db = await read(user.ws);
   // Hosted, the cron only fires daily, so opening the app starts anything that came due since.
-  const due = db.loopers.some((l) => l.status === "active" && l.skills.some((s) => isDue(s)) && !db.runs.some((r) => r.looperId === l.id && r.status === "running"));
+  const due = db.loopers.some((l) => l.status === "active" && dueSkill(l) && !db.runs.some((r) => r.looperId === l.id && r.status === "running"));
   if (due) after(() => tickUser(user.ws).catch((e) => console.error("[tick]", e)));
 
   const inbox = inboxItems(db);
@@ -47,7 +47,13 @@ export async function Shell({ children }: { children: React.ReactNode }) {
       metricName: l.metric.name,
       area: areaOf(l),
       paused: l.status === "paused",
-      metric: value === undefined ? "No reading yet" : `${fmt(value)} now · target ${fmt(l.metric.target)}`,
+      metric: l.status === "done"
+        ? `Done · ${fmt(value ?? 0)} ${l.metric.name.toLowerCase()}`
+        : l.skills.some((s) => s.project?.status === "working")
+          ? `${fmt(value ?? 0)} / ${fmt(l.metric.target)} · one-off project`
+          : value === undefined
+            ? "No reading yet"
+            : `${fmt(value)} now · target ${fmt(l.metric.target)}`,
       trend: t.text,
       running: db.runs.some((r) => r.looperId === l.id && r.status === "running"),
       needsYou: inbox.filter((i) => i.looperId === l.id).length,
