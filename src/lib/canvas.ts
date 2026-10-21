@@ -93,6 +93,13 @@ function summarize(i: CanvasItem, all: CanvasItem[] = []) {
   }
 }
 
+/** Identity of a note, text, link or image for spotting duplicates; frames and arrows have none. */
+function sameAs(kind: CanvasItem["kind"], text?: string, url?: string) {
+  if (kind === "link" || kind === "image") return url ? `${kind}:${url.trim()}` : "";
+  const body = (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  return (kind === "note" || kind === "text") && body ? `${kind}:${body}` : "";
+}
+
 /** The owner's canvas in the looper's brief: references and notes it should take into account. */
 export function describeCanvas(c: LooperCanvas) {
   if (!c.items.length) return "";
@@ -151,7 +158,7 @@ export function canvasTools(uid: string, looperId: string): ToolSet {
     }),
     canvas_add: tool({
       description:
-        "Pin things to your canvas for the owner: notes (findings, ideas, drafts), text headings, links (with what they are), images by https URL, frames that group items, and arrows between items. To build a board (e.g. a competitor map), add a frame per group with a `ref`, put items in it with `in: <frame ref>`, and connect items with arrows using `from`/`to` (a ref from this call or an existing item id). References and overviews go here; rows of data go in your database.",
+        "Pin things to your canvas for the owner: notes (findings, ideas, drafts), text headings, links (with what they are), images by https URL, frames that group items, and arrows between items. To build a board (e.g. a competitor map), add a frame per group with a `ref`, put items in it with `in: <frame ref>`, and connect items with arrows using `from`/`to` (a ref from this call or an existing item id). References and overviews go here; rows of data go in your database. canvas_read first and don't pin what's already there: update an existing note with canvas_update instead. Exact repeats are skipped.",
       inputSchema: z.object({
         items: z
           .array(
@@ -169,10 +176,27 @@ export function canvasTools(uid: string, looperId: string): ToolSet {
           .min(1)
           .max(40),
       }),
-      execute: ({ items }) =>
+      execute: ({ items: asked }) =>
         mutateCanvas(uid, looperId, (c) => {
           const at = now();
           const byRef = new Map<string, CanvasItem>();
+          // Skip notes, text, links and images already on the canvas (same text or URL); refs to them point at the existing item.
+          const seen = new Map(c.items.map((i) => [sameAs(i.kind, i.text, i.kind === "image" ? i.src : i.url), i] as const).filter(([k]) => k));
+          const inCall = new Set<string>();
+          const skipped: string[] = [];
+          const items = asked.filter((it) => {
+            const k = sameAs(it.kind, it.text, it.url);
+            const hit = k && seen.get(k);
+            if (hit) {
+              if (it.ref) byRef.set(it.ref, hit);
+              skipped.push(hit.id);
+              return false;
+            }
+            if (!k) return true;
+            if (inCall.has(k)) return false;
+            inCall.add(k);
+            return true;
+          });
           const make = (it: (typeof items)[number], x: number, y: number): CanvasItem => {
             const size = defaultSize(it.kind);
             const item: CanvasItem = {
@@ -220,7 +244,7 @@ export function canvasTools(uid: string, looperId: string): ToolSet {
             if (from && to && from !== to) added.push({ id: nanoid(8), kind: "arrow", x: 0, y: 0, w: 0, h: 0, from, to, text: a.text, by: "looper", at });
           }
           c.items.push(...added);
-          return { added: added.map((a) => ({ id: a.id, kind: a.kind })) };
+          return { added: added.map((a) => ({ id: a.id, kind: a.kind })), ...(skipped.length ? { skippedDuplicates: skipped } : {}) };
         }),
     }),
     canvas_update: tool({
