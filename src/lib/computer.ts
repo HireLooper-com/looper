@@ -165,8 +165,6 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
 
   const open = () =>
     (box ??= (async () => {
-      // The owner has the browser right now: don't fight them for it.
-      if (await readTakeover(uid, looperId)) throw new Error(TAKEN_NOTE);
       await assertInfraBudget(uid);
       if (!sessionId) await startLog();
       awakeSince = Date.now();
@@ -190,6 +188,10 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
       return { code: -1, out: "", err: e instanceof Error ? e.message : String(e) };
     }
   }
+
+  // The owner has the browser right now: don't fight them for it. The shell stays usable meanwhile.
+  const ownerHasBrowser = async () => !!(await readTakeover(uid, looperId));
+  const TAKEN = { busy: true, note: TAKEN_NOTE };
 
   const browser = (args: string[], timeoutMs?: number) => {
     browserUsed = true;
@@ -231,6 +233,7 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
       }),
       execute: async (input) => {
         const { action, target, value } = input;
+        if (await ownerHasBrowser()) return TAKEN;
         const need = (what: string) => ({ error: `${action} needs ${what}.` });
         let args: string[] | null = null;
         if (action === "open") {
@@ -274,6 +277,7 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
       description: "Read the text of the page open in your browser, as clean readable text (articles, tables, prices, search results).",
       inputSchema: z.object({}),
       execute: async () => {
+        if (await ownerHasBrowser()) return TAKEN;
         if (currentHost && blocked.has(currentHost)) return { blocked: true, site: currentHost, note: BLOCKED_NOTE };
         const r = await browser(["read"], 90_000);
         const url = await browser(["get", "url"]);
@@ -290,6 +294,7 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
       description: "See the page in your browser as an image, when the layout matters or the element list isn't enough. The owner sees every screen on your Computer view; pin one to your canvas with its `image` path to keep it.",
       inputSchema: z.object({ fullPage: z.boolean().default(false) }),
       execute: async ({ fullPage }) => {
+        if (await ownerHasBrowser()) return TAKEN;
         const shot = await shoot(!!fullPage, true);
         if (!shot) return { error: "The screenshot didn't work." };
         const url = await browser(["get", "url"]);
@@ -297,8 +302,8 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
         return { image: shot.path, mediaType: shot.type, data: Buffer.from(shot.bytes).toString("base64") };
       },
       toModelOutput: ({ output }) => {
-        const o = output as { image?: string; mediaType?: string; data?: string; error?: string };
-        if (!o.data) return { type: "text", value: o.error ?? "No screenshot." };
+        const o = output as { image?: string; mediaType?: string; data?: string; error?: string; note?: string };
+        if (!o.data) return { type: "text", value: o.error ?? o.note ?? "No screenshot." };
         return {
           type: "content",
           value: [
@@ -345,7 +350,10 @@ const TAKEOVER_PORT = 3000;
 const STREAM_PORT = 9223;
 const TAKEOVER_MS = 15 * 60_000;
 const PROXY = `${HOME}/.cl-takeover.cjs`;
-const TAKEN_NOTE = "The owner is using this computer right now (they took over the browser). Don't wait for it: do what you can without the browser, and leave a 'Continue:' card for the rest.";
+const TAKEN_NOTE = "The owner is using your browser right now (they took it over). Don't wait for it: computer_run (the shell) still works, so do what you can with that and your other tools, and leave a 'Continue:' card for what needs the browser.";
+// The take-over view pings while it's open. Past this without a ping the owner has left it, and
+// the browser is the looper's again (hidden tabs only run timers about once a minute).
+const TAKEOVER_STALE_MS = 150_000;
 const takeoverKey = (uid: string, looperId: string) => `takeover:${uid}:${looperId}`;
 
 export interface Takeover {
@@ -356,6 +364,8 @@ export interface Takeover {
   /** the looper's question this answers, if it asked */
   askId?: string;
   sessionId: string;
+  /** last ping from the open take-over view */
+  seenAt?: number;
 }
 
 // Runs on the looper's machine: `node proxy <token> <port> <stream port>`. Checks the token, then
@@ -388,13 +398,41 @@ const withScheme = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://
 
 export async function readTakeover(uid: string, looperId: string) {
   const t = await kv.get<Takeover>(takeoverKey(uid, looperId));
-  return t && t.expiresAt > Date.now() ? t : null;
+  if (!t || t.expiresAt <= Date.now()) return null;
+  if (Date.now() - (t.seenAt ?? t.startedAt) < TAKEOVER_STALE_MS) return t;
+  // The owner closed the view without handing back: end it, so it doesn't lock the browser.
+  await kv.delete(takeoverKey(uid, looperId));
+  await closeTakeoverLog(uid, looperId, t, t.seenAt ?? t.startedAt, "The take-over view was closed; the browser is free again").catch(() => undefined);
+  return null;
+}
+
+/** The take-over view is still open: keep the browser the owner's. */
+export async function pingTakeover(uid: string, looperId: string) {
+  const t = await readTakeover(uid, looperId);
+  if (!t) return false;
+  await kv.set(takeoverKey(uid, looperId), { ...t, seenAt: Date.now() } satisfies Takeover, Math.max(1, Math.ceil((t.expiresAt + 30_000 - Date.now()) / 1000)));
+  return true;
+}
+
+/** Bill the take-over's minutes and end its session in the computer log. */
+async function closeTakeoverLog(uid: string, looperId: string, t: Takeover, endedAt: number, label: string, url?: string) {
+  const minutes = Math.max(1, (endedAt - t.startedAt) / 60_000);
+  await spendInfra(uid, minutes * USD_PER_MINUTE).catch(() => undefined);
+  await kv.update<ComputerLog, void>(logKey(uid, looperId), () => ({ sessions: [] }), (l) => {
+    const s = l.sessions?.find((x) => x.id === t.sessionId);
+    if (!s || s.endedAt) return;
+    s.steps.push({ id: nanoid(6), at: new Date().toISOString(), label: label.replace("{min}", String(Math.round(minutes))), url: url || undefined });
+    s.endedAt = new Date().toISOString();
+  });
 }
 
 /** Hand the looper's browser to the owner: wake the machine, open the page, return the live view's address. */
 export async function startTakeover(uid: string, looperId: string, opts: { askId?: string; url?: string } = {}) {
   const current = await readTakeover(uid, looperId);
-  if (current) return current;
+  if (current) {
+    await pingTakeover(uid, looperId);
+    return current;
+  }
   const { sessions } = await readComputerLog(uid, looperId);
   const last = sessions.at(-1);
   if (last && isLive(last)) throw new Error("It's using its computer right now. Try again when it finishes, in a minute or two.");
@@ -424,7 +462,7 @@ export async function startTakeover(uid: string, looperId: string, opts: { askId
   await kv.update<ComputerLog, void>(logKey(uid, looperId), () => ({ sessions: [] }), (l) => {
     l.sessions = [...(l.sessions ?? []), { id: sessionId, label: "You took over", startedAt: at, steps: [{ id: nanoid(6), at, label: "You took over the browser" }] }];
   });
-  const t: Takeover = { ws: `${sb.domain(TAKEOVER_PORT).replace(/^http/, "ws")}/?t=${token}&maxFps=12`, startedAt: Date.now(), expiresAt: Date.now() + TAKEOVER_MS - 30_000, askId: opts.askId, sessionId };
+  const t: Takeover = { ws: `${sb.domain(TAKEOVER_PORT).replace(/^http/, "ws")}/?t=${token}&maxFps=12`, startedAt: Date.now(), expiresAt: Date.now() + TAKEOVER_MS - 30_000, askId: opts.askId, sessionId, seenAt: Date.now() };
   await kv.set(takeoverKey(uid, looperId), t, Math.round(TAKEOVER_MS / 1000));
   return t;
 }
@@ -450,15 +488,6 @@ export async function finishTakeover(uid: string, looperId: string) {
     await sb.runCommand({ cmd: "pkill", args: ["-f", PROXY] }).catch(() => undefined);
     await sb.stop().catch(() => undefined);
   }
-  if (t) {
-    const minutes = Math.max(1, (Date.now() - t.startedAt) / 60_000);
-    await spendInfra(uid, minutes * USD_PER_MINUTE).catch(() => undefined);
-    await kv.update<ComputerLog, void>(logKey(uid, looperId), () => ({ sessions: [] }), (l) => {
-      const s = l.sessions?.find((x) => x.id === t.sessionId);
-      if (!s) return;
-      s.steps.push({ id: nanoid(6), at: new Date().toISOString(), label: `You handed the browser back after ${Math.round(minutes)} min`, url: url || undefined });
-      s.endedAt = new Date().toISOString();
-    });
-  }
+  if (t) await closeTakeoverLog(uid, looperId, t, Date.now(), "You handed the browser back after {min} min", url);
   return { askId: t?.askId, url };
 }

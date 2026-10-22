@@ -1,6 +1,7 @@
 import "server-only";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
+import { isPdf, pdfText } from "./pdf";
 import { normalizeUrl } from "./site";
 
 // The light end of the web ladder: search and plain fetches, done from the server in seconds.
@@ -30,6 +31,12 @@ const decode = (s: string) =>
 
 const strip = (html: string) => decode(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 
+// Paid engines have a monthly quota. Once one says it's used up (or rate-limits us), skip it for a
+// while and let the next engine (DuckDuckGo in the end) answer, instead of asking it again every search.
+const resting = new Map<string, number>();
+const QUOTA_REST_MS = 60 * 60_000;
+const RATE_REST_MS = 60_000;
+
 async function tavily(query: string, limit: number): Promise<SearchHit[]> {
   const res = await fetch("https://api.tavily.com/search", {
     method: "POST",
@@ -37,6 +44,9 @@ async function tavily(query: string, limit: number): Promise<SearchHit[]> {
     body: JSON.stringify({ query, max_results: limit }),
     signal: AbortSignal.timeout(20_000),
   });
+  // 432: plan limit reached, 433: pay-as-you-go limit reached, 429: too many requests.
+  if (res.status === 432 || res.status === 433) resting.set("tavily", Date.now() + QUOTA_REST_MS);
+  if (res.status === 429) resting.set("tavily", Date.now() + RATE_REST_MS);
   if (!res.ok) throw new Error(`Tavily answered ${res.status}`);
   const j = (await res.json()) as { results?: { title: string; url: string; content: string }[] };
   return (j.results ?? []).map((r) => ({ title: r.title, url: r.url, snippet: r.content.slice(0, 400) }));
@@ -47,6 +57,7 @@ async function brave(query: string, limit: number): Promise<SearchHit[]> {
     headers: { accept: "application/json", "x-subscription-token": process.env.BRAVE_SEARCH_API_KEY! },
     signal: AbortSignal.timeout(20_000),
   });
+  if (res.status === 402 || res.status === 429) resting.set("brave", Date.now() + (res.status === 402 ? QUOTA_REST_MS : RATE_REST_MS));
   if (!res.ok) throw new Error(`Brave answered ${res.status}`);
   const j = (await res.json()) as { web?: { results?: { title: string; url: string; description: string }[] } };
   return (j.web?.results ?? []).map((r) => ({ title: strip(r.title), url: r.url, snippet: strip(r.description) }));
@@ -86,6 +97,10 @@ export async function webSearch(query: string, limit = 8) {
   ];
   const errors: string[] = [];
   for (const [name, run] of engines) {
+    if ((resting.get(name) ?? 0) > Date.now()) {
+      errors.push(`${name}: over its limit, skipped for now`);
+      continue;
+    }
     try {
       const hits = await run(query, limit);
       if (hits.length) return { engine: name, hits };
@@ -158,7 +173,10 @@ export async function webFetch(input: string, opts: { render?: boolean } = {}) {
     url = normalizeUrl(new URL(next, url).toString());
   }
   const type = res?.headers.get("content-type") ?? "";
-  const raw = res ? (await res.text()).slice(0, MAX_BYTES) : "";
+  const bytes = res ? new Uint8Array(await res.arrayBuffer()) : new Uint8Array();
+  // A PDF (an invoice, a report) comes back as its text, not as compressed binary.
+  if (res?.ok && (/pdf/.test(type) || isPdf(bytes))) return { url: url.toString(), via: "pdf", status: res.status, ...(await pdfText(bytes)) };
+  const raw = new TextDecoder().decode(bytes.subarray(0, MAX_BYTES));
   const blocked = !res?.ok || BOT_WALL.test(raw.slice(0, 5000));
   // Data comes back as is: JSON APIs, RSS and Atom feeds, CSV.
   if (res?.ok && /json|xml|rss|atom|csv|text\/plain/.test(type) && !/html/.test(type)) return { url: url.toString(), via: "fetch", status: res.status, contentType: type, text: clipText(raw) };
@@ -192,7 +210,7 @@ export function webTools(): ToolSet {
     }),
     web_fetch: tool({
       description:
-        "Fetch one URL from the server and get its readable text plus its links (for next pages and detail pages). Fast and cheap: try it before your browser. JSON APIs, RSS/Atom feeds and CSV come back raw. Pages that build themselves in the browser are read through a rendering reader automatically; set render: true to force that.",
+        "Fetch one URL from the server and get its readable text plus its links (for next pages and detail pages). Fast and cheap: try it before your browser. JSON APIs, RSS/Atom feeds and CSV come back raw; PDFs come back as their text. Pages that build themselves in the browser are read through a rendering reader automatically; set render: true to force that.",
       inputSchema: z.object({ url: z.string().min(4), render: z.boolean().default(false) }),
       execute: async ({ url, render }) => {
         try {

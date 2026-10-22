@@ -1,6 +1,7 @@
 import "server-only";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { kv } from "./kv";
+import { readPdfsIn } from "./pdf";
 
 // Composio REST v3.1. One Composio user per Looper user (user_id = our uid).
 // Docs: https://docs.composio.dev/reference
@@ -256,7 +257,7 @@ export async function composioTools(uid: string, slugs: string[]): Promise<{ too
             const { account: label, ...args } = input as Record<string, unknown>;
             const chosen = multi ? list[labels.indexOf(String(label))] : list[0];
             if (!chosen) throw new Error(`Unknown ${slug} account "${label}". Use one of: ${labels.join(", ")}`);
-            const data = await execute(uid, t.slug, multi ? args : (input as Record<string, unknown>), chosen.id);
+            const data = await readPdfsIn(await execute(uid, t.slug, multi ? args : (input as Record<string, unknown>), chosen.id));
             const text = JSON.stringify(data);
             return text.length > 20_000 ? `${text.slice(0, 20_000)}… (truncated)` : data;
           },

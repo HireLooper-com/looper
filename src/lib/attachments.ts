@@ -2,6 +2,7 @@ import "server-only";
 import type { ModelMessage, UserContent } from "ai";
 import { nanoid } from "nanoid";
 import { kv } from "./kv";
+import { pdfText } from "./pdf";
 import type { Attachment, ChiefMessage } from "./types";
 
 // Files people attach in a chat, stored like canvas images: one key per file, scoped to the workspace.
@@ -84,12 +85,29 @@ export async function withFiles(uid: string, history: ChiefMessage[], text: (m: 
   );
 }
 
-/** Grok only reads images inline; a PDF there becomes a note so the turn still runs. */
-export function fitFiles(messages: ModelMessage[], provider: string): ModelMessage[] {
+/** Grok only reads images inline: a PDF there goes in as its text, so the turn still sees the file. */
+export async function fitFiles(messages: ModelMessage[], provider: string): Promise<ModelMessage[]> {
   if (provider !== "xai") return messages;
-  return messages.map((m) =>
-    m.role === "user" && Array.isArray(m.content)
-      ? { ...m, content: m.content.map((p) => (p.type === "file" && p.mediaType === "application/pdf" ? { type: "text" as const, text: `[${p.filename ?? "A PDF"} is attached, but Grok can't read PDFs. Tell the owner to switch this chat to a Claude or ChatGPT model, or paste the text.]` } : p)) }
-      : m,
+  return Promise.all(
+    messages.map(async (m) =>
+      m.role === "user" && Array.isArray(m.content)
+        ? {
+            ...m,
+            content: await Promise.all(
+              m.content.map(async (p) => {
+                if (p.type !== "file" || p.mediaType !== "application/pdf") return p;
+                const name = p.filename ?? "the PDF";
+                const data = typeof p.data === "object" && "type" in p.data && p.data.type === "data" ? p.data.data : null;
+                const read = typeof data === "string" ? await pdfText(new Uint8Array(Buffer.from(data, "base64"))) : null;
+                const text =
+                  read && "text" in read && read.text
+                    ? `File ${name} (PDF, ${read.pages} pages, text only):\n\`\`\`\n${read.text}\n\`\`\``
+                    : `[${name} is attached, but its text couldn't be read${read && "note" in read ? ` (${read.note})` : ""}. Tell the owner to switch this chat to a Claude or ChatGPT model, which read PDFs as pages.]`;
+                return { type: "text" as const, text };
+              }),
+            ),
+          }
+        : m,
+    ),
   );
 }
