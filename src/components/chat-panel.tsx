@@ -568,7 +568,16 @@ function LiveSteps({ progress, bot }: { progress: Progress | null; bot?: { color
 function statsLine(r: Run) {
   const s = r.stats ?? {};
   const n = (v: number | undefined, one: string, many = `${one}s`) => (v ? `${v} ${v === 1 ? one : many}` : "");
-  return [n(s.rows, "row"), n(s.cards, "new card"), n(s.moved, "card moved", "cards moved"), n(s.pins, "pin"), s.metric !== undefined && !Number.isNaN(s.metric) ? `metric ${s.metric}` : ""].filter(Boolean);
+  // A collect job is about rows: say so when a round saved none, instead of a quiet card.
+  const collecting = r.skillName.startsWith("Collect:");
+  return [
+    r.round && r.round > 1 ? `round ${r.round}` : "",
+    collecting && !s.rows ? "no rows yet" : n(s.rows, "row"),
+    n(s.cards, "new card"),
+    n(s.moved, "card moved", "cards moved"),
+    n(s.pins, "pin"),
+    s.metric !== undefined && !Number.isNaN(s.metric) ? `metric ${s.metric}` : "",
+  ].filter(Boolean);
 }
 
 /** One line per run; open it for the steps it took and the full report. */
@@ -588,6 +597,7 @@ function RunLine({ r }: { r: Run }) {
         </div>
         {chips.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{chips.map((c) => <span key={c} className="rounded-full bg-panel px-2 py-0.5 text-[0.6875rem] text-mute shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]">{c}</span>)}</div>}
         <div className="mt-1.5 text-[0.9375rem] leading-relaxed">{open ? <span className="whitespace-pre-wrap">{r.summary}</span> : firstSentence(r.summary)}</div>
+        {r.continues && <div className="mt-1 text-[0.8125rem] text-mute">Continues in round {(r.round ?? 1) + 1}</div>}
         {open && r.steps && r.steps.length > 0 && (
           <div className="mt-3 border-t border-line pt-2">
             <div className="eyebrow mb-1">Steps</div>

@@ -12,7 +12,7 @@ import { computerSession, hasComputer, wipeComputer } from "./computer";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
 import { getModel, hasCredentials, type ResolvedModel } from "./llm";
-import { notifyNeedsYou } from "./loops";
+import { appUrl, notifyNeedsYou } from "./loops";
 import { describeTool, progressWriter } from "./progress";
 import { describeSchedule, isDue } from "./schedule";
 import { usdOf } from "./models";
@@ -21,6 +21,7 @@ import { appFromName } from "./apps";
 import { LOOPER_TEMPLATES } from "./looper-templates";
 import { normalizeUrl, readSite } from "./site";
 import { webTools } from "./web";
+import { sealJson } from "./session";
 import type { AppRef, Ask, Attachment, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
@@ -63,6 +64,8 @@ interface CallOptions {
   progress?: (text: string) => void;
   /** the reply so far, as it streams */
   onText?: (soFar: string) => void;
+  /** called once if the call runs out of time or steps and has to wrap up */
+  onCutOff?: () => void;
   /** quick back-and-forth (chat): ask for less reasoning where the model allows it */
   fast?: boolean;
   /** the conversation's picked model; the workspace default otherwise */
@@ -150,7 +153,10 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
       const outOfTime = Date.now() - startedAt > SOFT_BUDGET_MS;
       const lastStep = hasTools && maxSteps > 1 && stepNumber >= maxSteps - 1;
       if (outOfTime || lastStep) {
-        if (!wrappingUp) opts.progress?.(outOfTime ? "Almost out of time, wrapping up…" : "Wrapping up…");
+        if (!wrappingUp) {
+          opts.progress?.(outOfTime ? "Almost out of time, wrapping up…" : "Wrapping up…");
+          opts.onCutOff?.();
+        }
         wrappingUp = true;
         return {
           activeTools: [],
@@ -308,19 +314,66 @@ export interface CollectJob {
   count?: number;
 }
 
-/** Run a collect job now: a one-off run with room for a long list, saving rows as it goes. */
-export function collect(uid: string, looperId: string, job: CollectJob, trigger: Run["trigger"] = "manual") {
-  const skill: Skill = { id: `collect-${nanoid(6)}`, name: `Collect: ${job.title}`, kind: "work", schedule: { type: "manual", time: "09:00", days: [] }, instructions: collectInstructions(job) };
-  return { name: skill.name, done: runSkill(uid, looperId, skill.id, trigger, skill, 60) };
+/** A collect job runs in rounds of one function call each; it stops after this many, or two rounds in a row with no new rows. */
+const COLLECT_ROUNDS = 5;
+
+export interface CollectRound {
+  job: CollectJob;
+  round: number;
+  /** rounds in a row that saved no rows */
+  dry: number;
+}
+
+/**
+ * Run a collect job now: a one-off run with room for a long list, saving rows as it goes. One round
+ * fits in a single 5-minute function call; when a round runs out of time or steps, the next round
+ * starts in a fresh call and picks up from its "Continue:" card.
+ */
+export function collect(uid: string, looperId: string, job: CollectJob, trigger: Run["trigger"] = "manual", at: Omit<CollectRound, "job"> = { round: 1, dry: 0 }) {
+  const skill: Skill = { id: `collect-${nanoid(6)}`, name: `Collect: ${job.title}`, kind: "work", schedule: { type: "manual", time: "09:00", days: [] }, instructions: collectInstructions(job, at.round) };
+  const done = runSkill(uid, looperId, skill.id, trigger, skill, 60, at.round).then(async (run) => {
+    const dry = run.stats?.rows ? 0 : at.dry + 1;
+    // Waiting on the owner (a question, a takeover) or a run that failed: the owner decides what's next.
+    const more = run.status === "success" && run.cutOff && !run.asked && at.round < COLLECT_ROUNDS && dry < 2;
+    if (more && (await nextCollectRound(uid, looperId, { job, round: at.round + 1, dry }).catch((e) => (console.error("[collect] next round", e), false))))
+      await mutate(uid, (db) => {
+        const r = db.runs.find((x) => x.id === run.id);
+        if (r) r.continues = true;
+      });
+    return run;
+  });
+  return { name: skill.name, done };
+}
+
+/** Start the next round in a fresh function call, so it gets its own 5 minutes. Locally there's no limit: run it here. */
+async function nextCollectRound(uid: string, looperId: string, next: CollectRound) {
+  if (!process.env.VERCEL) {
+    void collect(uid, looperId, next.job, "chief", next).done.catch((e) => console.error("[collect]", e));
+    return true;
+  }
+  // Previews sit behind Vercel's deployment protection; production answers on its public domain.
+  const origin = process.env.VERCEL_ENV === "production" || !process.env.VERCEL_URL ? appUrl() : `https://${process.env.VERCEL_URL}`;
+  const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  const res = await fetch(`${origin}/api/collect`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${await sealJson({ uid, looperId, ...next })}`, ...(bypass ? { "x-vercel-protection-bypass": bypass } : {}) },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`${origin}/api/collect answered ${res.status}`);
+  return true;
 }
 
 /** The instructions for a collect job: find items on the web or in apps and save them as rows. */
-function collectInstructions(job: Omit<CollectJob, "title">) {
+function collectInstructions(job: Omit<CollectJob, "title">, round = 1) {
   return [
     `Collect: ${job.goal}`,
     job.criteria ? `What counts as a match: ${job.criteria}` : "",
     job.fields ? `Fields to fill for each one: ${job.fields}` : "",
     job.count ? `Aim for ${job.count} matching items in total (counting ones already in your database).` : "",
+    round > 1
+      ? `This is round ${round} of up to ${COLLECT_ROUNDS} of this job. Earlier rounds' rows are in your database, and your 'Continue:' card and canvas plan say where they stopped: pick up there instead of starting over.`
+      : "",
+    `Each round has about 3 minutes. Save the first matching rows early, by the middle of the round: a round that only scouts sources saves nothing for the owner. If time runs out, the job continues on its own in a new round (up to ${COLLECT_ROUNDS}), as long as rounds keep adding rows.`,
     "How to run it:",
     "- Check your database first (db_describe, db_query): what's already there, and whether it has a column for each field plus a Source URL (url) column. Add missing columns with db_add_column.",
     "- For a job that takes more than one run, pin a short plan note on your canvas (sources to try, filters, where you are).",
@@ -328,7 +381,7 @@ function collectInstructions(job: Omit<CollectJob, "title">) {
     "- Save matching items with db_add_rows in batches of up to 25 as you go, each with its Source URL. Skip items already in the database.",
     "- If you can't finish in this run, add (or update) a kanban card for yourself titled 'Continue: <this job>' saying exactly where you stopped (source, query, page, last item), so the next run picks up there. When the job is done, move that card to done.",
     "- If nobody is there to answer (a scheduled run), don't wait: use sensible defaults and say which ones you used.",
-    "End with: how many rows you added and the total, from which sources, what didn't work, and what's next.",
+    "Your final reply starts with how many rows you added this round and the total (e.g. 'Added 14 rows, 31 in Leads.' or 'Added 0 rows so far.'), then from which sources, what didn't work, and what's next.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -435,7 +488,10 @@ function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): 
     let mail: { looperName: string; open: number } | undefined;
     const r = await mutate(uid, (d) => {
       const open = d.asks.find((a) => a.looperId === looperId && a.status === "open" && a.question === input.question);
-      if (open) return { asked: open.id, note: "Already asked; wait for the answer." };
+      if (open) {
+        onAsk?.(open.id);
+        return { asked: open.id, note: "Already asked; wait for the answer." };
+      }
       const ask: Ask = { id: nanoid(8), looperId, ...input, status: "open", createdAt: now() };
       d.asks.push(ask);
       (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "assistant", content: input.question, at: now(), askId: ask.id }];
@@ -477,9 +533,10 @@ function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): 
 
 // ——— Runs ———
 
-async function startRun(uid: string, looper: Looper, skill: Skill, trigger: Run["trigger"], adhoc?: Run["adhoc"]) {
+async function startRun(uid: string, looper: Looper, skill: Skill, trigger: Run["trigger"], adhoc?: Run["adhoc"], round?: number) {
   const run: Run = {
     ...(adhoc ? { adhoc } : {}),
+    ...(round ? { round } : {}),
     id: nanoid(10),
     looperId: looper.id,
     skillId: skill.id,
@@ -516,20 +573,23 @@ async function looperApps(uid: string, looper: Looper, db: DB) {
   return ext;
 }
 
-export async function runSkill(uid: string, looperId: string, skillId: string, trigger: Run["trigger"] = "manual", adhoc?: Skill, maxSteps = 25) {
+export async function runSkill(uid: string, looperId: string, skillId: string, trigger: Run["trigger"] = "manual", adhoc?: Skill, maxSteps = 25, round?: number) {
   const db = await read(uid);
   const looper = db.loopers.find((l) => l.id === looperId);
   const skill = adhoc ?? looper?.skills.find((s) => s.id === skillId);
   if (!looper || !skill) throw new Error("Looper or skill not found");
-  if (skill.kind === "retro") return runRetro(uid, looperId, trigger, skill);
+  if (skill.kind === "retro") return { ...(await runRetro(uid, looperId, trigger, skill)), cutOff: false, asked: false };
 
-  const run = await startRun(uid, looper, skill, trigger, adhoc ? { instructions: adhoc.instructions, maxSteps } : undefined);
+  const run = await startRun(uid, looper, skill, trigger, adhoc ? { instructions: adhoc.instructions, maxSteps } : undefined, round);
   const live = progressWriter(uid, `run:${run.id}`, { label: `${looper.name} · ${skill.name}`, href: `/loopers/${looper.id}?tab=chat`, done: "finished" });
   live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
   const pc = hasComputer() ? computerSession(uid, looper.id, { label: skill.name, progress: live.push }) : null;
   if (ext.connected.length) live.push(`Connected: ${ext.connected.map((c) => c.split(" (")[0]).join(", ")}`);
   let outcome: { ok?: boolean; note?: string; error?: string } = {};
+  // Ran out of time or steps (so there's more to do), and whether it's now waiting on the owner.
+  let cutOff = false;
+  let asked = false;
   try {
     const hasExternal = Object.keys(ext.tools).length > 0;
     // A looper without a database designs one before it works, so its results land in rows.
@@ -545,22 +605,24 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
         ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Tools tab.` : "",
       ].join("\n\n"),
-      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...webTools(), ...askTools(uid, looper.id), ...pc?.tools },
+      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...webTools(), ...askTools(uid, looper.id, () => (asked = true)), ...pc?.tools },
       external: ext.tools,
       maxSteps,
       progress: live.push,
       onText: live.text,
+      onCutOff: () => (cutOff = true),
     });
     const text = await result.text;
     const steps = await result.steps;
-    await finishRun(uid, run.id, { status: "success", summary: text, toolCalls: logToolCalls(steps), stats: runStats(steps), steps: live.trail() });
+    const stats = runStats(steps);
+    await finishRun(uid, run.id, { status: "success", summary: text, toolCalls: logToolCalls(steps), stats, steps: live.trail() });
     outcome = { ok: true, note: firstSentence(text) };
-    return { ...run, status: "success" as const, summary: text };
+    return { ...run, status: "success" as const, summary: text, stats, cutOff, asked };
   } catch (error) {
     const summary = errorText(error);
     await finishRun(uid, run.id, { status: "error", summary, steps: live.trail() });
     outcome = { error: summary };
-    return { ...run, status: "error" as const, summary };
+    return { ...run, status: "error" as const, summary, cutOff, asked };
   } finally {
     await Promise.all([ext.close(), pc?.release()]);
     await live.done(outcome);
@@ -1339,7 +1401,10 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
           after(() => collect(uid, looperId, job, "chief").done.then(() => undefined).catch(() => undefined));
           const name = `Collect: ${job.title}`;
           actions.push(`Started ${name}`);
-          return { started: name, note: "Runs in the background for up to 5 minutes; tell the owner it started, what it will look for, and that results land in your database and in this chat." };
+          return {
+            started: name,
+            note: `Runs in the background in rounds of a few minutes, up to ${COLLECT_ROUNDS}, each saving rows and posting its result in this chat. Tell the owner it started, what it will look for, and that results land in your database.`,
+          };
         },
       }),
     };

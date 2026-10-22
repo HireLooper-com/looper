@@ -43,6 +43,23 @@ export async function sessionToken(uid: string) {
   return `${payload}.${await sign(payload)}`;
 }
 
+/** A signed, short-lived message from this app to itself, e.g. the next round of a collect job. */
+export async function sealJson(data: unknown, ttlSec = 600) {
+  const body = Buffer.from(JSON.stringify({ data, exp: Math.floor(Date.now() / 1000) + ttlSec })).toString("base64url");
+  return `${body}.${await sign(body)}`;
+}
+
+export async function openJson<T>(token?: string): Promise<T | null> {
+  const i = token?.lastIndexOf(".") ?? -1;
+  if (!token || i < 0) return null;
+  const body = token.slice(0, i);
+  const sig = Buffer.from(token.slice(i + 1));
+  const expected = Buffer.from(await sign(body));
+  if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) return null;
+  const { data, exp } = JSON.parse(Buffer.from(body, "base64url").toString()) as { data: T; exp: number };
+  return exp * 1000 < Date.now() ? null : data;
+}
+
 export async function verifyToken(token?: string): Promise<string | null> {
   if (!token) return null;
   const i = token.lastIndexOf(".");
