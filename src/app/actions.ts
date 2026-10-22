@@ -13,6 +13,7 @@ import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
 import { kv } from "@/lib/kv";
+import { cleanAttachments, deleteFiles } from "@/lib/attachments";
 import { deleteCanvas } from "@/lib/canvas";
 import { wipeComputer } from "@/lib/computer";
 import { deleteDatabase } from "@/lib/database";
@@ -21,7 +22,7 @@ import * as chatgpt from "@/lib/oauth/chatgpt";
 import * as codex from "@/lib/oauth/codex";
 import * as grok from "@/lib/oauth/grok";
 import { clearSession, currentUser, requireSessionUser, requireUid, requireUser, setSession } from "@/lib/session";
-import type { AppRef, AuthMode, Card, Column, GrokRoute, Integration, IntegrationKind, Looper, ModelChoice, Provider, Skill } from "@/lib/types";
+import type { AppRef, Attachment, AuthMode, Card, Column, GrokRoute, Integration, IntegrationKind, Looper, ModelChoice, Provider, Skill } from "@/lib/types";
 import { ACCENTS } from "@/lib/types";
 
 const now = () => new Date().toISOString();
@@ -191,29 +192,39 @@ async function author() {
   return { uid: user.ws, by: user.ws !== user.id ? { id: user.id, name: displayName(user) } : undefined };
 }
 
-export async function askChief(text: string) {
+export async function askChief(text: string, files?: Attachment[]) {
   const { uid, by } = await author();
-  const reply = await beginChiefReply(uid, text, by);
+  const reply = await beginChiefReply(uid, text, by, cleanAttachments(files));
   after(reply);
   return done({ since: reply.since });
 }
 
-export async function askLooper(looperId: string, text: string) {
+export async function askLooper(looperId: string, text: string, files?: Attachment[]) {
   const { uid, by } = await author();
-  const reply = await beginLooperReply(uid, looperId, text, by);
+  const reply = await beginLooperReply(uid, looperId, text, by, cleanAttachments(files));
   after(reply);
   return done({ since: reply.since });
 }
 
 export async function clearLooperChat(looperId: string) {
   const uid = await requireUid();
-  await mutate(uid, (db) => void ((db.chats ??= {})[looperId] = []));
+  const cleared = await mutate(uid, (db) => {
+    const old = db.chats?.[looperId] ?? [];
+    (db.chats ??= {})[looperId] = [];
+    return old;
+  });
+  await deleteFiles(uid, cleared);
   return done(true);
 }
 
 export async function clearChief() {
   const uid = await requireUid();
-  await mutate(uid, (db) => void (db.chief = []));
+  const cleared = await mutate(uid, (db) => {
+    const old = db.chief;
+    db.chief = [];
+    return old;
+  });
+  await deleteFiles(uid, cleared);
   return done(true);
 }
 

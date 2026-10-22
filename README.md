@@ -34,6 +34,7 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 | Sign in with a 6-digit email code | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so) sends the code) |
 | One-click app connections | `COMPOSIO_API_KEY` |
 | Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so)) |
+| Steadier web search for loopers (DuckDuckGo otherwise) | `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
 | An operators page at `/admin`: onboarding funnel, costs, most active workspaces, who needs a nudge | `ADMIN_EMAILS` (comma-separated) |
@@ -56,6 +57,7 @@ The button copies this repository to your GitHub, creates a Vercel project and a
 - **Models:** `src/lib/models.ts` keeps the list of current models and their API prices, fetched from [models.dev](https://models.dev) twice a day. Each chat picks its model from what the workspace has connected (a looper's runs use its chat's pick); `src/lib/llm.ts` resolves it to a Grok or ChatGPT plan, an API key, or hosted credits.
 - **Usage:** every call's tokens and list-price cost are logged per workspace in `src/lib/usage.ts`, split by who pays: included credits (us), the user's API key, or the user's plan.
 - **Runs:** `src/lib/agent.ts` runs skills, retros, Chief and the scheduler. App tools stay out of the model's context until the looper finds them with `find_tools`, so thousands of tools cost a few definitions per step.
+- **Web data:** loopers work down a ladder: their Source playbook (a canvas note of what worked before), official APIs and feeds, `web_search` and `web_fetch` (`src/lib/web.ts`, server-side, with a rendering reader for JavaScript pages), then the browser. Long lists run as background collect jobs that save rows as they go and leave a "Continue:" card when cut off. `npm run eval:scrape -- --workspace <id>` scores three standard jobs (KVK, Product Hunt, Amsterdam venues).
 - **Computer:** `src/lib/computer.ts` gives each looper a persistent Vercel Sandbox with Chrome ([agent-browser](https://github.com/vercel-labs/agent-browser)). It's stopped after every turn, logs every step with a screenshot, and stops at bot checks instead of fighting them.
 - **Sign-in:** `src/lib/email-code.ts` (6-digit email codes, sent by Loops) or `src/lib/oauth/*` (Grok, ChatGPT), then an HMAC-signed session cookie (`src/lib/session.ts`).
 

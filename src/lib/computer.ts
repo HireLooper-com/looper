@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Sandbox } from "@vercel/sandbox";
 import { tool, type ToolSet } from "ai";
 import { nanoid } from "nanoid";
@@ -96,7 +96,12 @@ const JUST_A_MOMENT = /^just a moment/i;
 // Visible challenge frames only: many ordinary forms load invisible reCAPTCHA, which isn't a block.
 const SIGNALS_JS = `[...document.querySelectorAll('iframe')].map(e=>e.src).filter(s=>!/invisible/.test(s)).join(' ')+' '+(document.body?document.body.innerText:'').slice(0,3000)`;
 const BLOCKED_NOTE =
-  "This site showed a bot check (CAPTCHA / 'verify you are human') and blocks automated browsing. Don't click it or retry, and never try to get around it. Instead: use the site's official API or a connected app if there is one, find the information from another public source (RSS feed, search results, other sites), or use ask_owner to ask whether they want to pass the check themselves.";
+  "This site showed a bot check (CAPTCHA / 'verify you are human') and blocks automated browsing. Don't click it or retry, and never try to get around it. Instead: use the site's official API or a connected app if there is one, or find the information from another public source (RSS feed, search results, other sites). If this site is the only source, use ask_takeover so the owner can pass the check themselves on your computer, and leave a 'Continue:' card saying where to pick up.";
+// Cookie and consent banners: accepting one is what a person does on every first visit, and it's
+// what blocked whole runs before (the looper kept clicking around the dialog). Known consent
+// managers first, then any visible button whose whole label is an accept phrase (English and Dutch,
+// German, French, Spanish). Returns what it clicked, or "".
+const CONSENT_JS = `(()=>{const ids=['#onetrust-accept-btn-handler','#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll','#CybotCookiebotDialogBodyButtonAccept','#didomi-notice-agree-button','.fc-cta-consent','#truste-consent-button','[data-testid="uc-accept-all-button"]','#accept-all-cookies','.cc-allow','.cmplz-accept'];for(const q of ids){const e=document.querySelector(q);if(e&&e.offsetParent!==null){e.click();return q}}const re=/^(accept( all)?( cookies)?|allow( all)?( cookies)?|agree|i agree|got it|alles? accepteren|accepteren|akkoord|alle cookies accepteren|cookies accepteren|ik ga akkoord|alle akzeptieren|akzeptieren|tout accepter|accepter|aceptar( todo)?)$/i;const els=[...document.querySelectorAll('button,a[role=button],[role=button],input[type=button],input[type=submit]')];for(const e of els){const t=(e.innerText||e.value||'').trim().replace(/\\s+/g,' ');if(t.length<40&&re.test(t)&&e.offsetParent!==null){e.click();return t}}return ''})()`;
 const hostOf = (url: string) => {
   try {
     return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, "");
@@ -105,9 +110,24 @@ const hostOf = (url: string) => {
   }
 };
 
+const clipLabel = (s: string) => (s.length > 40 ? `${s.slice(0, 40)}…` : s);
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n… (cut at ${n} characters)` : s);
 // agent-browser notes its cookie restore on stderr; that's noise for the model.
 const quiet = (s: string) => s.split("\n").filter((l) => !l.startsWith("[agent-browser]")).join("\n").trim();
+
+/** The looper's machine, set up with the browser on first use. */
+async function machine(uid: string, looperId: string, onSetup?: () => Promise<void> | void) {
+  const sb = await Sandbox.getOrCreate({ name: sandboxName(uid, looperId), persistent: true, timeout: 15 * 60_000, resources: { vcpus: 2 }, ports: [TAKEOVER_PORT], tags: { app: "looper" } });
+  if ((await sb.runCommand({ cmd: "test", args: ["-f", SETUP_MARK] })).exitCode !== 0) {
+    await onSetup?.();
+    // System libraries need root; the browser itself goes in the default user's home.
+    const root = await sb.runCommand({ cmd: "bash", args: ["-lc", `npm i -g ${AGENT_BROWSER} && agent-browser install --with-deps`], sudo: true, timeoutMs: 240_000 });
+    if (root.exitCode !== 0) throw new Error(`Couldn't set up the computer: ${(await root.stderr()).slice(-300)}`);
+    const user = await sb.runCommand({ cmd: "bash", args: ["-lc", `agent-browser install && touch ${SETUP_MARK}`], timeoutMs: 120_000 });
+    if (user.exitCode !== 0) throw new Error(`Couldn't install the browser: ${(await user.stderr()).slice(-300)}`);
+  }
+  return sb;
+}
 
 /**
  * The computer tools for one run or chat turn (`label` names it in the log). The machine starts
@@ -144,20 +164,15 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
 
   const open = () =>
     (box ??= (async () => {
+      // The owner has the browser right now: don't fight them for it.
+      if (await readTakeover(uid, looperId)) throw new Error(TAKEN_NOTE);
       await assertInfraBudget(uid);
       if (!sessionId) await startLog();
       awakeSince = Date.now();
-      const sb = await Sandbox.getOrCreate({ name: sandboxName(uid, looperId), persistent: true, timeout: 15 * 60_000, resources: { vcpus: 2 }, tags: { app: "looper" } });
-      if ((await sb.runCommand({ cmd: "test", args: ["-f", SETUP_MARK] })).exitCode !== 0) {
+      return machine(uid, looperId, async () => {
         opts.progress?.("Setting up my computer (first time, about a minute)…");
         await step({ label: "Setting up the computer (first time, about a minute)" });
-        // System libraries need root; the browser itself goes in the default user's home.
-        const root = await sb.runCommand({ cmd: "bash", args: ["-lc", `npm i -g ${AGENT_BROWSER} && agent-browser install --with-deps`], sudo: true, timeoutMs: 240_000 });
-        if (root.exitCode !== 0) throw new Error(`Couldn't set up the computer: ${(await root.stderr()).slice(-300)}`);
-        const user = await sb.runCommand({ cmd: "bash", args: ["-lc", `agent-browser install && touch ${SETUP_MARK}`], timeoutMs: 120_000 });
-        if (user.exitCode !== 0) throw new Error(`Couldn't install the browser: ${(await user.stderr()).slice(-300)}`);
-      }
-      return sb;
+      });
     })().catch(async (e) => {
       box = null;
       await step({ label: e instanceof Error ? e.message : "The computer didn't start", error: true });
@@ -231,6 +246,15 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
         const host = action === "open" ? hostOf(target!) : currentHost;
         if (host && blocked.has(host) && !["back", "forward"].includes(action)) return { blocked: true, site: host, note: BLOCKED_NOTE };
         const done = args ? await browser(args) : null;
+        // A fresh page often opens behind a cookie banner: accept it, as a person would, before reading.
+        if (action === "open" && done?.code === 0) {
+          const consent = await browser(["eval", CONSENT_JS]);
+          const clicked = consent.out.replace(/^"|"$/g, "").trim();
+          if (consent.code === 0 && clicked) {
+            await browser(["wait", "800"]);
+            await step({ label: `Accepted the cookie banner (${clipLabel(clicked)})` });
+          }
+        }
         const [now, shot] = await Promise.all([page(), shoot()]);
         const failed = !!done && done.code !== 0;
         if (now.botCheck) {
@@ -297,7 +321,8 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
   async function release() {
     if (!box) return;
     const sb = await box.catch(() => null);
-    if (sb) {
+    // If the owner took over meanwhile, leave the machine and browser running for them.
+    if (sb && !(await readTakeover(uid, looperId))) {
       if (browserUsed) await exec("agent-browser", ["close"], { env: BROWSER_ENV, timeoutMs: 20_000 });
       await sb.stop().catch(() => undefined);
     }
@@ -306,4 +331,130 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
   }
 
   return { tools, release };
+}
+
+// ——— Take over: the owner drives the looper's browser (log in, pass a check) ———
+// agent-browser streams the page over a WebSocket and takes mouse and key input. That port has no
+// auth of its own, so a small proxy on the exposed port checks a one-time token first.
+
+const TAKEOVER_PORT = 3000;
+const STREAM_PORT = 9223;
+const TAKEOVER_MS = 15 * 60_000;
+const PROXY = `${HOME}/.cl-takeover.cjs`;
+const TAKEN_NOTE = "The owner is using this computer right now (they took over the browser). Don't wait for it: do what you can without the browser, and leave a 'Continue:' card for the rest.";
+const takeoverKey = (uid: string, looperId: string) => `takeover:${uid}:${looperId}`;
+
+export interface Takeover {
+  /** wss:// address of the live view, token included */
+  ws: string;
+  startedAt: number;
+  expiresAt: number;
+  /** the looper's question this answers, if it asked */
+  askId?: string;
+  sessionId: string;
+}
+
+// Runs on the looper's machine: `node proxy <token> <port> <stream port>`. Checks the token, then
+// replays the upgrade request to the local stream server and pipes the two sockets together.
+const PROXY_JS = String.raw`const http = require("http"), net = require("net");
+const [token, port, target] = process.argv.slice(2);
+const server = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+server.on("upgrade", (req, sock, head) => {
+  const u = new URL(req.url, "http://x");
+  if (u.searchParams.get("t") !== token) { sock.end("HTTP/1.1 403 Forbidden\r\n\r\n"); return; }
+  u.searchParams.delete("t");
+  const up = net.connect(+target, "127.0.0.1", () => {
+    const lines = ["GET " + u.pathname + u.search + " HTTP/1.1"];
+    for (let i = 0; i < req.rawHeaders.length; i += 2) {
+      const k = req.rawHeaders[i];
+      if (/^host$/i.test(k)) lines.push("Host: 127.0.0.1:" + target);
+      else if (!/^origin$/i.test(k)) lines.push(k + ": " + req.rawHeaders[i + 1]);
+    }
+    up.write(lines.join("\r\n") + "\r\n\r\n");
+    if (head && head.length) up.write(head);
+    sock.pipe(up).pipe(sock);
+  });
+  up.on("error", () => sock.destroy());
+  sock.on("error", () => up.destroy());
+});
+server.listen(+port, "0.0.0.0");
+`;
+
+const withScheme = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://${url}`);
+
+export async function readTakeover(uid: string, looperId: string) {
+  const t = await kv.get<Takeover>(takeoverKey(uid, looperId));
+  return t && t.expiresAt > Date.now() ? t : null;
+}
+
+/** Hand the looper's browser to the owner: wake the machine, open the page, return the live view's address. */
+export async function startTakeover(uid: string, looperId: string, opts: { askId?: string; url?: string } = {}) {
+  const current = await readTakeover(uid, looperId);
+  if (current) return current;
+  const { sessions } = await readComputerLog(uid, looperId);
+  const last = sessions.at(-1);
+  if (last && isLive(last)) throw new Error("It's using its computer right now. Try again when it finishes, in a minute or two.");
+  await assertInfraBudget(uid);
+
+  let sb = await machine(uid, looperId);
+  // Machines made before take-over existed don't expose the port yet.
+  if (!sb.routes.some((r) => r.port === TAKEOVER_PORT)) {
+    await sb.update({ ports: [TAKEOVER_PORT] });
+    sb = await Sandbox.get({ name: sandboxName(uid, looperId) });
+  }
+  await sb.extendTimeout(TAKEOVER_MS).catch(() => undefined);
+  const token = randomBytes(24).toString("base64url");
+  await sb.writeFiles([{ path: PROXY, content: PROXY_JS }]);
+  await sb.runCommand({ cmd: "pkill", args: ["-f", PROXY] }).catch(() => undefined);
+  await sb.runCommand({ cmd: "node", args: [PROXY, token, String(TAKEOVER_PORT), String(STREAM_PORT)], detached: true });
+
+  // Pick up where the looper was, unless the ask named a page.
+  const lastUrl = sessions.flatMap((s) => s.steps).findLast((st) => st.url && /^https?:/.test(st.url))?.url;
+  const env = { ...BROWSER_ENV, AGENT_BROWSER_STREAM_PORT: String(STREAM_PORT), AGENT_BROWSER_STREAM_QUALITY: "70", AGENT_BROWSER_IDLE_TIMEOUT_MS: String(TAKEOVER_MS) };
+  const opened = await sb.runCommand({ cmd: "agent-browser", args: ["open", withScheme(opts.url ?? lastUrl ?? "www.google.com")], env, timeoutMs: 60_000 });
+  if (opened.exitCode !== 0) throw new Error(`The browser didn't open: ${(await opened.stderr()).slice(-200)}`);
+  await sb.runCommand({ cmd: "agent-browser", args: ["stream", "enable", "--port", String(STREAM_PORT)], env }).catch(() => undefined);
+
+  const sessionId = nanoid(8);
+  const at = new Date().toISOString();
+  await kv.update<ComputerLog, void>(logKey(uid, looperId), () => ({ sessions: [] }), (l) => {
+    l.sessions = [...(l.sessions ?? []), { id: sessionId, label: "You took over", startedAt: at, steps: [{ id: nanoid(6), at, label: "You took over the browser" }] }];
+  });
+  const t: Takeover = { ws: `${sb.domain(TAKEOVER_PORT).replace(/^http/, "ws")}/?t=${token}&maxFps=12`, startedAt: Date.now(), expiresAt: Date.now() + TAKEOVER_MS - 30_000, askId: opts.askId, sessionId };
+  await kv.set(takeoverKey(uid, looperId), t, Math.round(TAKEOVER_MS / 1000));
+  return t;
+}
+
+/** Open a page while the owner has the browser (the live view has no address bar of its own). */
+export async function takeoverOpen(uid: string, looperId: string, url: string) {
+  if (!(await readTakeover(uid, looperId))) throw new Error("The take-over ended.");
+  const sb = await Sandbox.get({ name: sandboxName(uid, looperId) });
+  const r = await sb.runCommand({ cmd: "agent-browser", args: ["open", withScheme(url)], env: BROWSER_ENV, timeoutMs: 60_000 });
+  if (r.exitCode !== 0) throw new Error("That page didn't open.");
+}
+
+/** Give the browser back: save its logins, stop the machine, log how long it took. */
+export async function finishTakeover(uid: string, looperId: string) {
+  const t = await kv.get<Takeover>(takeoverKey(uid, looperId));
+  await kv.delete(takeoverKey(uid, looperId));
+  const sb = await Sandbox.get({ name: sandboxName(uid, looperId) }).catch(() => null);
+  let url = "";
+  if (sb) {
+    url = (await sb.runCommand({ cmd: "agent-browser", args: ["get", "url"], env: BROWSER_ENV, timeoutMs: 15_000 }).then((r) => r.stdout()).catch(() => "")).trim();
+    // Closing saves the browser's cookies, so the looper is logged in next time.
+    await sb.runCommand({ cmd: "agent-browser", args: ["close"], env: BROWSER_ENV, timeoutMs: 20_000 }).catch(() => undefined);
+    await sb.runCommand({ cmd: "pkill", args: ["-f", PROXY] }).catch(() => undefined);
+    await sb.stop().catch(() => undefined);
+  }
+  if (t) {
+    const minutes = Math.max(1, (Date.now() - t.startedAt) / 60_000);
+    await spendInfra(uid, minutes * USD_PER_MINUTE).catch(() => undefined);
+    await kv.update<ComputerLog, void>(logKey(uid, looperId), () => ({ sessions: [] }), (l) => {
+      const s = l.sessions?.find((x) => x.id === t.sessionId);
+      if (!s) return;
+      s.steps.push({ id: nanoid(6), at: new Date().toISOString(), label: `You handed the browser back after ${Math.round(minutes)} min`, url: url || undefined });
+      s.endedAt = new Date().toISOString();
+    });
+  }
+  return { askId: t?.askId, url };
 }

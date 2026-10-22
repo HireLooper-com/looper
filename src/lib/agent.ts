@@ -5,8 +5,9 @@ import { after } from "next/server";
 import { z } from "zod";
 import { mutate, read } from "./db";
 import { allWorkspaceIds } from "./workspace";
+import { fitFiles, withFiles } from "./attachments";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
-import { activeAccounts, composioTools, hasComposio, resolveApps } from "./composio";
+import { activeAccounts, catalogApps, composioTools, hasComposio, resolveApps } from "./composio";
 import { computerSession, hasComputer, wipeComputer } from "./computer";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
@@ -19,7 +20,8 @@ import { recordUsage, type UsageRow } from "./usage";
 import { appFromName } from "./apps";
 import { LOOPER_TEMPLATES } from "./looper-templates";
 import { normalizeUrl, readSite } from "./site";
-import type { AppRef, Ask, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
+import { webTools } from "./web";
+import type { AppRef, Ask, Attachment, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -133,21 +135,27 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
   // wrap up; the hard limit aborts just before the platform would kill the run silently.
   const startedAt = Date.now();
   let wrappingUp = false;
+  const maxSteps = opts.maxSteps ?? 12;
+  const hasTools = Object.keys(all).length > 0;
   const result = streamText({
     model: m.model,
     instructions: opts.instructions,
-    ...(opts.messages ? { messages: opts.messages } : { prompt: opts.prompt ?? "" }),
+    ...(opts.messages ? { messages: fitFiles(opts.messages, m.provider) } : { prompt: opts.prompt ?? "" }),
     tools: Object.keys(all).length ? m.wrapTools(all) : undefined,
     providerOptions: (fast ? fastOptions(m, m.providerOptions as Record<string, Record<string, unknown>>) : m.providerOptions) as typeof m.providerOptions,
-    stopWhen: isStepCount(opts.maxSteps ?? 12),
-    prepareStep: () => {
-      if (Date.now() - startedAt > SOFT_BUDGET_MS) {
-        if (!wrappingUp) opts.progress?.("Almost out of time, wrapping up…");
+    stopWhen: isStepCount(maxSteps),
+    prepareStep: ({ stepNumber }) => {
+      // Out of time, or on the last step allowed: tools off, so the call always ends in a reply.
+      // Without this a turn that spent every step on tools ended with no words at all.
+      const outOfTime = Date.now() - startedAt > SOFT_BUDGET_MS;
+      const lastStep = hasTools && maxSteps > 1 && stepNumber >= maxSteps - 1;
+      if (outOfTime || lastStep) {
+        if (!wrappingUp) opts.progress?.(outOfTime ? "Almost out of time, wrapping up…" : "Wrapping up…");
         wrappingUp = true;
         return {
           activeTools: [],
           toolChoice: "none" as const,
-          instructions: `${opts.instructions}\n\nTime is up for this run. Your tools are switched off for this last step, so a tool call written as text won't run either. Reply in plain prose: summarise what you did, what you saved, and exactly what's left for the next run.`,
+          instructions: `${opts.instructions}\n\n${outOfTime ? "Time is up for this turn." : "You've used every step this turn allows."} Your tools are switched off for this last step, so a tool call written as text won't run either. Reply in plain prose: what you did, what you saved (and where), what didn't work, and exactly what's left and how you'll continue.`,
         };
       }
       return hasExternal ? { activeTools: [...Object.keys(base), "find_tools", ...discovered] } : {};
@@ -260,15 +268,70 @@ function looperBrief(db: DB, l: Looper, database = "") {
     asksLine(db, l.id),
     retro ? `Your last retro said to try next:\n${retro.tryNext.map((t) => `- ${t}`).join("\n")}` : "",
     `Your skills: ${l.skills.map((s) => `${s.name} (${describeSchedule(s.schedule)})`).join("; ")}.`,
+    `Your space: you always have your own database and canvas, and they come first. ${SPACE_RULES}`,
     database,
-    "Where things go: anything systematic, one record per unit of your work (a transaction, a post, a lead), goes in your database as a row; add a column with db_add_column when a field is missing. Useful finds that don't fit a row (an insight, a pattern, a draft, a link worth keeping, an idea to try, a map of how things connect) go on your canvas with canvas_add, so the owner sees them and you can build on them next run. Don't leave either only in your summary. Never create duplicates: before adding a row, db_query by its identifying values (date + amount + counterparty, URL, email) and update the existing row if it's there; before pinning, check canvas_read and update an existing note instead of adding a near-copy. The same goes for kanban cards: check kanban_list before adding one.",
-    hasComputer()
-      ? "You have your own computer: a private Linux machine with Chrome that remembers logins. Use computer_browse to open and use websites that no connected app covers (search, read, fill forms, check dashboards), computer_read to read a page, computer_screenshot to see it, computer_run for shell work like downloads and scripts. Prefer a connected app when one covers the job. If a site needs a login you don't have, ask the owner; never guess passwords. If a site shows a bot check (CAPTCHA, 'verify you are human'), stop: don't click it, retry or try to get around it. Prefer the site's official API or a connected app (search with find_tools), else another public source (RSS feed, search results, other sites); only if nothing else works, ask_owner whether they want to pass the check themselves. Before a final submit, post, purchase or send on a website, get an approved ask_owner approval, as with apps."
-      : "",
-    "Work rules: keep your kanban board current (add cards for work you plan, move them as you go). When you learn the latest metric value from a real source, record it with metric_record. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. When only the owner can decide something, ask with ask_owner (tappable options) instead of guessing, and never send, publish, file, pay or delete without an approved ask_owner approval; keep kanban cards for: 'you' for real tasks that take the owner more than a tap. Finish with a 2–4 sentence summary of what you did and what changed.",
+    "Where things go: anything systematic, one record per unit of your work, is a database row; add a column with db_add_column when a field is missing. Useful finds that don't fit a row (an insight, a pattern, a draft, a link worth keeping, an idea to try) go on your canvas with canvas_add, so the owner sees them and you can build on them next run. Never create duplicates: if a row is already there, update it with db_update_rows; check canvas_read before pinning and update an existing note instead of adding a near-copy; check kanban_list before adding a card.",
+    webLadder(),
+    "Work rules: keep your kanban board current (add cards for work you plan, move them as you go). If one of your open cards starts with \"Continue:\", resume from where it says before anything else. When you learn the latest metric value from a real source, record it with metric_record. To use an external app (CRM, email, social, analytics, docs, …), call find_tools with the app and action, then call the tool it returns. Never invent data. When only the owner can decide something, ask with ask_owner (tappable options) instead of guessing, and never send, publish, file, pay or delete without an approved ask_owner approval; keep kanban cards for: 'you' for real tasks that take the owner more than a tap. Finish with a 2–4 sentence summary: what you did, what you saved and where (e.g. '12 rows in Leads'), what didn't work, and what's next.",
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+const SPACE_RULES =
+  "Results go in your database by default: one row per item you find or work on, with its source URL, checked against existing rows (db_query) so nothing is added twice. Your canvas holds your plan for longer jobs, findings and references, and your Source playbook (playbook_save). Only put data in Google Sheets, email, docs or other apps when the owner asks for that or your skill says so; never tell the owner results went elsewhere when they're in your database.";
+
+/** The web, cheapest and most reliable route first. Every looper has search and fetch; the browser only where there's a computer. */
+function webLadder() {
+  const browser = hasComputer();
+  return [
+    "Getting data from the web: work down this ladder and move to the next step as soon as one fails; never stop at the first failure.",
+    "1. Your Source playbook (on your canvas) first: if it says what works for this data, do that.",
+    "2. An official API, feed or connected app: find_tools for the app; web_search for '<site> API', open data, RSS feeds or downloadable lists (CSV, JSON).",
+    "3. web_search to find where the data lives (directories, lists, aggregators, search results), then web_fetch to read pages. web_fetch is fast and cheap and returns each page's links, so follow next-page and detail links with it.",
+    browser
+      ? "4. Your browser (computer_browse, computer_read) only for what web_fetch can't do: search forms, filters, clicking through, logins the owner set up. Cookie banners are accepted for you when a page opens. Never guess or ask for passwords; if a login is needed, use ask_takeover so the owner logs in on your browser (it's remembered after that)."
+      : "4. (No browser on this server.) If a site only works in a browser, say so and pick another source.",
+    `5. If a site shows a bot check (CAPTCHA, 'verify you are human') or blocks you, stop there: don't retry or work around it; take another source. When every route fails, ask_owner with concrete options (e.g. 'buy an API key for X', 'use source Y instead')${browser ? ", or, if that site is the only source, ask_takeover so the owner passes the check on your browser" : ""}.`,
+    "After you try a source, record what worked or failed with playbook_save, so the next run starts from it. Save rows as you collect them (batches of up to 25), not at the end: a run can be cut off.",
+    browser ? "Before a final submit, post, purchase or send on a website, get an approved ask_owner approval, as with apps." : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export interface CollectJob {
+  title: string;
+  goal: string;
+  criteria?: string;
+  fields?: string;
+  count?: number;
+}
+
+/** Run a collect job now: a one-off run with room for a long list, saving rows as it goes. */
+export function collect(uid: string, looperId: string, job: CollectJob, trigger: Run["trigger"] = "manual") {
+  const skill: Skill = { id: `collect-${nanoid(6)}`, name: `Collect: ${job.title}`, kind: "work", schedule: { type: "manual", time: "09:00", days: [] }, instructions: collectInstructions(job) };
+  return { name: skill.name, done: runSkill(uid, looperId, skill.id, trigger, skill, 60) };
+}
+
+/** The instructions for a collect job: find items on the web or in apps and save them as rows. */
+function collectInstructions(job: Omit<CollectJob, "title">) {
+  return [
+    `Collect: ${job.goal}`,
+    job.criteria ? `What counts as a match: ${job.criteria}` : "",
+    job.fields ? `Fields to fill for each one: ${job.fields}` : "",
+    job.count ? `Aim for ${job.count} matching items in total (counting ones already in your database).` : "",
+    "How to run it:",
+    "- Check your database first (db_describe, db_query): what's already there, and whether it has a column for each field plus a Source URL (url) column. Add missing columns with db_add_column.",
+    "- For a job that takes more than one run, pin a short plan note on your canvas (sources to try, filters, where you are).",
+    "- Work the web ladder from your brief. Record each source you try with playbook_save.",
+    "- Save matching items with db_add_rows in batches of up to 25 as you go, each with its Source URL. Skip items already in the database.",
+    "- If you can't finish in this run, add (or update) a kanban card for yourself titled 'Continue: <this job>' saying exactly where you stopped (source, query, page, last item), so the next run picks up there. When the job is done, move that card to done.",
+    "- If nobody is there to answer (a scheduled run), don't wait: use sensible defaults and say which ones you used.",
+    "End with: how many rows you added and the total, from which sources, what didn't work, and what's next.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function boardTools(uid: string, looperId: string, actor: Card["createdBy"]): ToolSet {
@@ -368,7 +431,36 @@ function runStats(steps: StepLike[]): RunStats {
 
 /** Put a question or an approval to the owner: it shows in the looper's chat and the inbox. */
 function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): ToolSet {
+  const put = async (input: Pick<Ask, "kind" | "question" | "options" | "detail" | "url">) => {
+    let mail: { looperName: string; open: number } | undefined;
+    const r = await mutate(uid, (d) => {
+      const open = d.asks.find((a) => a.looperId === looperId && a.status === "open" && a.question === input.question);
+      if (open) return { asked: open.id, note: "Already asked; wait for the answer." };
+      const ask: Ask = { id: nanoid(8), looperId, ...input, status: "open", createdAt: now() };
+      d.asks.push(ask);
+      (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "assistant", content: input.question, at: now(), askId: ask.id }];
+      onAsk?.(ask.id);
+      mail = { looperName: d.loopers.find((l) => l.id === looperId)?.name ?? "A looper", open: d.asks.filter((a) => a.status === "open").length };
+      return { asked: ask.id, note: "The owner will see it in chat and their inbox. Carry on with anything that doesn't depend on the answer." };
+    });
+    // Also by email, so nobody has to keep the app open to know a looper is waiting.
+    if (mail) await notifyNeedsYou(uid, mail.looperName, input.question, input.detail, mail.open).catch((e) => console.error("[loops] needs-you", e));
+    return r;
+  };
   return {
+    ...(hasComputer()
+      ? {
+          ask_takeover: tool({
+            description:
+              "Ask the owner to take over your browser for a moment: to log in to a site (they type the password themselves; never ask for passwords in chat) or to pass a bot check (CAPTCHA) on a site that's the only source. They get a 'Take over' button, use your browser live, and hand it back; the login is remembered for your next runs and their reply comes back as a chat message. Before asking, leave a 'Continue:' card saying where to pick up.",
+            inputSchema: z.object({
+              question: z.string().max(300).describe("what you need them to do, e.g. 'Log in to LinkedIn so I can read the company pages'"),
+              url: z.string().describe("the page to open for them"),
+            }),
+            execute: ({ question, url }) => put({ kind: "takeover", question, url }),
+          }),
+        }
+      : {}),
     ask_owner: tool({
       description:
         "Ask your owner something only they can decide, as tappable options (kind 'choice', 2–4 short options), or ask approval before anything risky or irreversible: sending, publishing, filing, paying, deleting (kind 'approval', with `detail` saying exactly what will happen). Their answer comes back to you as a chat message. Prefer this over a kanban card for quick decisions. Ask one thing at a time.",
@@ -378,30 +470,16 @@ function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): 
         options: z.array(z.string().max(60)).min(2).max(4).optional(),
         detail: z.string().max(1200).optional(),
       }),
-      execute: async (input) => {
-        let mail: { looperName: string; open: number } | undefined;
-        const r = await mutate(uid, (d) => {
-          const open = d.asks.find((a) => a.looperId === looperId && a.status === "open" && a.question === input.question);
-          if (open) return { asked: open.id, note: "Already asked; wait for the answer." };
-          const ask: Ask = { id: nanoid(8), looperId, kind: input.kind, question: input.question, options: input.kind === "choice" ? input.options : undefined, detail: input.detail, status: "open", createdAt: now() };
-          d.asks.push(ask);
-          (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "assistant", content: input.question, at: now(), askId: ask.id }];
-          onAsk?.(ask.id);
-          mail = { looperName: d.loopers.find((l) => l.id === looperId)?.name ?? "A looper", open: d.asks.filter((a) => a.status === "open").length };
-          return { asked: ask.id, note: "The owner will see it in chat and their inbox. Carry on with anything that doesn't depend on the answer." };
-        });
-        // Also by email, so nobody has to keep the app open to know a looper is waiting.
-        if (mail) await notifyNeedsYou(uid, mail.looperName, input.question, input.detail, mail.open).catch((e) => console.error("[loops] needs-you", e));
-        return r;
-      },
+      execute: (input) => put({ kind: input.kind, question: input.question, options: input.kind === "choice" ? input.options : undefined, detail: input.detail }),
     }),
   };
 }
 
 // ——— Runs ———
 
-async function startRun(uid: string, looper: Looper, skill: Skill, trigger: Run["trigger"]) {
+async function startRun(uid: string, looper: Looper, skill: Skill, trigger: Run["trigger"], adhoc?: Run["adhoc"]) {
   const run: Run = {
+    ...(adhoc ? { adhoc } : {}),
     id: nanoid(10),
     looperId: looper.id,
     skillId: skill.id,
@@ -445,7 +523,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   if (!looper || !skill) throw new Error("Looper or skill not found");
   if (skill.kind === "retro") return runRetro(uid, looperId, trigger, skill);
 
-  const run = await startRun(uid, looper, skill, trigger);
+  const run = await startRun(uid, looper, skill, trigger, adhoc ? { instructions: adhoc.instructions, maxSteps } : undefined);
   const live = progressWriter(uid, `run:${run.id}`, { label: `${looper.name} · ${skill.name}`, href: `/loopers/${looper.id}?tab=chat`, done: "finished" });
   live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
@@ -467,7 +545,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
         ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Tools tab.` : "",
       ].join("\n\n"),
-      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...askTools(uid, looper.id), ...pc?.tools },
+      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...webTools(), ...askTools(uid, looper.id), ...pc?.tools },
       external: ext.tools,
       maxSteps,
       progress: live.push,
@@ -487,6 +565,13 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
     await Promise.all([ext.close(), pc?.release()]);
     await live.done(outcome);
   }
+}
+
+/** A reply when the model ended without words: say what happened instead of showing nothing. */
+function noReply(actions: string[], steps: string[]) {
+  if (actions.length) return `Done: ${actions.join("; ")}.`;
+  if (steps.length) return `I stopped before I could write a reply. What I did: ${steps.slice(-6).join(" → ")}. Ask me to continue, or tell me what to change.`;
+  return "I didn't get a reply out that time. Send it again, or try another model.";
 }
 
 function firstSentence(s: string) {
@@ -628,6 +713,13 @@ function toSkill(s: z.infer<typeof skillInput>): Skill {
   return { id: nanoid(8), name: s.name, instructions: s.instructions, kind: "work", schedule: { type: s.type, time: s.time, days: s.days } };
 }
 
+/** Tell Chief which names weren't apps, so it doesn't promise a Connect button for them. */
+function notAppsNote(notFound: string[]) {
+  return notFound.length
+    ? { notApps: notFound, notAppsNote: `${notFound.join(", ")} has no app to connect, so it was left off. The looper reads it from the web (search, pages, browser) instead; say so instead of asking the owner to connect it.` }
+    : {};
+}
+
 function dedupeApps(apps: AppRef[]) {
   return apps.filter((a, i) => a.slug && apps.findIndex((b) => b.slug === a.slug) === i);
 }
@@ -657,7 +749,7 @@ export type LooperSpec = z.infer<typeof looperSpec>;
 
 /** Create a looper from a spec (Chief's create_looper and the guided hiring flow). */
 export async function hireLooper(uid: string, input: LooperSpec) {
-  const apps = await resolveApps(dedupeApps(input.apps.map(appFromName)));
+  const { apps, notFound } = await catalogApps(dedupeApps(input.apps.map(appFromName)));
   const r = await mutate(uid, (db) => {
     const looper: Looper = {
       id: nanoid(8),
@@ -683,7 +775,7 @@ export async function hireLooper(uid: string, input: LooperSpec) {
     db.loopers.push(looper);
     for (const c of input.starterCards)
       db.cards.push({ id: nanoid(8), looperId: looper.id, title: c.title, description: "", column: "todo", assignee: c.for, createdBy: "chief", createdAt: now(), updatedAt: now() });
-    return { id: looper.id, name: looper.name, apps, firstSkill: looper.skills[0] };
+    return { id: looper.id, name: looper.name, apps, notFound, firstSkill: looper.skills[0] };
   });
   if (input.database) await mutateDatabase(uid, r.id, (box) => void (box.db ??= newDatabase(input.database!.name, input.database!.rowNoun, input.database!.columns)));
   return r;
@@ -838,7 +930,13 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         // Only offer Connect for what isn't connected yet.
         if (missing.length) links.push({ label: `Connect ${missing.map((a) => a.name).join(", ")} for ${r.name}`, href: `/loopers/${r.id}?tab=apps` });
         actions.push(`Hired ${r.name}`);
-        return { id: r.id, name: r.name, appsAlreadyConnected: r.apps.filter((a) => c.isConnected(a)).map((a) => a.name), appsToConnect: missing.map((a) => a.name) };
+        return {
+          id: r.id,
+          name: r.name,
+          appsAlreadyConnected: r.apps.filter((a) => c.isConnected(a)).map((a) => a.name),
+          appsToConnect: missing.map((a) => a.name),
+          ...notAppsNote(r.notFound),
+        };
       },
     }),
     update_looper: tool({
@@ -852,7 +950,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         addApps: z.array(z.string()).optional().describe("apps to add, by name"),
       }),
       execute: async (input) => {
-        const added = input.addApps?.length ? await resolveApps(input.addApps.map(appFromName)) : [];
+        const { apps: added, notFound } = input.addApps?.length ? await catalogApps(input.addApps.map(appFromName)) : { apps: [], notFound: [] };
         const c = await appConnections(uid, await read(uid));
         const missing = added.filter((a) => !c.isConnected(a));
         return mutate(uid, (db) => {
@@ -866,7 +964,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           if (input.status) l.status = input.status;
           if (input.addSkills) l.skills.push(...input.addSkills.map(toSkill));
           actions.push(`Updated ${l.name}`);
-          return { ok: true, appsToConnect: missing.map((a) => a.name) };
+          return { ok: true, appsToConnect: missing.map((a) => a.name), ...notAppsNote(notFound) };
         });
       },
     }),
@@ -964,7 +1062,7 @@ Your job: turn the user's goals into loopers, manage them, and report on them. W
 
 Give every looper a database (create_looper.database) whose rows are the unit of its work, with 5–10 useful columns: a VAT looper gets one row per bank transaction (date, amount, counterparty, source, VAT rate, VAT amount, invoice found, status); an SEO looper gets one row per blog post or idea (title, status Idea/Drafting/Published, keyword, URL, clicks); a sales looper one row per lead. Use select columns for statuses.
 
-Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]).
+Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]). Apps are software the owner has an account in. Public websites and registers (KVK, Companies House, LinkedIn pages, news sites, Google results) are not apps: every looper reads them with web search, page fetch and its browser, so leave them out of apps and name them in the skill instructions instead. If a tool result has notApps, those were not apps: don't offer to connect them.
 
 Connections: the user connects each app once (Gmail, Stripe, Google Sheets…) and every looper can use it. "Connected apps" below is the live list. Never ask the user to connect an app that is already there. create_looper and update_looper return appsToConnect: only those still need connecting, and the app shows a Connect button for exactly those, so say "connect X with the button below". If appsToConnect is empty, say everything is already connected. MCP hubs (Composio, Zapier…) are optional extras; an empty hub list does not mean apps aren't connected.
 
@@ -976,8 +1074,8 @@ Be brief and concrete. Use plain text with short lists.`;
  * Save the owner's message and mark Chief as working, then hand back the slow part to run in the
  * background, so the request returns at once and the UI follows the live progress.
  */
-export async function beginChiefReply(uid: string, userText: string, by?: ChiefMessage["by"]) {
-  const userMsg: ChiefMessage = { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}) };
+export async function beginChiefReply(uid: string, userText: string, by?: ChiefMessage["by"], files: Attachment[] = []) {
+  const userMsg: ChiefMessage = { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}), ...(files.length ? { files } : {}) };
   await mutate(uid, (d) => void d.chief.push(userMsg));
   const live = progressWriter(uid, "chief", { label: "Chief", href: "/chief", done: "replied", failed: "couldn't reply" });
   await live.ready();
@@ -986,7 +1084,7 @@ export async function beginChiefReply(uid: string, userText: string, by?: ChiefM
 
 async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) {
   const db = await read(uid);
-  const history: ModelMessage[] = db.chief.slice(-31).map((m) => ({ role: m.role, content: authored(m) }));
+  const history = (await withFiles(uid, db.chief.slice(-31), authored)) as ModelMessage[];
   const actions: string[] = [];
   const links: { label: string; href: string }[] = [];
   let content: string;
@@ -1004,11 +1102,12 @@ async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) 
       onText: live.text,
       fast: true,
     });
-    content = (await result.text) || (actions.length ? "Done." : "…");
+    content = (await result.text).trim() || noReply(actions, live.trail());
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   }
-  const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
+  const steps = live.trail();
+  const reply: ChiefMessage = { id: nanoid(8), role: "assistant", content, at: now(), actions, links, ...(steps.length ? { steps } : {}) };
   await mutate(uid, (d) => void d.chief.push(reply));
   await live.done({ ok: !content.startsWith("I couldn't"), note: firstSentence(content) });
   return reply;
@@ -1150,13 +1249,19 @@ export async function workCards(uid: string, looperId: string, cardId?: string, 
 
 // ——— Chatting with a looper ———
 
+const CHAT_RULES = [
+  "Before you start work that collects data or takes more than a few tool calls, check that the request pins down what changes the result: where (cities, sites, markets), what counts as a match (dates, size, categories), how many, and which fields. If something is missing and your mission, database, canvas and the owner's past answers don't settle it, don't start yet: reply with a two-line plan and at most 3 numbered questions, each with your suggested default in brackets, and end with \"Say go and I'll start with these defaults.\" When they answer or say go, start it. If the request already covers it, start right away. Quick lookups (one search, one page, one row) you just do.",
+  "Collecting a list is a background job: start it with start_collect (or start_skill for one of your skills) and don't work through a long list inside this chat, where you have only a few steps. After starting, say in one or two sentences what you're looking for, where results will land (your database), and that you'll post here when it's done.",
+  "Never leave the owner guessing: every reply says what you did or found, what you saved and where, and what happens next. If something failed, say what and what you'll try instead.",
+].join("\n\n");
+
 /** Talk to one looper directly. It answers with its own tools: board, database, apps; it can also
  * edit its core instructions and skills, and start one of its skills in the background. */
-export async function beginLooperReply(uid: string, looperId: string, userText: string, by?: ChiefMessage["by"]) {
+export async function beginLooperReply(uid: string, looperId: string, userText: string, by?: ChiefMessage["by"], files: Attachment[] = []) {
   const name = await mutate(uid, (d) => {
     const l = d.loopers.find((x) => x.id === looperId);
     if (!l) throw new Error("Looper not found");
-    (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}) }];
+    (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}), ...(files.length ? { files } : {}) }];
     return l.name;
   });
   const live = progressWriter(uid, `chat:${looperId}`, { label: name, href: `/loopers/${looperId}?tab=chat`, done: "replied", failed: "couldn't reply" });
@@ -1178,7 +1283,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
   const links: { label: string; href: string }[] = [];
   live.push("Connecting apps…");
   // Apps, database and canvas load side by side.
-  const [ext, table, canvas] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId)]);
+  const [ext, table, canvas, messages] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId), withFiles(uid, history, authored)]);
   const pc = hasComputer() ? computerSession(uid, looperId, { label: "Chat", progress: live.push }) : null;
   let content: string;
   try {
@@ -1219,6 +1324,24 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
           return { started: s.name };
         },
       }),
+      start_collect: tool({
+        description:
+          "Start a background job that collects items (companies, leads, launches, venues, listings…) from the web or apps into your database. It gets far more steps and time than this chat, saves rows as it goes, and posts its result in this chat. Use it for any list longer than a handful of items; only start once the scope is clear.",
+        inputSchema: z.object({
+          title: z.string().max(60).describe("short name for the job, e.g. 'New Randstad BVs, last 90 days'"),
+          goal: z.string().describe("what to collect, in one or two sentences"),
+          criteria: z.string().optional().describe("what counts as a match: places, dates, size, categories…"),
+          fields: z.string().optional().describe("what to fill for each item"),
+          count: z.number().int().min(1).max(1000).optional().describe("how many items to aim for"),
+        }),
+        execute: async (job) => {
+          // Started inside after(), so the job outlives this reply.
+          after(() => collect(uid, looperId, job, "chief").done.then(() => undefined).catch(() => undefined));
+          const name = `Collect: ${job.title}`;
+          actions.push(`Started ${name}`);
+          return { started: name, note: "Runs in the background for up to 5 minutes; tell the owner it started, what it will look for, and that results land in your database and in this chat." };
+        },
+      }),
     };
     const result = await callModel(uid, db.settings, {
       model: db.chatModels?.[looperId],
@@ -1226,26 +1349,28 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
       instructions: [
         looperBrief(db, looper, [describeDatabase(table), describeCanvas(canvas)].filter(Boolean).join("\n\n")),
         `You're chatting with your owner. Answer as ${looper.name}, briefly and concretely, in first person. Use your tools to look things up instead of guessing; you can change your own instructions and skills when asked.`,
+        CHAT_RULES,
         runs.length ? `Your latest runs:\n${runs.map((r) => `- ${r.startedAt.slice(0, 16)} ${r.skillName} [${r.status}]: ${r.summary.slice(0, 600)}`).join("\n")}` : "",
         ext.connected.length ? `Connected apps: ${ext.connected.join(", ")}.` : "No apps connected yet.",
       ]
         .filter(Boolean)
         .join("\n\n"),
-      messages: history.map((m) => ({ role: m.role, content: authored(m) })),
-      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...askTools(uid, looperId), ...own, ...pc?.tools },
+      messages: messages as ModelMessage[],
+      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...webTools(), ...askTools(uid, looperId), ...own, ...pc?.tools },
       external: ext.tools,
-      maxSteps: 20,
+      maxSteps: 24,
       progress: live.push,
       onText: live.text,
       fast: true,
     });
-    content = (await result.text) || (actions.length ? "Done." : "…");
+    content = (await result.text).trim() || noReply(actions, live.trail());
   } catch (error) {
     content = `I couldn't reach the model: ${errorText(error)}`;
   } finally {
     await Promise.all([ext.close(), pc?.release()]);
   }
-  const reply = { id: nanoid(8), role: "assistant" as const, content, at: now(), actions, links };
+  const steps = live.trail();
+  const reply: ChiefMessage = { id: nanoid(8), role: "assistant", content, at: now(), actions, links, ...(steps.length ? { steps } : {}) };
   await mutate(uid, (d) => void ((d.chats ??= {})[looperId] = [...(d.chats?.[looperId] ?? []), reply]));
   // Done only once the reply is saved, so a refresh at "done" always shows it.
   await live.done({ ok: !content.startsWith("I couldn't"), note: firstSentence(content) });
