@@ -211,9 +211,11 @@ export function hasCredentials(settings: Settings) {
 
 /** Every model the workspace can pick now, across its connected providers, with how each is paid for. */
 export async function availableModels(uid: string, settings: Settings): Promise<ModelOption[]> {
-  const catalog = await getCatalog();
+  const [catalog, ws] = await Promise.all([getCatalog(), getWorkspace(uid)]);
+  // Included-credit models only show while there are credits left to spend.
+  const shown = (p: Provider) => usable(settings, p) && (modeOf(settings, p) !== "credits" || creditsLeft(ws) > 0);
   const lists = await Promise.all(
-    PROVIDERS.filter((p) => usable(settings, p.id)).map(async ({ id: provider }) => {
+    PROVIDERS.filter((p) => shown(p.id)).map(async ({ id: provider }) => {
       const payer = payerOf(modeOf(settings, provider));
       const recommended = recommendedModel(catalog, provider).id;
       let models: { id: string; name: string }[] = catalog.models[provider];
