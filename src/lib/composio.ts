@@ -64,6 +64,23 @@ export function getToolkit(slug: string) {
 
 const PASTABLE = ["BEARER_TOKEN", "API_KEY", "BASIC", "BASIC_WITH_JWT"];
 
+/** How Composio can connect a toolkit: its managed OAuth, a scheme the person pastes into, or not at all.
+ * Without managed OAuth we'd need our own OAuth app per vendor, so OAuth-only toolkits (Buffer) can't. */
+export function composioAuth(tk: Toolkit): { managed: true } | { managed: false; scheme: string } | null {
+  if ((tk.composio_managed_auth_schemes ?? []).length > 0) return { managed: true };
+  // The single-toolkit response lists schemes under auth_config_details, not auth_schemes.
+  const schemes = [...(tk.auth_schemes ?? []), ...(tk.auth_config_details ?? []).map((d) => d.mode ?? "")].filter(Boolean);
+  const scheme = PASTABLE.find((s) => schemes.includes(s)) ?? schemes.find((s) => s !== "OAUTH2" && s !== "OAUTH1") ?? (schemes.length ? undefined : "API_KEY");
+  return scheme ? { managed: false, scheme } : null;
+}
+
+/** Composio has no way for this person to connect the app; the caller tries the app's own MCP server. */
+export class NoComposioAuth extends Error {
+  constructor(name: string) {
+    super(`${name} only connects through OAuth, which Composio doesn't manage for it.`);
+  }
+}
+
 /** The project's auth config for a toolkit, creating one when missing: Composio-managed OAuth when
  * available, otherwise a custom config with empty credentials so the Connect page asks the user. */
 async function authConfigFor(slug: string): Promise<string> {
@@ -73,16 +90,11 @@ async function authConfigFor(slug: string): Promise<string> {
 
   const tk = await getToolkit(slug);
   if (tk.no_auth) throw new Error(`${tk.name} needs no connection.`);
-  const managed = (tk.composio_managed_auth_schemes ?? []).length > 0;
-  // The single-toolkit response lists schemes under auth_config_details, not auth_schemes. Without
-  // managed OAuth we'd need our own OAuth app, so pick a scheme the person can paste (Buffer:
-  // OAUTH2 + BEARER_TOKEN → BEARER_TOKEN, a key from publish.buffer.com/settings/api).
-  const schemes = [...(tk.auth_schemes ?? []), ...(tk.auth_config_details ?? []).map((d) => d.mode ?? "")].filter(Boolean);
-  const scheme = PASTABLE.find((s) => schemes.includes(s)) ?? schemes.find((s) => s !== "OAUTH2" && s !== "OAUTH1") ?? (schemes.length ? undefined : "API_KEY");
-  if (!managed && !scheme) throw new Error(`${tk.name} only connects through OAuth, which isn't set up for it yet. Add it through a hub in Settings.`);
-  const body = managed
+  const how = composioAuth(tk);
+  if (!how) throw new NoComposioAuth(tk.name);
+  const body = how.managed
     ? { toolkit: { slug }, auth_config: { type: "use_composio_managed_auth", name: tk.name } }
-    : { toolkit: { slug }, auth_config: { type: "use_custom_auth", authScheme: scheme, name: tk.name, credentials: {} } };
+    : { toolkit: { slug }, auth_config: { type: "use_custom_auth", authScheme: how.scheme, name: tk.name, credentials: {} } };
   const created = await call<{ auth_config: { id: string } }>("POST", "/auth_configs", body);
   return created.auth_config.id;
 }

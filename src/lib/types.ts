@@ -72,6 +72,8 @@ export interface Integration {
   app?: string;
   /** tools never exposed to loopers, e.g. real-money payments */
   deniedTools?: string[];
+  /** servers signed in to directly with OAuth: the client Looper registered and its tokens. Server-only. */
+  oauth?: { redirectUrl: string; client: Record<string, unknown>; tokens?: Record<string, unknown> };
 }
 
 /** An app a looper needs. Composio apps connect with one click; MCP apps point at a server. */
@@ -365,7 +367,7 @@ export type PublicSettings = Omit<Settings, "apiKeys" | "integrations" | "oauth"
   creditsLeft?: number;
   /** true when the server runs on the user's machine (ChatGPT sign-in is only allowed there) */
   isLocal: boolean;
-  integrations: (Omit<Integration, "headers"> & { headerNames: string[] })[];
+  integrations: (Omit<Integration, "headers" | "oauth"> & { headerNames: string[] })[];
 };
 
 export type PublicState = Omit<DB, "settings"> & { settings: PublicSettings; user: { email?: string; provider: User["provider"]; name?: string; avatar?: string } };
