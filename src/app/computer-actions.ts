@@ -2,7 +2,7 @@
 
 import { after } from "next/server";
 import { beginLooperReply } from "@/lib/agent";
-import { finishTakeover, startTakeover, takeoverOpen, wipeComputer } from "@/lib/computer";
+import { finishTakeover, pingTakeover, startTakeover, takeoverOpen, wipeComputer } from "@/lib/computer";
 import { mutate, read } from "@/lib/db";
 import { requireSessionUser, requireUid } from "@/lib/session";
 import { displayName } from "@/lib/workspace";
@@ -36,6 +36,14 @@ export async function beginTakeover(looperId: string, askId?: string) {
     const ask = askId ? (await read(uid)).asks.find((a) => a.id === askId && a.looperId === looperId) : undefined;
     const t = await startTakeover(uid, looperId, { askId: ask?.id, url: ask?.url });
     return { ws: t.ws, expiresAt: t.expiresAt, question: ask?.question };
+  });
+}
+
+/** The take-over view is still open. False once the take-over has ended. */
+export async function keepTakeover(looperId: string) {
+  return attempt(async () => {
+    const { uid } = await ownLooper(looperId);
+    return pingTakeover(uid, looperId);
   });
 }
 

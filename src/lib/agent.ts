@@ -140,7 +140,7 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
   const result = streamText({
     model: m.model,
     instructions: opts.instructions,
-    ...(opts.messages ? { messages: fitFiles(opts.messages, m.provider) } : { prompt: opts.prompt ?? "" }),
+    ...(opts.messages ? { messages: await fitFiles(opts.messages, m.provider) } : { prompt: opts.prompt ?? "" }),
     tools: Object.keys(all).length ? m.wrapTools(all) : undefined,
     providerOptions: (fast ? fastOptions(m, m.providerOptions as Record<string, Record<string, unknown>>) : m.providerOptions) as typeof m.providerOptions,
     stopWhen: isStepCount(maxSteps),
