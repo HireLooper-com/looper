@@ -39,5 +39,6 @@
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "license": "AGPL-3.0-only"
 }

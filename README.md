@@ -2,7 +2,7 @@
 
 ![Hire a Looper for more impressions via GitHub, Linear and Buffer](.github/assets/hero.png)
 
-Hire AI **loopers**: autonomous operators that each own exactly one business metric and work it every day. Hosted at [hirelooper.com](https://hirelooper.com), or deploy your own on Vercel with Neon ([one click](#on-vercel-with-neon)).
+Hire AI **loopers**: autonomous operators that each own exactly one business metric and work it every day. Open source under the [AGPL-3.0](LICENSE). Hosted at [hirelooper.com](https://hirelooper.com), or deploy your own on Vercel with Neon ([one click](#on-vercel-with-neon)).
 
 Each looper has:
 
@@ -63,4 +63,8 @@ The button copies this repository to your GitHub, creates a Vercel project and a
 
 ## License
 
-[Sustainable Use License](LICENSE.md): free to use and modify for personal use and for your own business's internal use. You may not sell it or host it as a service for others. For anything else, get in touch.
+Copyright (c) 2026 Pavel Kucherbaev (HireLooper). Open source under the [GNU AGPL-3.0](LICENSE): use it, change it and host it, for yourself or for others. If you run a modified version as a service, you must offer its source to its users under the same license. The name and logo are not covered by the license; see [TRADEMARKS.md](TRADEMARKS.md).
+
+Need different terms (for example, to ship Looper inside a closed-source product)? A commercial license is available; get in touch through [hirelooper.com](https://hirelooper.com).
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md); the first pull request asks you to sign the [CLA](CLA.md).
