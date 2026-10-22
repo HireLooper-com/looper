@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { mutate, read } from "./db";
 import { allWorkspaceIds } from "./workspace";
+import { fitFiles, withFiles } from "./attachments";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
 import { activeAccounts, catalogApps, composioTools, hasComposio, resolveApps } from "./composio";
 import { computerSession, hasComputer, wipeComputer } from "./computer";
@@ -20,7 +21,7 @@ import { appFromName } from "./apps";
 import { LOOPER_TEMPLATES } from "./looper-templates";
 import { normalizeUrl, readSite } from "./site";
 import { webTools } from "./web";
-import type { AppRef, Ask, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
+import type { AppRef, Ask, Attachment, BusinessProfile, Card, ChiefMessage, Column, DB, DbValue, Looper, ModelChoice, Retro, Run, RunStats, Settings, Skill, ToolCallLog } from "./types";
 import { ACCENTS } from "./types";
 
 const now = () => new Date().toISOString();
@@ -139,7 +140,7 @@ async function callModelOnce(uid: string, m: ResolvedModel, opts: CallOptions, o
   const result = streamText({
     model: m.model,
     instructions: opts.instructions,
-    ...(opts.messages ? { messages: opts.messages } : { prompt: opts.prompt ?? "" }),
+    ...(opts.messages ? { messages: fitFiles(opts.messages, m.provider) } : { prompt: opts.prompt ?? "" }),
     tools: Object.keys(all).length ? m.wrapTools(all) : undefined,
     providerOptions: (fast ? fastOptions(m, m.providerOptions as Record<string, Record<string, unknown>>) : m.providerOptions) as typeof m.providerOptions,
     stopWhen: isStepCount(maxSteps),
@@ -1072,8 +1073,8 @@ Be brief and concrete. Use plain text with short lists.`;
  * Save the owner's message and mark Chief as working, then hand back the slow part to run in the
  * background, so the request returns at once and the UI follows the live progress.
  */
-export async function beginChiefReply(uid: string, userText: string, by?: ChiefMessage["by"]) {
-  const userMsg: ChiefMessage = { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}) };
+export async function beginChiefReply(uid: string, userText: string, by?: ChiefMessage["by"], files: Attachment[] = []) {
+  const userMsg: ChiefMessage = { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}), ...(files.length ? { files } : {}) };
   await mutate(uid, (d) => void d.chief.push(userMsg));
   const live = progressWriter(uid, "chief", { label: "Chief", href: "/chief", done: "replied", failed: "couldn't reply" });
   await live.ready();
@@ -1082,7 +1083,7 @@ export async function beginChiefReply(uid: string, userText: string, by?: ChiefM
 
 async function chiefReply(uid: string, live: ReturnType<typeof progressWriter>) {
   const db = await read(uid);
-  const history: ModelMessage[] = db.chief.slice(-31).map((m) => ({ role: m.role, content: authored(m) }));
+  const history = (await withFiles(uid, db.chief.slice(-31), authored)) as ModelMessage[];
   const actions: string[] = [];
   const links: { label: string; href: string }[] = [];
   let content: string;
@@ -1255,11 +1256,11 @@ const CHAT_RULES = [
 
 /** Talk to one looper directly. It answers with its own tools: board, database, apps; it can also
  * edit its core instructions and skills, and start one of its skills in the background. */
-export async function beginLooperReply(uid: string, looperId: string, userText: string, by?: ChiefMessage["by"]) {
+export async function beginLooperReply(uid: string, looperId: string, userText: string, by?: ChiefMessage["by"], files: Attachment[] = []) {
   const name = await mutate(uid, (d) => {
     const l = d.loopers.find((x) => x.id === looperId);
     if (!l) throw new Error("Looper not found");
-    (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}) }];
+    (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "user", content: userText, at: now(), ...(by ? { by } : {}), ...(files.length ? { files } : {}) }];
     return l.name;
   });
   const live = progressWriter(uid, `chat:${looperId}`, { label: name, href: `/loopers/${looperId}?tab=chat`, done: "replied", failed: "couldn't reply" });
@@ -1281,7 +1282,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
   const links: { label: string; href: string }[] = [];
   live.push("Connecting apps…");
   // Apps, database and canvas load side by side.
-  const [ext, table, canvas] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId)]);
+  const [ext, table, canvas, messages] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId), withFiles(uid, history, authored)]);
   const pc = hasComputer() ? computerSession(uid, looperId, { label: "Chat", progress: live.push }) : null;
   let content: string;
   try {
@@ -1353,7 +1354,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
       ]
         .filter(Boolean)
         .join("\n\n"),
-      messages: history.map((m) => ({ role: m.role, content: authored(m) })),
+      messages: messages as ModelMessage[],
       tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...webTools(), ...askTools(uid, looperId), ...own, ...pc?.tools },
       external: ext.tools,
       maxSteps: 24,
