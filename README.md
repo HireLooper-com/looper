@@ -34,7 +34,7 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 | Sign in with a 6-digit email code | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so) sends the code) |
 | One-click app connections | `COMPOSIO_API_KEY` |
 | Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so)) |
-| Steadier web search for loopers (DuckDuckGo otherwise) | `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` |
+| Steadier web search for loopers (DuckDuckGo otherwise, and whenever their quota runs out) | `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |
 | An operators page at `/admin`: onboarding funnel, costs, most active workspaces, who needs a nudge | `ADMIN_EMAILS` (comma-separated) |
