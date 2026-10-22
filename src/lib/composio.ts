@@ -1,5 +1,6 @@
 import "server-only";
 import { jsonSchema, tool, type ToolSet } from "ai";
+import { kv } from "./kv";
 
 // Composio REST v3.1. One Composio user per Looper user (user_id = our uid).
 // Docs: https://docs.composio.dev/reference
@@ -90,6 +91,7 @@ export async function linkAccount(uid: string, slug: string, callbackUrl: string
 
 export async function deleteAccount(id: string) {
   await call("DELETE", `/connected_accounts/${encodeURIComponent(id)}`);
+  await kv.delete(`composio-label:${id}`).catch(() => undefined);
 }
 
 export interface Account {
@@ -108,7 +110,7 @@ export async function listAccounts(uid: string, fresh = false): Promise<Account[
   if (fresh) forgetAccounts(uid);
   return cached(`accounts:${uid}`, 60_000, async () => {
     const res = await call<{ items: Account[] }>("GET", `/connected_accounts?user_ids=${encodeURIComponent(uid)}&limit=100&order_by=updated_at`);
-    return res.items;
+    return nameAccounts(res.items);
   });
 }
 
@@ -122,6 +124,56 @@ export function getAccount(id: string) {
 
 /** A human label for an account: the provider's display name, else the alias. */
 export const accountLabel = (a: Account) => a.state?.val?.displayName || a.alias || a.id;
+
+// Google connections often come back without a display name, so the owner sees "ca_…" and a
+// looper can't say which account to share a file with. Ask the provider who the account is.
+const google = (endpoint: string, pick: (d: Record<string, unknown>) => unknown) => ({ endpoint, pick });
+const driveUser = google("https://www.googleapis.com/drive/v3/about?fields=user", (d) => (d.user as { emailAddress?: string } | undefined)?.emailAddress);
+const userinfo = google("https://www.googleapis.com/oauth2/v2/userinfo", (d) => d.email);
+const WHO_AM_I: Record<string, { endpoint: string; pick: (d: Record<string, unknown>) => unknown }[]> = {
+  googledrive: [driveUser, userinfo],
+  googlesheets: [driveUser, userinfo],
+  googledocs: [driveUser, userinfo],
+  googleslides: [driveUser, userinfo],
+  gmail: [google("https://gmail.googleapis.com/gmail/v1/users/me/profile", (d) => d.emailAddress), userinfo],
+  googlecalendar: [google("https://www.googleapis.com/calendar/v3/calendars/primary", (d) => d.id), userinfo],
+};
+
+/** The account's email from the provider, remembered so each account is asked once a day at most. */
+async function whoIs(a: Account): Promise<string> {
+  const key = `composio-label:${a.id}`;
+  const hit = await kv.get<{ label: string }>(key).catch(() => undefined);
+  if (hit) return hit.label;
+  let label = "";
+  for (const probe of WHO_AM_I[a.toolkit.slug] ?? []) {
+    const r = await call<{ data: Record<string, unknown> | null; status: number }>("POST", "/tools/execute/proxy", {
+      endpoint: probe.endpoint,
+      method: "GET",
+      connected_account_id: a.id,
+    }).catch(() => null);
+    const found = r && r.status < 300 && r.data ? probe.pick(r.data) : undefined;
+    if (typeof found === "string" && found) {
+      label = found;
+      break;
+    }
+  }
+  // A miss is remembered for a day, so a narrow token doesn't cost a round trip on every turn.
+  await kv.set(key, { label }, label ? undefined : 24 * 3600).catch(() => undefined);
+  return label;
+}
+
+/** Fill in missing display names where the provider can tell us who the account is. */
+async function nameAccounts(accounts: Account[]) {
+  await Promise.all(
+    accounts
+      .filter((a) => a.status === "ACTIVE" && !a.state?.val?.displayName && WHO_AM_I[a.toolkit.slug])
+      .map(async (a) => {
+        const label = await whoIs(a);
+        if (label) a.state = { ...a.state, val: { ...a.state?.val, displayName: label } };
+      }),
+  );
+  return accounts;
+}
 
 /** Usable accounts per toolkit, newest first. */
 export async function activeAccounts(uid: string, fresh = false) {
