@@ -126,14 +126,14 @@ export function LooperView(props: {
     setMenu((m) => (m?.id === id ? null : { id, left: r.left, top: r.bottom, keyboard }));
   };
 
-  // Sliding glow behind the active place, in the looper's colour.
+  // Sliding pill behind the active place, underlined in the looper's colour.
   const nav = useRef<HTMLElement>(null);
   const [bar, setBar] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const el = nav.current?.querySelector<HTMLElement>('[data-active="true"]');
     setBar(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
   }, [group?.id, view]);
-  const glow = accentHex[looper.color];
+  const accent = accentHex[looper.color];
 
   return (
     <div className={cx("flex flex-col", FULL_HEIGHT.has(view) && "h-[calc(100dvh-58px)] lg:h-dvh")}>
@@ -147,14 +147,11 @@ export function LooperView(props: {
           {bar && (
             <span
               aria-hidden
-              className="absolute inset-y-[5px] rounded-full transition-all duration-300 ease-out"
-              style={{
-                left: bar.left,
-                width: bar.width,
-                background: `radial-gradient(120% 140% at 50% 0%, ${glow}73, ${glow}2e)`,
-                boxShadow: `inset 0 0 0 0.5px ${glow}80, 0 0 18px ${glow}59`,
-              }}
-            />
+              className="absolute inset-y-[5px] rounded-full bg-ink/[0.06] transition-all duration-300 ease-out"
+              style={{ left: bar.left, width: bar.width }}
+            >
+              <span className="absolute inset-x-3.5 bottom-[3px] h-0.5 rounded-full" style={{ background: accent }} />
+            </span>
           )}
           {GROUPS.map((g) => {
             const active = g.id === group?.id;
