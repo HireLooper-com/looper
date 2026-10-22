@@ -227,3 +227,19 @@ export async function resolveApps<T extends { slug: string; name: string; via: s
   );
   return out.filter((a, i) => out.findIndex((b) => b.slug === a.slug) === i);
 }
+
+/** Like resolveApps, but splits off the names the catalog doesn't have (e.g. "KVK", a public
+ * website), so nobody is asked to connect an app that doesn't exist. A failed lookup keeps the
+ * guess, since it says nothing about the catalog. */
+export async function catalogApps<T extends { slug: string; name: string; via: string; logo?: string }>(apps: T[]): Promise<{ apps: T[]; notFound: string[] }> {
+  if (!hasComposio()) return { apps, notFound: [] };
+  const lookups = await Promise.all(apps.map((a) => (a.via === "composio" ? resolveToolkit(a.name).catch(() => undefined) : undefined)));
+  const found: T[] = [];
+  const notFound: string[] = [];
+  apps.forEach((a, i) => {
+    const tk = lookups[i];
+    if (tk === null) notFound.push(a.name);
+    else found.push(tk ? { ...a, slug: tk.slug, name: tk.name, logo: tk.logo ?? a.logo } : a);
+  });
+  return { apps: found.filter((a, i) => found.findIndex((b) => b.slug === a.slug) === i), notFound };
+}
