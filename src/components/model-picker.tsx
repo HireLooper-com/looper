@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { setChatModel } from "@/app/actions";
@@ -43,6 +44,9 @@ export function ModelOptions({ options }: { options: ModelOption[] }) {
   });
 }
 
+const CONNECT = "connect";
+const CONNECT_HREF = "/settings#ai";
+
 /**
  * The model a conversation runs on, picked from what the workspace has connected.
  * `target` is "chief" or a looper id; a looper's runs use its pick too.
@@ -51,7 +55,14 @@ export function ChatModelPicker({ target, menu, disabled }: { target: string; me
   const router = useRouter();
   const [pending, start] = useTransition();
   const { options, picked, fallback } = menu;
-  if (!options.length) return null;
+  // No plan signed in and no included credits left: point to Settings to connect one.
+  const needsPlan = !options.some((o) => o.payer === "plan" || o.payer === "us");
+  if (!options.length)
+    return (
+      <Link href={CONNECT_HREF} className="mb-0.5 flex h-9 shrink-0 items-center rounded-full px-3 text-[0.8125rem] text-blue transition-colors hover:bg-ink/[0.05]">
+        Connect a subscription
+      </Link>
+    );
   // A pick whose provider is no longer connected runs on the default.
   const live = picked && options.some((o) => o.provider === picked.provider) ? picked : undefined;
   const known = live && options.find((o) => o.provider === live.provider && o.id === live.model);
@@ -74,17 +85,23 @@ export function ChatModelPicker({ target, menu, disabled }: { target: string; me
         aria-label="Model for this chat"
         value={value}
         disabled={disabled || pending}
-        onChange={(e) =>
+        onChange={(e) => {
+          if (e.target.value === CONNECT) return router.push(CONNECT_HREF);
           start(async () => {
             await setChatModel(target, e.target.value ? parseOption(e.target.value) : null);
             router.refresh();
-          })
-        }
+          });
+        }}
         className="absolute inset-0 cursor-pointer opacity-0"
       >
         <option value="">Default{fallback ? ` (${fallback.name})` : ""}</option>
         {live?.model && !known && <option value={value}>{live.model}</option>}
         <ModelOptions options={options} />
+        {needsPlan && (
+          <optgroup label="More models">
+            <option value={CONNECT}>Connect a subscription…</option>
+          </optgroup>
+        )}
       </select>
     </label>
   );
