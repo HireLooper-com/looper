@@ -8,6 +8,7 @@ import type { Progress } from "@/lib/progress";
 import type { Accent, Ask, Attachment, ChiefMessage, Run } from "@/lib/types";
 import { downsize } from "./downsize";
 import { refreshActivity, useProgress } from "./live";
+import { RichText, plain } from "./rich-text";
 import { Bot, cx } from "./ui";
 
 /** A file in the composer: uploading, ready to send, or failed. */
@@ -333,8 +334,8 @@ function Bubble({ m }: { m: ChiefMessage }) {
       {m.by && <div className="px-1 text-[0.75rem] text-mute">{m.by.name}</div>}
       {m.files && m.files.length > 0 && <Files files={m.files} />}
       {(m.content || !m.files?.length) && (
-        <div className={cx("max-w-[85%] whitespace-pre-wrap rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-relaxed", mine ? "bg-blue text-page" : "bg-ink/[0.045] text-ink")}>
-          {m.content}
+        <div className={cx("max-w-[85%] rounded-[18px] px-4 py-2.5 text-[0.9375rem] leading-[1.6]", mine ? "whitespace-pre-wrap bg-blue text-page" : "bg-ink/[0.045] py-3 text-ink")}>
+          {mine ? m.content : <RichText text={m.content} />}
         </div>
       )}
       {m.links && m.links.length > 0 && (
@@ -468,7 +469,7 @@ export function AskBubble({ ask: saved, onAnswered, compact }: { ask: Ask; onAns
         </div>
         <div className="mt-1 whitespace-pre-wrap text-[0.9375rem] leading-relaxed">{ask.question}</div>
         {ask.kind === "takeover" && ask.url && <div className="mt-1 truncate text-[0.8125rem] text-mute">{ask.url.replace(/^https?:\/\//, "")}</div>}
-        {ask.detail && <div className="mt-2 whitespace-pre-wrap rounded-[12px] bg-panel px-3 py-2 text-[0.8125rem] leading-relaxed text-ink-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]">{ask.detail}</div>}
+        {ask.detail && <RichText text={ask.detail} className="mt-2 rounded-[12px] bg-panel px-3 py-2 text-[0.8125rem] leading-relaxed text-ink-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]" />}
         {open ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {ask.kind === "takeover" && (
@@ -555,8 +556,8 @@ function LiveSteps({ progress, bot }: { progress: Progress | null; bot?: { color
         })}
       </div>
       {draft && (
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-[18px] bg-ink/[0.045] px-4 py-2.5 text-[0.9375rem] leading-relaxed">
-          {draft}
+        <div className="max-w-[85%] rounded-[18px] bg-ink/[0.045] px-4 py-3 text-[0.9375rem] leading-[1.6]">
+          <RichText text={draft} />
           <span className="caret ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[3px] bg-ink" />
         </div>
       )}
@@ -596,7 +597,7 @@ function RunLine({ r }: { r: Run }) {
           <span className="ml-auto text-[0.75rem] text-faint transition-colors group-hover:text-mute">{open ? "Less" : "Details"}</span>
         </div>
         {chips.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{chips.map((c) => <span key={c} className="rounded-full bg-panel px-2 py-0.5 text-[0.6875rem] text-mute shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]">{c}</span>)}</div>}
-        <div className="mt-1.5 text-[0.9375rem] leading-relaxed">{open ? <span className="whitespace-pre-wrap">{r.summary}</span> : firstSentence(r.summary)}</div>
+        <div className="mt-1.5 text-[0.9375rem] leading-relaxed">{open ? <RichText text={r.summary} /> : firstSentence(plain(r.summary))}</div>
         {r.continues && <div className="mt-1 text-[0.8125rem] text-mute">Continues in round {(r.round ?? 1) + 1}</div>}
         {open && r.steps && r.steps.length > 0 && (
           <div className="mt-3 border-t border-line pt-2">
