@@ -8,6 +8,7 @@ import { allWorkspaceIds } from "./workspace";
 import { fitFiles, withFiles } from "./attachments";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
 import { activeAccounts, catalogApps, composioTools, hasComposio, resolveApps } from "./composio";
+import { connectedAppFor, viaAppNote } from "./app-urls";
 import { computerSession, hasComputer, wipeComputer } from "./computer";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
@@ -287,18 +288,19 @@ function looperBrief(db: DB, l: Looper, database = "") {
 const SPACE_RULES =
   "Results go in your database by default: one row per item you find or work on, with its source URL, checked against existing rows (db_query) so nothing is added twice. Your canvas holds your plan for longer jobs, findings and references, and your Source playbook (playbook_save). Only put data in Google Sheets, email, docs or other apps when the owner asks for that or your skill says so; never tell the owner results went elsewhere when they're in your database.";
 
-/** The web, cheapest and most reliable route first. Every looper has search and fetch; the browser only where there's a computer. */
+/** The web, cheapest and most reliable route first. Every looper has search and fetch; the browser only where there's a computer, and only last. */
 function webLadder() {
   const browser = hasComputer();
   return [
-    "Getting data from the web: work down this ladder and move to the next step as soon as one fails; never stop at the first failure.",
+    "Getting data: work down this ladder and move to the next step as soon as one fails; never stop at the first failure.",
     "1. Your Source playbook (on your canvas) first: if it says what works for this data, do that.",
-    "2. An official API, feed or connected app: find_tools for the app; web_search for '<site> API', open data, RSS feeds or downloadable lists (CSV, JSON).",
-    "3. web_search to find where the data lives (directories, lists, aggregators, search results), then web_fetch to read pages. web_fetch is fast and cheap and returns each page's links, so follow next-page and detail links with it.",
+    "2. A connected app always comes before the web: find_tools for the app. A link into a connected app (drive.google.com, docs.google.com, mail.google.com, dashboard.stripe.com, notion.so, …) is a file or record for that app's tools: take the id from the URL and read it there. If the connected account can't see it, it belongs to another account: ask_owner to share it with the connected account (say which one) or to connect that account on your Tools tab.",
+    "3. An official API, feed or open data: web_search for '<site> API', RSS feeds or downloadable lists (CSV, JSON).",
+    "4. web_search to find where the data lives (directories, lists, aggregators, search results), then web_fetch to read pages. web_fetch is fast and cheap and returns each page's links, so follow next-page and detail links with it.",
     browser
-      ? "4. Your browser (computer_browse, computer_read) only for what web_fetch can't do: search forms, filters, clicking through, logins the owner set up. Cookie banners are accepted for you when a page opens. Never guess or ask for passwords; if a login is needed, use ask_takeover so the owner logs in on your browser (it's remembered after that)."
-      : "4. (No browser on this server.) If a site only works in a browser, say so and pick another source.",
-    `5. If a site shows a bot check (CAPTCHA, 'verify you are human') or blocks you, stop there: don't retry or work around it; take another source. When every route fails, ask_owner with concrete options (e.g. 'buy an API key for X', 'use source Y instead')${browser ? ", or, if that site is the only source, ask_takeover so the owner passes the check on your browser" : ""}.`,
+      ? "5. Your browser (computer_browse, computer_read) is the last resort, only for what no app, API or web_fetch can do: search forms, filters, clicking through, logins the owner set up. Never open a connected app's pages in it. Cookie banners are accepted for you when a page opens. Never guess or ask for passwords; if a site no app covers needs a login, use ask_takeover so the owner logs in on your browser (it's remembered after that)."
+      : "5. (No browser on this server.) If a site only works in a browser, say so and pick another source.",
+    `6. If a site shows a bot check (CAPTCHA, 'verify you are human') or blocks you, stop there: don't retry or work around it; take another source. When every route fails, ask_owner with concrete options (e.g. 'buy an API key for X', 'use source Y instead')${browser ? ", or, if that site is the only source, ask_takeover so the owner passes the check on your browser" : ""}.`,
     "After you try a source, record what worked or failed with playbook_save, so the next run starts from it. Save rows as you collect them (batches of up to 25), not at the end: a run can be cut off.",
     browser ? "Before a final submit, post, purchase or send on a website, get an approved ask_owner approval, as with apps." : "",
   ]
@@ -483,7 +485,7 @@ function runStats(steps: StepLike[]): RunStats {
 // ——— Asking the owner ———
 
 /** Put a question or an approval to the owner: it shows in the looper's chat and the inbox. */
-function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): ToolSet {
+function askTools(uid: string, looperId: string, apps: string[] = [], onAsk?: (id: string) => void): ToolSet {
   const put = async (input: Pick<Ask, "kind" | "question" | "options" | "detail" | "url">) => {
     let mail: { looperName: string; open: number } | undefined;
     const r = await mutate(uid, (d) => {
@@ -508,12 +510,16 @@ function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): 
       ? {
           ask_takeover: tool({
             description:
-              "Ask the owner to take over your browser for a moment: to log in to a site (they type the password themselves; never ask for passwords in chat) or to pass a bot check (CAPTCHA) on a site that's the only source. They get a 'Take over' button, use your browser live, and hand it back; the login is remembered for your next runs and their reply comes back as a chat message. Before asking, leave a 'Continue:' card saying where to pick up.",
+              "Last resort, after connected apps, APIs and web_fetch: ask the owner to take over your browser for a moment, to log in to a site no connected app covers (they type the password themselves; never ask for passwords in chat) or to pass a bot check (CAPTCHA) on a site that's the only source. They get a 'Take over' button, use your browser live, and hand it back; the login is remembered for your next runs and their reply comes back as a chat message. Before asking, leave a 'Continue:' card saying where to pick up.",
             inputSchema: z.object({
               question: z.string().max(300).describe("what you need them to do, e.g. 'Log in to LinkedIn so I can read the company pages'"),
               url: z.string().describe("the page to open for them"),
             }),
-            execute: ({ question, url }) => put({ kind: "takeover", question, url }),
+            execute: async ({ question, url }) => {
+              // Logging in to a connected app's site is never needed: its tools already have access.
+              const app = connectedAppFor(url, apps);
+              return app ? { refused: true, app: app.name, note: viaAppNote(app.name) } : put({ kind: "takeover", question, url });
+            },
           }),
         }
       : {}),
@@ -566,11 +572,11 @@ async function finishRun(uid: string, id: string, patch: Partial<Run>) {
 async function looperApps(uid: string, looper: Looper, db: DB) {
   const ext = await connectTools(integrationsFor(looper, db.settings));
   const composioSlugs = (await resolveApps((looper.apps ?? []).filter((a) => a.via === "composio")).catch(() => [])).map((a) => a.slug);
-  const apps = await composioTools(uid, composioSlugs).catch(() => ({ tools: {}, connected: [] as string[], missing: composioSlugs }));
+  const apps = await composioTools(uid, composioSlugs).catch(() => ({ tools: {}, connected: [] as string[], missing: composioSlugs, slugs: [] as string[] }));
   ext.tools = { ...ext.tools, ...apps.tools };
   ext.connected.push(...apps.connected);
   if (apps.missing.length) ext.failed.push(...apps.missing.map((slug) => ({ name: `${slug} (not connected yet)`, error: "" })));
-  return ext;
+  return Object.assign(ext, { apps: apps.slugs });
 }
 
 export async function runSkill(uid: string, looperId: string, skillId: string, trigger: Run["trigger"] = "manual", adhoc?: Skill, maxSteps = 25, round?: number) {
@@ -584,7 +590,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
   const live = progressWriter(uid, `run:${run.id}`, { label: `${looper.name} · ${skill.name}`, href: `/loopers/${looper.id}?tab=chat`, done: "finished" });
   live.push("Connecting apps…");
   const ext = await looperApps(uid, looper, db);
-  const pc = hasComputer() ? computerSession(uid, looper.id, { label: skill.name, progress: live.push }) : null;
+  const pc = hasComputer() ? computerSession(uid, looper.id, { label: skill.name, progress: live.push, apps: ext.apps }) : null;
   if (ext.connected.length) live.push(`Connected: ${ext.connected.map((c) => c.split(" (")[0]).join(", ")}`);
   let outcome: { ok?: boolean; note?: string; error?: string } = {};
   // Ran out of time or steps (so there's more to do), and whether it's now waiting on the owner.
@@ -605,7 +611,7 @@ export async function runSkill(uid: string, looperId: string, skillId: string, t
         hasExternal ? `Connected integrations: ${ext.connected.join(", ")}.` : "No external integrations are connected; work with your board and say what integration would help.",
         ext.failed.length ? `Unavailable: ${ext.failed.map((f) => f.name).join(", ")}. If you need one of these, add a card asking the user to connect it on your Tools tab.` : "",
       ].join("\n\n"),
-      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...webTools(), ...askTools(uid, looper.id, () => (asked = true)), ...pc?.tools },
+      tools: { ...boardTools(uid, looper.id, "looper"), ...databaseTools(uid, looper.id), ...canvasTools(uid, looper.id), ...webTools(), ...askTools(uid, looper.id, ext.apps, () => (asked = true)), ...pc?.tools },
       external: ext.tools,
       maxSteps,
       progress: live.push,
@@ -1346,7 +1352,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
   live.push("Connecting apps…");
   // Apps, database and canvas load side by side.
   const [ext, table, canvas, messages] = await Promise.all([looperApps(uid, looper, db), readDatabase(uid, looperId), readCanvas(uid, looperId), withFiles(uid, history, authored)]);
-  const pc = hasComputer() ? computerSession(uid, looperId, { label: "Chat", progress: live.push }) : null;
+  const pc = hasComputer() ? computerSession(uid, looperId, { label: "Chat", progress: live.push, apps: ext.apps }) : null;
   let content: string;
   try {
     const own: ToolSet = {
@@ -1421,7 +1427,7 @@ async function looperChatReply(uid: string, looperId: string, live: ReturnType<t
         .filter(Boolean)
         .join("\n\n"),
       messages: messages as ModelMessage[],
-      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...webTools(), ...askTools(uid, looperId), ...own, ...pc?.tools },
+      tools: { ...boardTools(uid, looperId, "looper"), ...databaseTools(uid, looperId), ...canvasTools(uid, looperId), ...webTools(), ...askTools(uid, looperId, ext.apps), ...own, ...pc?.tools },
       external: ext.tools,
       maxSteps: 24,
       progress: live.push,

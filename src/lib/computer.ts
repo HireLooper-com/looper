@@ -7,6 +7,7 @@ import { z } from "zod";
 import { assertInfraBudget, spendInfra } from "./billing";
 import { deleteImage, imagePath, readCanvas, saveImage } from "./canvas";
 import { kv } from "./kv";
+import { connectedAppFor, viaAppNote } from "./app-urls";
 import { describeTool } from "./progress";
 
 // Each looper gets its own small Linux machine (a Vercel Sandbox) with Chrome, made on first use.
@@ -134,7 +135,7 @@ async function machine(uid: string, looperId: string, onSetup?: () => Promise<vo
  * (or is set up) on the first tool call; call `release` when the turn ends so logins are saved
  * and the machine stops.
  */
-export function computerSession(uid: string, looperId: string, opts: { label: string; progress?: (text: string) => void }) {
+export function computerSession(uid: string, looperId: string, opts: { label: string; progress?: (text: string) => void; apps?: string[] }) {
   let box: Promise<Sandbox> | null = null;
   let browserUsed = false;
   let sessionId: string | null = null;
@@ -221,7 +222,7 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
   const tools: ToolSet = {
     computer_browse: tool({
       description:
-        "Use the web browser on your own computer (Chrome on a private Linux machine, logins are remembered). `open` a URL, then act on elements by their ref from the returned list (e.g. click @e12, fill @e7 with text). Every call returns the page's title, URL and interactive elements. Use it for websites that no connected app covers.",
+        "Use the web browser on your own computer (Chrome on a private Linux machine, logins are remembered). `open` a URL, then act on elements by their ref from the returned list (e.g. click @e12, fill @e7 with text). Every call returns the page's title, URL and interactive elements. It's your last resort: use it only for websites that no connected app, API or web_fetch covers. Pages of a connected app (a Google Drive or Sheets link, a Stripe dashboard page, …) are refused; use the app's tools.",
       inputSchema: z.object({
         action: z.enum(["open", "click", "fill", "type", "press", "select", "check", "uncheck", "hover", "scroll", "back", "forward", "reload", "wait", "look"]),
         target: z
@@ -237,6 +238,9 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
         let args: string[] | null = null;
         if (action === "open") {
           if (!target) return need("a URL in target");
+          // A connected app reads its own pages without a login; the browser would stop at sign-in.
+          const app = connectedAppFor(target, opts.apps ?? []);
+          if (app) return { refused: true, app: app.name, note: viaAppNote(app.name) };
           args = ["open", /^https?:\/\//i.test(target) ? target : `https://${target}`];
         } else if (["click", "hover", "check", "uncheck"].includes(action)) args = target ? [action, target] : null;
         else if (action === "fill" || action === "type" || action === "select") args = target && value !== undefined ? [action, target, value] : null;
