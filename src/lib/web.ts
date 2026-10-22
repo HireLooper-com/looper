@@ -1,6 +1,7 @@
 import "server-only";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
+import { isPdf, pdfText } from "./pdf";
 import { normalizeUrl } from "./site";
 
 // The light end of the web ladder: search and plain fetches, done from the server in seconds.
@@ -158,7 +159,10 @@ export async function webFetch(input: string, opts: { render?: boolean } = {}) {
     url = normalizeUrl(new URL(next, url).toString());
   }
   const type = res?.headers.get("content-type") ?? "";
-  const raw = res ? (await res.text()).slice(0, MAX_BYTES) : "";
+  const bytes = res ? new Uint8Array(await res.arrayBuffer()) : new Uint8Array();
+  // A PDF (an invoice, a report) comes back as its text, not as compressed binary.
+  if (res?.ok && (/pdf/.test(type) || isPdf(bytes))) return { url: url.toString(), via: "pdf", status: res.status, ...(await pdfText(bytes)) };
+  const raw = new TextDecoder().decode(bytes.subarray(0, MAX_BYTES));
   const blocked = !res?.ok || BOT_WALL.test(raw.slice(0, 5000));
   // Data comes back as is: JSON APIs, RSS and Atom feeds, CSV.
   if (res?.ok && /json|xml|rss|atom|csv|text\/plain/.test(type) && !/html/.test(type)) return { url: url.toString(), via: "fetch", status: res.status, contentType: type, text: clipText(raw) };
@@ -192,7 +196,7 @@ export function webTools(): ToolSet {
     }),
     web_fetch: tool({
       description:
-        "Fetch one URL from the server and get its readable text plus its links (for next pages and detail pages). Fast and cheap: try it before your browser. JSON APIs, RSS/Atom feeds and CSV come back raw. Pages that build themselves in the browser are read through a rendering reader automatically; set render: true to force that.",
+        "Fetch one URL from the server and get its readable text plus its links (for next pages and detail pages). Fast and cheap: try it before your browser. JSON APIs, RSS/Atom feeds and CSV come back raw; PDFs come back as their text. Pages that build themselves in the browser are read through a rendering reader automatically; set render: true to force that.",
       inputSchema: z.object({ url: z.string().min(4), render: z.boolean().default(false) }),
       execute: async ({ url, render }) => {
         try {

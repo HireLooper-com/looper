@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { beginTakeover, endTakeover, openInTakeover } from "@/app/computer-actions";
+import { beginTakeover, endTakeover, keepTakeover, openInTakeover } from "@/app/computer-actions";
 import type { Accent } from "@/lib/types";
 import { Bot, Button, cx } from "./ui";
 
@@ -79,6 +79,14 @@ export function TakeoverView({ looper, askId, onClose }: { looper: { id: string;
       sock.current?.close();
     };
   }, [live]);
+
+  // While this view is open the browser stays the owner's; close it and the looper gets it back
+  // within a few minutes, even without pressing Done.
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => void keepTakeover(looper.id), 20_000);
+    return () => clearInterval(t);
+  }, [live, looper.id]);
 
   // A clock for the time left; hand the browser back when it runs out.
   useEffect(() => {
