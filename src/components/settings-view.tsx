@@ -74,7 +74,7 @@ export function SettingsView({ settings, menu, usage, apps, notice }: { settings
       <p className="mt-2 max-w-[60ch] text-[1rem] text-mute">Connect the AI your loopers run on and the apps they can use.</p>
       {notice && <div className="mt-6 rounded-[12px] bg-blue/10 px-4 py-3 text-[0.875rem] text-blue">{notice}</div>}
 
-      <section className="mt-10">
+      <section id="ai" className="mt-10 scroll-mt-6">
         <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">AI</h2>
         <p className="mb-4 text-[0.875rem] text-mute">Connect any of these. Every chat has its own model picker with the models they give you, always the current ones.</p>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -187,9 +187,9 @@ function ProviderCard({ id, settings }: { id: Provider; settings: PublicSettings
       </div>
 
       {id === "anthropic" ? (
-        credits !== undefined && mode !== "credits" && (
+        !!credits && credits > 0 && mode !== "credits" && (
           <div>
-            <Button size="sm" variant="soft" disabled={pending || credits <= 0} onClick={() => act(() => setConnection(id, "credits"))}>
+            <Button size="sm" variant="soft" disabled={pending} onClick={() => act(() => setConnection(id, "credits"))}>
               Use included credits · ${credits.toFixed(2)} left
             </Button>
           </div>
