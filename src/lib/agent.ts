@@ -19,6 +19,7 @@ import { describeSchedule, isDue } from "./schedule";
 import { usdOf } from "./models";
 import { recordUsage, type UsageRow } from "./usage";
 import { appFromName } from "./apps";
+import { launchSlug, launchUrl, recordLaunch } from "./launch";
 import { LOOPER_TEMPLATES } from "./looper-templates";
 import { normalizeUrl, readSite } from "./site";
 import { webTools } from "./web";
@@ -437,6 +438,33 @@ function boardTools(uid: string, looperId: string, actor: Card["createdBy"]): To
           card.updatedAt = now();
           return { ok: true };
         }),
+    }),
+    launch_scoreboard: tool({
+      description:
+        "Only for a Product Hunt launch you run: post a reading to its public live scoreboard (votes, comments, today's rank, top comments, how many comments the makers answered). The first call claims the launch for this workspace and returns the public link to share; later calls add a point to its curve.",
+      inputSchema: z.object({
+        launch: z.string().describe("the launch's Product Hunt link, e.g. https://www.producthunt.com/posts/acme"),
+        votes: z.number().int().min(0),
+        comments: z.number().int().min(0),
+        rank: z.number().int().min(1).optional().describe("position on today's Product Hunt list, if it's on it"),
+        name: z.string().max(80).optional(),
+        tagline: z.string().max(140).optional(),
+        topComments: z
+          .array(z.object({ author: z.string().max(60), body: z.string().max(400), votes: z.number().int().min(0).optional(), url: z.string().optional() }))
+          .max(3)
+          .optional()
+          .describe("the 3 most upvoted comments, quoted exactly"),
+        answered: z.number().int().min(0).optional().describe("comments that have a reply from the makers"),
+        medianReplyMinutes: z.number().min(0).optional().describe("median minutes from a comment to the makers' reply"),
+      }),
+      execute: async ({ launch, answered, medianReplyMinutes, ...reading }) => {
+        const slug = launchSlug(launch);
+        await recordLaunch(uid, looperId, slug, {
+          ...reading,
+          ...(answered !== undefined ? { replies: { answered, ...(medianReplyMinutes !== undefined ? { medianMinutes: medianReplyMinutes } : {}) } } : {}),
+        });
+        return { url: launchUrl(slug), note: "Public page, refreshed live. Share it with the owner the first time, and keep posting readings." };
+      },
     }),
     metric_record: tool({
       description: "Record a fresh reading of your business metric, with where it came from.",

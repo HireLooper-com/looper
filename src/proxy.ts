@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 // Optimistic gate: send visitors without a session cookie to /login.
-// Invite links stay open so link previews (WhatsApp, Slack, iMessage) can read the invite.
+// Invite links and launch scoreboards stay open so link previews (WhatsApp, Slack, iMessage, X) can read them.
 // Pages and server actions verify the signed session themselves.
-const PUBLIC = ["/login", "/auth/", "/invite/", "/api/tick", "/api/collect", "/api/stripe/webhook"];
+const PUBLIC = ["/login", "/auth/", "/invite/", "/launch/", "/api/tick", "/api/collect", "/api/stripe/webhook"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p))) return NextResponse.next();
+  const open = PUBLIC.some((p) => pathname === p || pathname.startsWith(p));
+  if (open && !request.cookies.has("cl_session")) return NextResponse.next();
   if (request.cookies.has("cl_session")) {
     // Pages read the path to decide what an unpaid workspace may open.
     const headers = new Headers(request.headers);

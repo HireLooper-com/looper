@@ -14,7 +14,7 @@ Each looper has:
 
 **Chief** hires and coordinates the team and writes a daily brief. Loopers never send, publish, pay or delete without your approval: questions and approvals land in **Needs you**.
 
-**Templates** ready to hire: SEO & GEO Grower, Customer Support, Weekly Build-in-Public Update. Or describe a goal and Chief drafts a looper for it.
+**Templates** ready to hire: SEO & GEO Grower, Customer Support, Weekly Build-in-Public Update, Product Hunt Launch Day (with a public live scoreboard at `/launch/<slug>` to share, plus a badge and link preview). Or describe a goal and Chief drafts a looper for it.
 
 **Teams:** shared workspaces with invite links. Everyone works with the same loopers, chats, boards and approvals.
 
@@ -34,6 +34,7 @@ With no configuration it stores data as JSON files in `./data`, and you sign in 
 | Sign in with a 6-digit email code | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so) sends the code) |
 | One-click app connections | `COMPOSIO_API_KEY` |
 | Email: updates, onboarding, "a looper needs you" | `LOOPS_API_KEY`, `LOOPS_GENERIC_TEMPLATE_ID` ([Loops](https://loops.so)) |
+| Launch scoreboards that refresh from the Product Hunt API between looper runs | `PRODUCTHUNT_TOKEN` |
 | Steadier web search for loopers (DuckDuckGo otherwise, and whenever their quota runs out) | `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` |
 | Each looper's computer | Vercel Sandbox: automatic on Vercel, or `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` |
 | Schedules when hosted | a cron hitting `GET /api/tick` with `Authorization: Bearer $CRON_SECRET` |

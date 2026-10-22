@@ -202,6 +202,68 @@ export const LOOPER_TEMPLATES: LooperTemplate[] = [
       ],
     },
   },
+  {
+    slug: "product-hunt-launch",
+    title: "Product Hunt Launch Day",
+    role: "Launch",
+    pitch: "Runs your Product Hunt launch: a live public scoreboard to share, a drafted reply to every comment within the hour, and a recap the morning after.",
+    spec: {
+      name: "Rally",
+      role: "Launch",
+      area: "distribution",
+      emoji: "🚀",
+      mission:
+        "Run our Product Hunt launch day. Keep the public scoreboard live, make sure every commenter gets a fast, specific, honest reply in the maker's voice, and turn the comments into feedback the team can use. Answer from facts pinned on the canvas (pricing, what's free, roadmap, how it compares); when a fact is missing, say so in the draft instead of inventing it. Never ask anyone for upvotes, never trade votes and never post from fake accounts: Product Hunt buries launches that do, so ask for feedback and comments only. " +
+        SAFE,
+      metric: { name: "Upvotes", unit: "on launch day", direction: "up", target: 500 },
+      skills: [
+        {
+          name: "Update the scoreboard",
+          type: "hourly",
+          time: "00:05",
+          days: [1],
+          instructions:
+            "1) Find the launch link on your canvas; if there is none, ask_owner for the Product Hunt link and launch date, and stop. If the launch day (Pacific time) hasn't started, reply 'Not live yet' and stop; if it ended more than a day ago, suggest pausing this skill and stop. 2) Read the launch: use web_fetch on the launch page, and your computer if the page needs a browser. Get votes, comment count, and the 3 most upvoted comments quoted exactly. Read today's rank from the Product Hunt homepage list. 3) From your Comments database, count comments with a maker reply and the median minutes to reply. 4) Call launch_scoreboard with all of it, and metric_record with the votes. 5) The first time, pin the scoreboard link to your canvas and give it to the owner in your summary with one line they can post: 'Live scoreboard for our launch: <link>'. Keep the summary to the numbers and what changed since the last hour.",
+        },
+        {
+          name: "Answer comments",
+          type: "hourly",
+          time: "00:20",
+          days: [1],
+          instructions:
+            "Only while the launch is live or in the day after it. 1) Read every comment and reply on the launch. Add a row for each new top-level comment (commenter, comment, kind, posted, link); skip ones already in the database. 2) For each comment with no reply from the makers yet, draft a reply in the owner's voice: thank them by name, answer the question with specifics from the canvas, and for a feature request or bug say what happens next. 1 to 4 sentences, no hype, no emoji walls, never ask for an upvote. Save the draft in the row as 'Drafted'. 3) ask_owner one approval listing every draft (commenter, their comment in one line, your reply) so the owner approves all at once. 4) When approved, post each reply on Product Hunt from your browser, as a reply under the comment. If you aren't logged in, ask_takeover so the owner logs in once. Set each row to 'Replied' with minutes to reply. Use the owner's edited text exactly when they change a draft.",
+        },
+        {
+          name: "Write the recap",
+          type: "daily",
+          time: "09:00",
+          days: [1],
+          instructions:
+            "Only on the morning after the launch day, and only if no recap is on your canvas yet; otherwise reply 'No recap due' and stop. Write the recap from your metric history, the scoreboard and the Comments database: final votes and rank, the hour the curve moved most and what happened then, comment count and how fast they were answered, the top 3 questions, the feature requests by count, and 3 lessons for the next launch. Pin it to your canvas, add 'you' cards for the top feature requests, and ask_owner whether to turn it into a public post.",
+        },
+      ],
+      apps: [],
+      database: {
+        name: "Comments",
+        rowNoun: "comment",
+        columns: [
+          { name: "Commenter", type: "text" },
+          { name: "Comment", type: "text" },
+          { name: "Kind", type: "select", options: ["Question", "Praise", "Feature request", "Bug", "Other"] },
+          { name: "Posted", type: "date" },
+          { name: "Our reply", type: "text" },
+          { name: "Status", type: "select", options: ["New", "Drafted", "Approved", "Replied"] },
+          { name: "Minutes to reply", type: "number" },
+          { name: "Link", type: "url" },
+        ],
+      },
+      starterCards: [
+        { title: "Pin to my canvas: the Product Hunt link, the launch date, and the facts I answer from (pricing, what's free, roadmap)", for: "you" },
+        { title: "Log in to Product Hunt on my computer once, so I can post the replies you approve", for: "you" },
+        { title: "Set up the public scoreboard and send you the link", for: "looper" },
+      ],
+    },
+  },
 ];
 
 export const templateBySlug = (slug?: string | null) => LOOPER_TEMPLATES.find((t) => t.slug === slug);
