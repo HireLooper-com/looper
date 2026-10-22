@@ -157,10 +157,28 @@ button.tile:hover {
   box-shadow: var(--tile-shadow-hover);
 }
 
-/* Notion-style select tags, light and dark. */
+/* Notion-style select tags, light and dark. One muted hue per option position (data-c 0-8). */
 .tag { background: rgba(0, 0, 0, 0.06); color: var(--color-ink-2); }
+.tag[data-c="0"] { background: #dce8f1; color: #1f3a52; } /* blue */
+.tag[data-c="1"] { background: #dcecdf; color: #1f3d2a; } /* green */
+.tag[data-c="2"] { background: #f6e3d2; color: #4d2c12; } /* orange */
+.tag[data-c="3"] { background: #e9e0f0; color: #422a57; } /* purple */
+.tag[data-c="4"] { background: #f4e1ea; color: #4e2539; } /* pink */
+.tag[data-c="5"] { background: #f5ecd2; color: #45331a; } /* yellow */
+.tag[data-c="6"] { background: #f8e2de; color: #5a1f1a; } /* red */
+.tag[data-c="7"] { background: #ece3dd; color: #452e22; } /* brown */
+.tag[data-c="8"] { background: #e6e5e3; color: #36342f; } /* gray */
 @media (prefers-color-scheme: dark) {
   .tag { background: rgba(255, 255, 255, 0.10); }
+  .tag[data-c="0"] { background: rgba(82, 136, 196, 0.22); color: #a9c8e6; }
+  .tag[data-c="1"] { background: rgba(84, 156, 112, 0.22); color: #a7d3b5; }
+  .tag[data-c="2"] { background: rgba(204, 124, 62, 0.22); color: #e5bb96; }
+  .tag[data-c="3"] { background: rgba(142, 100, 186, 0.24); color: #cbb4e2; }
+  .tag[data-c="4"] { background: rgba(190, 92, 140, 0.22); color: #e3b0c8; }
+  .tag[data-c="5"] { background: rgba(196, 160, 72, 0.20); color: #e0cc95; }
+  .tag[data-c="6"] { background: rgba(200, 86, 76, 0.22); color: #eab0a8; }
+  .tag[data-c="7"] { background: rgba(150, 110, 88, 0.24); color: #d4bba9; }
+  .tag[data-c="8"] { background: rgba(255, 255, 255, 0.10); color: #c9c7c3; }
 }
 
 .display {
