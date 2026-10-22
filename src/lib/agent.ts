@@ -6,7 +6,7 @@ import { z } from "zod";
 import { mutate, read } from "./db";
 import { allWorkspaceIds } from "./workspace";
 import { canvasTools, deleteCanvas, describeCanvas, readCanvas } from "./canvas";
-import { activeAccounts, composioTools, hasComposio, resolveApps } from "./composio";
+import { activeAccounts, catalogApps, composioTools, hasComposio, resolveApps } from "./composio";
 import { computerSession, hasComputer, wipeComputer } from "./computer";
 import { coerce, columnSpec, databaseTools, deleteDatabase, describeDatabase, mutateDatabase, newDatabase, readDatabase } from "./database";
 import { connectTools, integrationsFor } from "./integrations";
@@ -711,6 +711,13 @@ function toSkill(s: z.infer<typeof skillInput>): Skill {
   return { id: nanoid(8), name: s.name, instructions: s.instructions, kind: "work", schedule: { type: s.type, time: s.time, days: s.days } };
 }
 
+/** Tell Chief which names weren't apps, so it doesn't promise a Connect button for them. */
+function notAppsNote(notFound: string[]) {
+  return notFound.length
+    ? { notApps: notFound, notAppsNote: `${notFound.join(", ")} has no app to connect, so it was left off. The looper reads it from the web (search, pages, browser) instead; say so instead of asking the owner to connect it.` }
+    : {};
+}
+
 function dedupeApps(apps: AppRef[]) {
   return apps.filter((a, i) => a.slug && apps.findIndex((b) => b.slug === a.slug) === i);
 }
@@ -740,7 +747,7 @@ export type LooperSpec = z.infer<typeof looperSpec>;
 
 /** Create a looper from a spec (Chief's create_looper and the guided hiring flow). */
 export async function hireLooper(uid: string, input: LooperSpec) {
-  const apps = await resolveApps(dedupeApps(input.apps.map(appFromName)));
+  const { apps, notFound } = await catalogApps(dedupeApps(input.apps.map(appFromName)));
   const r = await mutate(uid, (db) => {
     const looper: Looper = {
       id: nanoid(8),
@@ -766,7 +773,7 @@ export async function hireLooper(uid: string, input: LooperSpec) {
     db.loopers.push(looper);
     for (const c of input.starterCards)
       db.cards.push({ id: nanoid(8), looperId: looper.id, title: c.title, description: "", column: "todo", assignee: c.for, createdBy: "chief", createdAt: now(), updatedAt: now() });
-    return { id: looper.id, name: looper.name, apps, firstSkill: looper.skills[0] };
+    return { id: looper.id, name: looper.name, apps, notFound, firstSkill: looper.skills[0] };
   });
   if (input.database) await mutateDatabase(uid, r.id, (box) => void (box.db ??= newDatabase(input.database!.name, input.database!.rowNoun, input.database!.columns)));
   return r;
@@ -921,7 +928,13 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         // Only offer Connect for what isn't connected yet.
         if (missing.length) links.push({ label: `Connect ${missing.map((a) => a.name).join(", ")} for ${r.name}`, href: `/loopers/${r.id}?tab=apps` });
         actions.push(`Hired ${r.name}`);
-        return { id: r.id, name: r.name, appsAlreadyConnected: r.apps.filter((a) => c.isConnected(a)).map((a) => a.name), appsToConnect: missing.map((a) => a.name) };
+        return {
+          id: r.id,
+          name: r.name,
+          appsAlreadyConnected: r.apps.filter((a) => c.isConnected(a)).map((a) => a.name),
+          appsToConnect: missing.map((a) => a.name),
+          ...notAppsNote(r.notFound),
+        };
       },
     }),
     update_looper: tool({
@@ -935,7 +948,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
         addApps: z.array(z.string()).optional().describe("apps to add, by name"),
       }),
       execute: async (input) => {
-        const added = input.addApps?.length ? await resolveApps(input.addApps.map(appFromName)) : [];
+        const { apps: added, notFound } = input.addApps?.length ? await catalogApps(input.addApps.map(appFromName)) : { apps: [], notFound: [] };
         const c = await appConnections(uid, await read(uid));
         const missing = added.filter((a) => !c.isConnected(a));
         return mutate(uid, (db) => {
@@ -949,7 +962,7 @@ function chiefTools(uid: string, actions: string[], links: { label: string; href
           if (input.status) l.status = input.status;
           if (input.addSkills) l.skills.push(...input.addSkills.map(toSkill));
           actions.push(`Updated ${l.name}`);
-          return { ok: true, appsToConnect: missing.map((a) => a.name) };
+          return { ok: true, appsToConnect: missing.map((a) => a.name), ...notAppsNote(notFound) };
         });
       },
     }),
@@ -1047,7 +1060,7 @@ Your job: turn the user's goals into loopers, manage them, and report on them. W
 
 Give every looper a database (create_looper.database) whose rows are the unit of its work, with 5–10 useful columns: a VAT looper gets one row per bank transaction (date, amount, counterparty, source, VAT rate, VAT amount, invoice found, status); an SEO looper gets one row per blog post or idea (title, status Idea/Drafting/Published, keyword, URL, clicks); a sales looper one row per lead. Use select columns for statuses.
 
-Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]).
+Always pass the apps the looper needs in create_looper.apps (e.g. a VAT looper with a bunq account, Stripe income and invoices in Gmail → ["bunq", "Stripe", "Gmail"]). Apps are software the owner has an account in. Public websites and registers (KVK, Companies House, LinkedIn pages, news sites, Google results) are not apps: every looper reads them with web search, page fetch and its browser, so leave them out of apps and name them in the skill instructions instead. If a tool result has notApps, those were not apps: don't offer to connect them.
 
 Connections: the user connects each app once (Gmail, Stripe, Google Sheets…) and every looper can use it. "Connected apps" below is the live list. Never ask the user to connect an app that is already there. create_looper and update_looper return appsToConnect: only those still need connecting, and the app shows a Connect button for exactly those, so say "connect X with the button below". If appsToConnect is empty, say everything is already connected. MCP hubs (Composio, Zapier…) are optional extras; an empty hub list does not mean apps aren't connected.
 
