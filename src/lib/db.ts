@@ -100,7 +100,8 @@ export function toPublic(db: DB, user: User): PublicState {
         xai: oauth.xai && { email: oauth.xai.email },
       },
       isLocal: isLocalServer(),
-      integrations: integrations.map(({ headers, ...i }) => ({ ...i, headerNames: Object.keys(headers) })),
+      // Keys and OAuth tokens never leave the server.
+      integrations: integrations.map(({ headers, ...i }) => ({ ...i, oauth: undefined, headerNames: Object.keys(headers) })),
     },
   };
 }

@@ -13,11 +13,12 @@ import { getUser, isLocalServer, mutate, read, toPublic } from "@/lib/db";
 import { appFromName, MCP_APPS } from "@/lib/apps";
 import * as composioApi from "@/lib/composio";
 import { kv } from "@/lib/kv";
+import { findMcpServer, keyHeader, startOAuth } from "@/lib/mcp-connect";
 import { cleanAttachments, deleteFiles } from "@/lib/attachments";
 import { deleteCanvas } from "@/lib/canvas";
 import { wipeComputer } from "@/lib/computer";
 import { deleteDatabase } from "@/lib/database";
-import { testIntegration } from "@/lib/integrations";
+import { saveAppServer, testIntegration } from "@/lib/integrations";
 import * as chatgpt from "@/lib/oauth/chatgpt";
 import * as codex from "@/lib/oauth/codex";
 import * as grok from "@/lib/oauth/grok";
@@ -268,7 +269,7 @@ export async function checkIntegration(id: string) {
   const uid = await requireUid();
   const i = (await read(uid)).settings.integrations.find((x) => x.id === id);
   if (!i) return { ok: false as const, error: "Not found" };
-  return testIntegration(i);
+  return testIntegration(i, uid);
 }
 
 // — Loopers —
@@ -438,9 +439,18 @@ interface AppRow extends AppRef {
   state: AppState;
   detail: string;
   setup?: string[];
-  /** connected accounts of this app (Composio), e.g. several Stripe accounts */
+  /** how Connect works: Composio's hosted page, the app's own MCP server, or a server on the owner's machine */
+  route?: "composio" | "mcp" | "local";
+  /** the app's own MCP server: sign in on the vendor's page, paste a key, or nothing to enter */
+  auth?: "oauth" | "key" | "none";
+  /** connected accounts of this app, e.g. several Stripe accounts; ids starting "mcp:" are its own server */
   accounts?: { id: string; label: string }[];
+  /** more than one account can be connected (Composio only) */
+  multi?: boolean;
 }
+
+const NO_CONNECTION = (name: string) =>
+  `${name} has no Composio app or MCP server Looper can use. Connect it through a Zapier or Pipedream hub in Settings, or your looper can work in ${name} through the browser once you sign in there.`;
 
 export async function looperAppStatus(looperId: string): Promise<{ composio: boolean; apps: AppRow[] }> {
   const uid = await requireUid();
@@ -460,13 +470,12 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
         const preset = MCP_APPS[app.slug];
         const integration = db.settings.integrations.find((i) => i.app === app.slug && i.enabled);
         if (preset?.localOnly && !local)
-          return { ...app, state: "unavailable", detail: `${app.name} runs on your own machine. Open Looper locally to connect it.` };
-        if (integration) return { ...app, state: "connected", detail: `Read-only via ${integration.url.replace(/^https?:\/\//, "")}` };
-        return { ...app, state: "not_connected", detail: "Runs on your machine through a small MCP server. Payments are blocked.", setup: preset?.setup };
+          return { ...app, route: "local", state: "unavailable", detail: `${app.name} runs on your own machine. Open Looper locally to connect it.` };
+        if (integration) return { ...app, route: "local", state: "connected", detail: `Read-only via ${integration.url.replace(/^https?:\/\//, "")}` };
+        return { ...app, route: "local", state: "not_connected", detail: "Runs on your machine through a small MCP server. Payments are blocked.", setup: preset?.setup };
       }
-      if (!composio) return { ...app, state: "not_connected", detail: "Needs Composio on the server" };
-      let tk = await composioApi.getToolkit(app.slug).catch(() => null);
-      if (!tk) {
+      let tk = composio ? await composioApi.getToolkit(app.slug).catch(() => null) : null;
+      if (composio && !tk) {
         // Older loopers stored a guessed slug ("googlesearchconsole"); look the name up in the catalog.
         const found = await composioApi.resolveToolkit(app.name).catch(() => null);
         if (found) {
@@ -475,19 +484,56 @@ export async function looperAppStatus(looperId: string): Promise<{ composio: boo
           app = { ...app, slug: found.slug };
         }
       }
-      if (!tk) return { ...app, state: "unavailable", detail: "Not found in the app catalog. Remove it or add it through a hub in Settings." };
-      const logo = app.logo ?? tk.meta?.logo;
+      const name = tk?.name ?? app.name;
+      const logo = app.logo ?? tk?.meta?.logo;
+
+      // Connected through the app's own MCP server (Composio couldn't connect it).
+      const own = db.settings.integrations.find((i) => i.app === app.slug && i.enabled);
+      if (own)
+        return {
+          ...app,
+          name,
+          logo,
+          route: "mcp",
+          state: "connected",
+          accounts: [{ id: `mcp:${own.id}`, label: own.url.replace(/^https?:\/\//, "").replace(/\/$/, "") }],
+          detail: `Connected through ${name}'s own MCP server`,
+        };
+
       const list = (accounts.get(app.slug) ?? []).map((a) => ({ id: a.id, label: composioApi.accountLabel(a) }));
       if (list.length)
         return {
           ...app,
-          name: tk.name,
+          name,
           logo,
+          route: "composio",
+          multi: true,
           state: "connected",
           accounts: list,
           detail: list.length === 1 ? `Connected as ${list[0].label}` : `${list.length} accounts connected`,
         };
-      return { ...app, name: tk.name, logo, state: "not_connected", detail: (tk.composio_managed_auth_schemes ?? []).length ? `Sign in with ${tk.name}` : `Paste your ${tk.name} key on a secure Composio page` };
+
+      // 1. Composio, unless it can't connect this app or failed to before.
+      const how = tk ? composioApi.composioAuth(tk) : null;
+      if (how && !(await kv.get(`composio-broken:${app.slug}`).catch(() => undefined)))
+        return { ...app, name, logo, route: "composio", state: "not_connected", detail: how.managed ? `Sign in with ${name}` : `Paste your ${name} key on a secure Composio page` };
+
+      // 2. The app's own MCP server.
+      const server = await findMcpServer({ slug: app.slug, name }).catch(() => null);
+      if (server)
+        return {
+          ...app,
+          name,
+          logo,
+          route: "mcp",
+          auth: server.auth,
+          state: "not_connected",
+          detail: server.auth === "oauth" ? `Sign in with ${name}` : server.auth === "key" ? (server.hint ?? `Paste your ${name} API key`) : `Connect ${name}'s MCP server`,
+        };
+
+      // 3. Nothing to connect to: point at hubs and the browser.
+      if (!tk && !composio) return { ...app, state: "not_connected", detail: "Needs Composio on the server" };
+      return { ...app, name, logo, state: "unavailable", detail: NO_CONNECTION(name) };
     }),
   );
 
@@ -515,6 +561,26 @@ export async function connectApp(looperId: string, slug: string, another = false
 
 async function connectAppInner(looperId: string, slug: string, another: boolean, returnTo?: "hire" | "welcome") {
   const uid = await requireUid();
+  try {
+    return await composioLink(uid, looperId, slug, another, returnTo);
+  } catch (e) {
+    // Composio can't connect it: fall back to the app's own MCP server, and remember for the Apps tab.
+    const tk = await composioApi.getToolkit(slug).catch(() => null);
+    const server = await findMcpServer({ slug, name: tk?.name ?? slug }).catch(() => null);
+    if (!server) throw e instanceof composioApi.NoComposioAuth ? new Error(NO_CONNECTION(tk?.name ?? slug)) : e;
+    await kv.set(`composio-broken:${slug}`, true, 24 * 3600);
+    const name = tk?.name ?? slug;
+    if (server.auth === "oauth") return startOAuth({ uid, looperId, slug, name, url: server.url, returnTo, redirectUrl: `${await origin()}/connect/mcp` }, server.scope);
+    throw new Error(`Composio couldn't connect ${name}. Connect it through ${name}'s own server below instead.`);
+  }
+}
+
+async function origin() {
+  const h = await headers();
+  return `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
+}
+
+async function composioLink(uid: string, looperId: string, slug: string, another: boolean, returnTo?: "hire" | "welcome") {
   let alias: string | undefined;
   if (another) {
     const existing = (await composioApi.activeAccounts(uid)).get(slug) ?? [];
@@ -523,9 +589,7 @@ async function connectAppInner(looperId: string, slug: string, another: boolean,
     while (taken.has(`${slug}-${n}`)) n++;
     alias = `${slug}-${n}`;
   }
-  const h = await headers();
-  const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
-  const callback = `${origin}/connect/callback?looper=${encodeURIComponent(looperId)}&app=${encodeURIComponent(slug)}${returnTo === "hire" || returnTo === "welcome" ? `&return=${returnTo}` : ""}`;
+  const callback = `${await origin()}/connect/callback?looper=${encodeURIComponent(looperId)}&app=${encodeURIComponent(slug)}${returnTo === "hire" || returnTo === "welcome" ? `&return=${returnTo}` : ""}`;
   const link = await composioApi.linkAccount(uid, slug, callback, alias);
   // The callback's query string isn't proof: remember which account we started for whom.
   await kv.set(`composio-link:${link.connected_account_id}`, { uid, looperId, slug }, 3600);
@@ -547,6 +611,31 @@ export async function connectMcpApp(looperId: string, slug: string): Promise<{ o
     else db.settings.integrations.push({ ...probe, id: nanoid(8) });
   });
   return done({ ok: true });
+}
+
+/** Connect an app through its own MCP server (Composio can't): returns the vendor's sign-in page to open,
+ * or null when it's connected already (a pasted key, or a server that needs nothing). */
+export async function connectAppServer(looperId: string, slug: string, name: string, key?: string, returnTo?: "hire" | "welcome") {
+  return attempt(async () => {
+    const uid = await requireUid();
+    const server = await findMcpServer({ slug, name });
+    if (!server) throw new Error(NO_CONNECTION(name));
+    if (server.auth === "oauth") return startOAuth({ uid, looperId, slug, name, url: server.url, returnTo, redirectUrl: `${await origin()}/connect/mcp` }, server.scope);
+    if (server.auth === "key" && !key?.trim()) throw new Error(`Paste your ${name} API key first.`);
+    const integration: Integration = {
+      id: nanoid(8),
+      name,
+      kind: "custom",
+      url: server.url,
+      headers: server.auth === "key" ? keyHeader(server, key!.trim()) : {},
+      enabled: true,
+      app: slug,
+    };
+    const test = await testIntegration(integration);
+    if (!test.ok) throw new Error(`${name} didn't accept that: ${test.error}`);
+    await saveAppServer(uid, integration);
+    return done(null);
+  });
 }
 
 export async function searchApps(q: string): Promise<AppRef[]> {
@@ -581,6 +670,7 @@ export async function removeLooperApp(looperId: string, slug: string) {
 /** Disconnect one account of an app (it stops working for every looper). */
 export async function disconnectAccount(accountId: string) {
   const uid = await requireUid();
+  if (accountId.startsWith("mcp:")) return removeIntegration(accountId.slice(4));
   // Only the signed-in user's own accounts can be removed.
   const mine = (await composioApi.listAccounts(uid)).some((a) => a.id === accountId);
   if (!mine) throw new Error("That connection isn't yours.");

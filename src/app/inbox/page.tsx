@@ -18,9 +18,11 @@ export default async function InboxPage() {
   let apps: AppTodo[] = [];
   if (hasComposio() && db.loopers.some((l) => l.apps?.some((a) => a.via === "composio"))) {
     const connected = await activeAccounts(user.ws).catch(() => null);
+    // Apps Composio can't connect may be connected through their own MCP server.
+    const ownServer = new Set(db.settings.integrations.filter((i) => i.enabled && i.app).map((i) => i.app));
     if (connected)
       apps = db.loopers.flatMap((l) =>
-        (l.apps ?? []).filter((a) => a.via === "composio" && !connected.has(a.slug)).map((a) => ({ looperId: l.id, slug: a.slug, name: a.name, logo: a.logo })),
+        (l.apps ?? []).filter((a) => a.via === "composio" && !connected.has(a.slug) && !ownServer.has(a.slug)).map((a) => ({ looperId: l.id, slug: a.slug, name: a.name, logo: a.logo })),
       );
   }
 

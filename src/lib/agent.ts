@@ -570,8 +570,10 @@ async function finishRun(uid: string, id: string, patch: Partial<Run>) {
 
 /** Every external tool a looper can use: MCP hubs plus its connected Composio apps. Close when done. */
 async function looperApps(uid: string, looper: Looper, db: DB) {
-  const ext = await connectTools(integrationsFor(looper, db.settings));
-  const composioSlugs = (await resolveApps((looper.apps ?? []).filter((a) => a.via === "composio")).catch(() => [])).map((a) => a.slug);
+  const ext = await connectTools(integrationsFor(looper, db.settings), uid);
+  // Apps connected through their own MCP server (Composio couldn't) come in with the hubs above.
+  const ownServer = new Set(db.settings.integrations.filter((i) => i.enabled && i.app).map((i) => i.app));
+  const composioSlugs = (await resolveApps((looper.apps ?? []).filter((a) => a.via === "composio" && !ownServer.has(a.slug))).catch(() => [])).map((a) => a.slug);
   const apps = await composioTools(uid, composioSlugs).catch(() => ({ tools: {}, connected: [] as string[], missing: composioSlugs, slugs: [] as string[] }));
   ext.tools = { ...ext.tools, ...apps.tools };
   ext.connected.push(...apps.connected);
@@ -1118,7 +1120,7 @@ async function appConnections(uid: string, db: DB) {
   const accounts = hasComposio() ? await activeAccounts(uid).catch(() => new Map<string, unknown[]>()) : new Map<string, unknown[]>();
   const hubs = db.settings.integrations.filter((i) => i.enabled);
   const names = new Map(db.loopers.flatMap((l) => (l.apps ?? []).map((a) => [a.slug, a.name] as const)));
-  const isConnected = (a: AppRef) => (a.via === "mcp" ? hubs.some((h) => h.app === a.slug) : accounts.has(a.slug));
+  const isConnected = (a: AppRef) => hubs.some((h) => h.app === a.slug) || (a.via === "composio" && accounts.has(a.slug));
   const connected = [...accounts].map(([slug, list]) => `${names.get(slug) ?? slug}${list.length > 1 ? ` (${list.length} accounts)` : ""}`);
   const appsLine = (l: Looper) => (l.apps ?? []).map((a) => `${a.name} ${isConnected(a) ? "✓" : "(not connected)"}`).join(", ");
   return { isConnected, connected, hubs: hubs.map((h) => h.name), appsLine };

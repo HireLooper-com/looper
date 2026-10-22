@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { addLooperApp, connectApp, connectMcpApp, disconnectAccount, looperAppStatus, removeLooperApp, searchApps } from "@/app/actions";
+import { addLooperApp, connectApp, connectAppServer, connectMcpApp, disconnectAccount, looperAppStatus, removeLooperApp, searchApps } from "@/app/actions";
 import type { AppRef } from "@/lib/types";
 import { Button, Input, Panel, Pill, cx } from "./ui";
 
@@ -22,6 +22,7 @@ export function AppsPanel({ looperId, looperName, returnTo }: { looperId: string
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [keys, setKeys] = useState<Record<string, string>>({});
   const [, start] = useTransition();
 
   const load = useCallback(() => looperAppStatus(looperId).then(setStatus).catch((e) => setError(String(e?.message ?? e))), [looperId]);
@@ -34,14 +35,18 @@ export function AppsPanel({ looperId, looperName, returnTo }: { looperId: string
       setBusy(row.slug);
       setError(null);
       try {
-        if (row.via === "composio") {
+        if (row.route === "mcp") {
+          const r = await connectAppServer(looperId, row.slug, row.name, keys[row.slug], returnTo);
+          if (r.ok && r.value) return window.location.assign(r.value);
+          if (!r.ok) setError(r.error);
+        } else if (row.via === "composio") {
           const r = await connectApp(looperId, row.slug, another, returnTo);
           if (r.ok) return window.location.assign(r.value);
           setError(r.error);
-          return;
+        } else {
+          const r = await connectMcpApp(looperId, row.slug);
+          if (!r.ok) setError(r.error);
         }
-        const r = await connectMcpApp(looperId, row.slug);
-        if (!r.ok) setError(r.error);
         await load();
         router.refresh();
       } catch (e) {
@@ -89,8 +94,8 @@ export function AppsPanel({ looperId, looperName, returnTo }: { looperId: string
                 ) : row.state === "unavailable" ? (
                   <Pill>Unavailable</Pill>
                 ) : (
-                  <Button size="sm" disabled={busy === row.slug || (row.via === "composio" && !status?.composio)} onClick={() => connect(row)}>
-                    {busy === row.slug ? "Connecting…" : row.via === "mcp" ? "Check connection" : "Connect"}
+                  <Button size="sm" disabled={busy === row.slug || (row.via === "composio" && row.route !== "mcp" && !status?.composio) || (row.auth === "key" && !keys[row.slug]?.trim())} onClick={() => connect(row)}>
+                    {busy === row.slug ? "Connecting…" : row.route === "local" ? "Check connection" : "Connect"}
                   </Button>
                 )}
                 <button
@@ -106,6 +111,16 @@ export function AppsPanel({ looperId, looperName, returnTo }: { looperId: string
                   ×
                 </button>
               </div>
+              {row.auth === "key" && row.state !== "connected" && (
+                <Input
+                  className="ml-[52px] w-auto"
+                  type="password"
+                  autoComplete="off"
+                  value={keys[row.slug] ?? ""}
+                  onChange={(e) => setKeys((k) => ({ ...k, [row.slug]: e.target.value }))}
+                  placeholder={`${row.name} API key`}
+                />
+              )}
               {row.accounts && row.accounts.length > 0 && (
                 <div className="ml-[52px] flex flex-col gap-1.5">
                   {row.accounts.map((a) => (
@@ -129,9 +144,11 @@ export function AppsPanel({ looperId, looperName, returnTo }: { looperId: string
                       </button>
                     </div>
                   ))}
-                  <button className="w-fit text-[0.8125rem] font-medium text-ink-2 hover:text-ink disabled:opacity-50" disabled={busy === row.slug} onClick={() => connect(row, true)}>
-                    + Connect another {row.name} account
-                  </button>
+                  {row.multi && (
+                    <button className="w-fit text-[0.8125rem] font-medium text-ink-2 hover:text-ink disabled:opacity-50" disabled={busy === row.slug} onClick={() => connect(row, true)}>
+                      + Connect another {row.name} account
+                    </button>
+                  )}
                 </div>
               )}
               {row.setup && row.state !== "connected" && (
