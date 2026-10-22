@@ -288,9 +288,9 @@ function webLadder() {
     "2. An official API, feed or connected app: find_tools for the app; web_search for '<site> API', open data, RSS feeds or downloadable lists (CSV, JSON).",
     "3. web_search to find where the data lives (directories, lists, aggregators, search results), then web_fetch to read pages. web_fetch is fast and cheap and returns each page's links, so follow next-page and detail links with it.",
     browser
-      ? "4. Your browser (computer_browse, computer_read) only for what web_fetch can't do: search forms, filters, clicking through, logins the owner set up. Cookie banners are accepted for you when a page opens. Never guess passwords; if a login is needed, ask the owner."
+      ? "4. Your browser (computer_browse, computer_read) only for what web_fetch can't do: search forms, filters, clicking through, logins the owner set up. Cookie banners are accepted for you when a page opens. Never guess or ask for passwords; if a login is needed, use ask_takeover so the owner logs in on your browser (it's remembered after that)."
       : "4. (No browser on this server.) If a site only works in a browser, say so and pick another source.",
-    "5. If a site shows a bot check (CAPTCHA, 'verify you are human') or blocks you, stop there: don't retry or work around it; take another source. When every route fails, ask_owner with concrete options (e.g. 'buy an API key for X', 'use source Y instead', 'you pass the check').",
+    `5. If a site shows a bot check (CAPTCHA, 'verify you are human') or blocks you, stop there: don't retry or work around it; take another source. When every route fails, ask_owner with concrete options (e.g. 'buy an API key for X', 'use source Y instead')${browser ? ", or, if that site is the only source, ask_takeover so the owner passes the check on your browser" : ""}.`,
     "After you try a source, record what worked or failed with playbook_save, so the next run starts from it. Save rows as you collect them (batches of up to 25), not at the end: a run can be cut off.",
     browser ? "Before a final submit, post, purchase or send on a website, get an approved ask_owner approval, as with apps." : "",
   ]
@@ -429,7 +429,36 @@ function runStats(steps: StepLike[]): RunStats {
 
 /** Put a question or an approval to the owner: it shows in the looper's chat and the inbox. */
 function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): ToolSet {
+  const put = async (input: Pick<Ask, "kind" | "question" | "options" | "detail" | "url">) => {
+    let mail: { looperName: string; open: number } | undefined;
+    const r = await mutate(uid, (d) => {
+      const open = d.asks.find((a) => a.looperId === looperId && a.status === "open" && a.question === input.question);
+      if (open) return { asked: open.id, note: "Already asked; wait for the answer." };
+      const ask: Ask = { id: nanoid(8), looperId, ...input, status: "open", createdAt: now() };
+      d.asks.push(ask);
+      (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "assistant", content: input.question, at: now(), askId: ask.id }];
+      onAsk?.(ask.id);
+      mail = { looperName: d.loopers.find((l) => l.id === looperId)?.name ?? "A looper", open: d.asks.filter((a) => a.status === "open").length };
+      return { asked: ask.id, note: "The owner will see it in chat and their inbox. Carry on with anything that doesn't depend on the answer." };
+    });
+    // Also by email, so nobody has to keep the app open to know a looper is waiting.
+    if (mail) await notifyNeedsYou(uid, mail.looperName, input.question, input.detail, mail.open).catch((e) => console.error("[loops] needs-you", e));
+    return r;
+  };
   return {
+    ...(hasComputer()
+      ? {
+          ask_takeover: tool({
+            description:
+              "Ask the owner to take over your browser for a moment: to log in to a site (they type the password themselves; never ask for passwords in chat) or to pass a bot check (CAPTCHA) on a site that's the only source. They get a 'Take over' button, use your browser live, and hand it back; the login is remembered for your next runs and their reply comes back as a chat message. Before asking, leave a 'Continue:' card saying where to pick up.",
+            inputSchema: z.object({
+              question: z.string().max(300).describe("what you need them to do, e.g. 'Log in to LinkedIn so I can read the company pages'"),
+              url: z.string().describe("the page to open for them"),
+            }),
+            execute: ({ question, url }) => put({ kind: "takeover", question, url }),
+          }),
+        }
+      : {}),
     ask_owner: tool({
       description:
         "Ask your owner something only they can decide, as tappable options (kind 'choice', 2–4 short options), or ask approval before anything risky or irreversible: sending, publishing, filing, paying, deleting (kind 'approval', with `detail` saying exactly what will happen). Their answer comes back to you as a chat message. Prefer this over a kanban card for quick decisions. Ask one thing at a time.",
@@ -439,22 +468,7 @@ function askTools(uid: string, looperId: string, onAsk?: (id: string) => void): 
         options: z.array(z.string().max(60)).min(2).max(4).optional(),
         detail: z.string().max(1200).optional(),
       }),
-      execute: async (input) => {
-        let mail: { looperName: string; open: number } | undefined;
-        const r = await mutate(uid, (d) => {
-          const open = d.asks.find((a) => a.looperId === looperId && a.status === "open" && a.question === input.question);
-          if (open) return { asked: open.id, note: "Already asked; wait for the answer." };
-          const ask: Ask = { id: nanoid(8), looperId, kind: input.kind, question: input.question, options: input.kind === "choice" ? input.options : undefined, detail: input.detail, status: "open", createdAt: now() };
-          d.asks.push(ask);
-          (d.chats ??= {})[looperId] = [...(d.chats[looperId] ?? []), { id: nanoid(8), role: "assistant", content: input.question, at: now(), askId: ask.id }];
-          onAsk?.(ask.id);
-          mail = { looperName: d.loopers.find((l) => l.id === looperId)?.name ?? "A looper", open: d.asks.filter((a) => a.status === "open").length };
-          return { asked: ask.id, note: "The owner will see it in chat and their inbox. Carry on with anything that doesn't depend on the answer." };
-        });
-        // Also by email, so nobody has to keep the app open to know a looper is waiting.
-        if (mail) await notifyNeedsYou(uid, mail.looperName, input.question, input.detail, mail.open).catch((e) => console.error("[loops] needs-you", e));
-        return r;
-      },
+      execute: (input) => put({ kind: input.kind, question: input.question, options: input.kind === "choice" ? input.options : undefined, detail: input.detail }),
     }),
   };
 }

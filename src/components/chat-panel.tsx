@@ -303,17 +303,23 @@ export function AskBubble({ ask: saved, onAnswered, compact }: { ask: Ask; onAns
     });
   };
 
-  const options = ask.kind === "approval" ? ["Approve", "Not now"] : (ask.options ?? []);
+  const options = ask.kind === "approval" ? ["Approve", "Not now"] : ask.kind === "takeover" ? ["Not now"] : (ask.options ?? []);
   return (
     <div className={cx("fade-up flex flex-col items-start gap-2", compact && "w-full")}>
       <div className={cx("rounded-[18px] bg-ink/[0.045] px-4 py-3", compact ? "w-full" : "max-w-[85%]")}>
         <div className="flex items-center gap-1.5 text-[0.75rem] font-medium text-mute">
-          {ask.kind === "approval" ? "Needs your approval" : "Question for you"}
+          {ask.kind === "approval" ? "Needs your approval" : ask.kind === "takeover" ? "Needs you on its browser" : "Question for you"}
         </div>
         <div className="mt-1 whitespace-pre-wrap text-[0.9375rem] leading-relaxed">{ask.question}</div>
+        {ask.kind === "takeover" && ask.url && <div className="mt-1 truncate text-[0.8125rem] text-mute">{ask.url.replace(/^https?:\/\//, "")}</div>}
         {ask.detail && <div className="mt-2 whitespace-pre-wrap rounded-[12px] bg-panel px-3 py-2 text-[0.8125rem] leading-relaxed text-ink-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]">{ask.detail}</div>}
         {open ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
+            {ask.kind === "takeover" && (
+              <Link href={`/loopers/${ask.looperId}?tab=computer&takeover=${ask.id}`} className="rounded-full bg-blue px-3.5 py-1.5 text-[0.8125rem] font-medium text-page transition-colors hover:bg-blue-hover">
+                Take over
+              </Link>
+            )}
             {options.map((o, i) => (
               <button
                 key={o}

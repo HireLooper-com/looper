@@ -257,8 +257,11 @@ export interface RunStats {
 export interface Ask {
   id: string;
   looperId: string;
-  kind: "choice" | "approval";
+  /** takeover: the owner takes over the looper's browser (to log in, or pass a bot check) */
+  kind: "choice" | "approval" | "takeover";
   question: string;
+  /** for takeover: the page to open */
+  url?: string;
   /** for choice: the options to tap */
   options?: string[];
   /** for approval: what exactly will happen when approved */

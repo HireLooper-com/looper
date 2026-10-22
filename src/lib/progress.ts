@@ -154,6 +154,8 @@ export function describeTool(name: string, input: unknown): string {
       return `Adding a column “${str(i.name)}”`;
     case "ask_owner":
       return i.kind === "approval" ? "Asking you to approve" : "Asking you a question";
+    case "ask_takeover":
+      return "Asking you to take over the browser";
     case "canvas_read":
       return "Looking at the canvas";
     case "canvas_look":
