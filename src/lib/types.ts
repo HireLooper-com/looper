@@ -242,6 +242,10 @@ export interface Run {
   dismissed?: boolean;
   /** a one-off job (collect, fill database, work cards): what it was asked, so a retry can run it again */
   adhoc?: { instructions: string; maxSteps: number };
+  /** a collect job's round (1, 2, …) */
+  round?: number;
+  /** a later round of this job was started */
+  continues?: boolean;
 }
 
 export interface RunStats {
