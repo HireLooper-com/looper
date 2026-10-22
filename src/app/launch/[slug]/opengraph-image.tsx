@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ImageResponse } from "next/og";
 import { fmt } from "@/components/ui";
-import { getLaunch } from "@/lib/launch";
+import { getLaunch, launchDayLabel } from "@/lib/launch";
 
 export const alt = "Live Product Hunt launch scoreboard";
 export const size = { width: 1200, height: 630 };
@@ -21,7 +21,9 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const name = full.length > 28 ? `${full.slice(0, 27).trimEnd()}…` : full;
   const nameSize = name.length > 18 ? 76 : 96;
   const track = (px: number) => -Math.round(px * 0.045 * 10) / 10;
-  const stats = [
+  const stats = !p && l?.launchDay
+    ? [{ label: "12:01 AM Pacific", value: launchDayLabel(l.launchDay) }]
+    : [
     { label: "today", value: p?.rank ? `#${p.rank}` : "Live" },
     { label: "upvotes", value: fmt(p?.votes ?? 0) },
     { label: "comments", value: fmt(p?.comments ?? 0) },
@@ -44,7 +46,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
       >
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <img src={`data:image/png;base64,${logo.toString("base64")}`} width={52} height={52} alt="" />
-          <div style={{ fontSize: 34, letterSpacing: track(34) }}>Launch day on Product Hunt</div>
+          <div style={{ fontSize: 34, letterSpacing: track(34) }}>{!p && l?.launchDay ? "Launching on Product Hunt" : "Launch day on Product Hunt"}</div>
         </div>
         <div style={{ fontSize: nameSize, lineHeight: 1, letterSpacing: track(nameSize) }}>{name}</div>
         <div style={{ display: "flex", gap: 20 }}>

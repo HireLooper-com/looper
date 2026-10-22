@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { getLaunch } from "@/lib/launch";
+import { getLaunch, launchDayLabel } from "@/lib/launch";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
@@ -10,8 +10,9 @@ export async function GET(_: Request, { params }: RouteContext<"/launch/[slug]/b
   const l = await getLaunch(slug);
   if (!l?.uid) return new Response("Not found", { status: 404 });
   const p = l.points.at(-1);
-  const right = `▲ ${(p?.votes ?? 0).toLocaleString("en-US")}${p?.rank ? `  ·  #${p.rank} today` : ""}`;
-  const left = "Live on Product Hunt";
+  const soon = !p && l.launchDay;
+  const right = soon ? launchDayLabel(l.launchDay!) : `▲ ${(p?.votes ?? 0).toLocaleString("en-US")}${p?.rank ? `  ·  #${p.rank} today` : ""}`;
+  const left = soon ? "Launching on Product Hunt" : "Live on Product Hunt";
   // Rough text widths for 13px system UI; enough to size the pill without measuring fonts.
   const lw = Math.round(left.length * 7.2) + 28;
   const rw = Math.round(right.length * 7.6) + 28;

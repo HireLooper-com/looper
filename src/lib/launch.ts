@@ -30,6 +30,8 @@ export interface Launch {
   website?: string;
   points: LaunchPoint[];
   topComments: LaunchComment[];
+  /** Launch day (YYYY-MM-DD, Pacific time) when the makers set the page up before going live. */
+  launchDay?: string;
   /** Comments with a reply from the makers, and the median minutes it took. */
   replies?: { answered: number; medianMinutes?: number };
   createdAt: string;
@@ -97,6 +99,33 @@ export function recordLaunch(uid: string, looperId: string, slug: string, readin
     return l;
   });
 }
+
+/** The owner sets the page up before launch, so the link can be shared with a countdown. */
+export function claimLaunch(uid: string, slug: string, input: { name: string; tagline?: string; launchDay?: string }) {
+  const at = new Date().toISOString();
+  const blank = (): Launch => ({ slug, uid: "", looperId: "", name: slug, points: [], topComments: [], createdAt: at, updatedAt: at });
+  return kv.update<Launch, Launch>(key(slug), blank, (l) => {
+    if (l.uid && l.uid !== uid) throw new Error("Another workspace already runs the scoreboard for this launch.");
+    l.uid = uid;
+    l.name = input.name.trim().slice(0, 80) || l.name;
+    l.tagline = input.tagline?.trim().slice(0, 140) || l.tagline;
+    if (input.launchDay && /^\d{4}-\d{2}-\d{2}$/.test(input.launchDay)) l.launchDay = input.launchDay;
+    l.updatedAt = at;
+    return l;
+  });
+}
+
+/** When a launch day starts: 12:01 AM in San Francisco, in PDT or PST as that date falls. */
+export function launchStart(day: string) {
+  for (const off of ["-07:00", "-08:00"]) {
+    const t = new Date(`${day}T00:01:00${off}`);
+    if (Number(t.toLocaleString("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" })) === 0) return t;
+  }
+  return new Date(`${day}T00:01:00-08:00`);
+}
+
+/** "October 27" for a launch day, without shifting it through a time zone. */
+export const launchDayLabel = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
 
 // ——— Product Hunt API (optional) ———
 

@@ -5,10 +5,10 @@ import { after, connection } from "next/server";
 import { LogoMark } from "@/components/brand";
 import { fmt, timeAgo } from "@/components/ui";
 import { tickUser } from "@/lib/agent";
-import { claimTick, getLaunch, isStale, refreshLaunch, type Launch } from "@/lib/launch";
+import { claimTick, getLaunch, isStale, launchDayLabel, launchSlug, launchStart, refreshLaunch, type Launch } from "@/lib/launch";
 import { currentUser } from "@/lib/session";
 import { appUrl } from "@/lib/loops";
-import { LiveRefresh, VotesChart } from "./live";
+import { Countdown, LiveRefresh, SetUpLaunch, VotesChart } from "./live";
 
 // A view can start the launch looper's due hourly runs, as opening the app does.
 export const maxDuration = 300;
@@ -17,16 +17,19 @@ const phLink = (slug: string) => `https://www.producthunt.com/posts/${slug}`;
 
 function headline(l: Launch) {
   const p = l.points.at(-1);
+  if (!p && l.launchDay) return `${l.name} launches on Product Hunt ${launchDayLabel(l.launchDay)}`;
   return p?.rank ? `${l.name} is #${p.rank} on Product Hunt today` : `${l.name} on Product Hunt`;
 }
 
 export async function generateMetadata({ params }: PageProps<"/launch/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   const l = await getLaunch(slug);
-  if (!l?.uid) return { title: "Launch not found · Looper", robots: { index: false } };
+  if (!l?.uid) return { title: "Set up a launch scoreboard · Looper", robots: { index: false } };
   const p = l.points.at(-1);
   const title = headline(l);
-  const description = `${fmt(p?.votes ?? 0)} upvotes and ${fmt(p?.comments ?? 0)} comments so far. Live launch scoreboard, run by a looper.`;
+  const description = p
+    ? `${fmt(p.votes)} upvotes and ${fmt(p.comments)} comments so far. Live launch scoreboard, run by a looper.`
+    : `${l.tagline ? `${l.tagline}. ` : ""}Follow the launch live: upvotes, rank and every comment answered.`;
   return { title, description, openGraph: { title, description, siteName: "Looper", type: "website" }, twitter: { card: "summary_large_image", title, description } };
 }
 
@@ -34,13 +37,33 @@ export default async function LaunchPage({ params }: PageProps<"/launch/[slug]">
   await connection();
   const { slug } = await params;
   const l = await getLaunch(slug);
-  if (!l?.uid) notFound();
+  if (!l?.uid) {
+    // Signed in: set the page up before the launch goes live. Signed out: nothing here yet.
+    if (!(await currentUser())) notFound();
+    let valid = true;
+    try {
+      launchSlug(slug);
+    } catch {
+      valid = false;
+    }
+    if (!valid) notFound();
+    return (
+      <div className="mx-auto max-w-[560px] px-4 py-10 sm:px-6 sm:py-14">
+        <h1 className="display text-[2rem]">
+          Set up your launch scoreboard.
+          <span className="text-faint"> A public page with your upvotes, rank and comments, live all launch day. Share it before you go live.</span>
+        </h1>
+        <SetUpLaunch slug={slug} />
+      </div>
+    );
+  }
   after(async () => {
     if (isStale(l)) await refreshLaunch(slug).catch((e) => console.error("[launch] refresh", slug, e));
     if (await claimTick(slug)) await tickUser(l.uid).catch((e) => console.error("[launch] tick", e));
   });
   const owner = (await currentUser())?.ws === l.uid;
   const p = l.points.at(-1);
+  const startsAt = !p && l.launchDay ? launchStart(l.launchDay).toISOString() : undefined;
   const prev = l.points.findLast((x) => p && Date.parse(p.at) - Date.parse(x.at) >= 55 * 60_000);
   const lastHour = p && prev ? p.votes - prev.votes : undefined;
   const badge = `${appUrl()}/launch/${slug}/badge`;
@@ -59,19 +82,31 @@ export default async function LaunchPage({ params }: PageProps<"/launch/[slug]">
         </h1>
       </div>
 
-      <div className="mt-8 grid grid-cols-3 gap-2.5">
-        <Stat label="Today" value={p?.rank ? `#${p.rank}` : "Not ranked"} />
-        <Stat label="Upvotes" value={fmt(p?.votes ?? 0)} note={lastHour ? `+${fmt(lastHour)} in the last hour` : undefined} />
-        <Stat label="Comments" value={fmt(p?.comments ?? 0)} note={l.replies ? `${fmt(l.replies.answered)} answered by the makers` : undefined} />
-      </div>
+      {!p && (
+        <section className="tile mt-8 p-5 sm:p-6">
+          <div className="eyebrow">{l.launchDay ? `Goes live ${launchDayLabel(l.launchDay)}, 12:01 AM Pacific` : "Not live yet"}</div>
+          {startsAt ? <Countdown to={startsAt} /> : <div className="mt-1 text-[1.75rem] font-semibold tracking-[-0.03em]">Launching soon</div>}
+          <p className="mt-2 text-[0.9375rem] text-mute">Upvotes, rank and comments show here from the first minute of the launch.</p>
+        </section>
+      )}
 
-      <section className="tile mt-2.5 p-5">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="eyebrow">Upvotes, Pacific time</h2>
-          <span className="text-[0.8125rem] tabular-nums text-faint">Updated {timeAgo(l.updatedAt)}</span>
-        </div>
-        <VotesChart points={l.points.map(({ at, votes, rank }) => ({ at, votes, rank }))} />
-      </section>
+      {p && (
+        <>
+          <div className="mt-8 grid grid-cols-3 gap-2.5">
+            <Stat label="Today" value={p.rank ? `#${p.rank}` : "Not ranked"} />
+            <Stat label="Upvotes" value={fmt(p.votes)} note={lastHour ? `+${fmt(lastHour)} in the last hour` : undefined} />
+            <Stat label="Comments" value={fmt(p.comments)} note={l.replies ? `${fmt(l.replies.answered)} answered by the makers` : undefined} />
+          </div>
+
+          <section className="tile mt-2.5 p-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="eyebrow">Upvotes, Pacific time</h2>
+              <span className="text-[0.8125rem] tabular-nums text-faint">Updated {timeAgo(l.updatedAt)}</span>
+            </div>
+            <VotesChart points={l.points.map(({ at, votes, rank }) => ({ at, votes, rank }))} />
+          </section>
+        </>
+      )}
 
       {l.replies?.medianMinutes !== undefined && (
         <p className="mt-5 text-[1.0625rem] font-medium tracking-[-0.01em]">
@@ -108,8 +143,20 @@ export default async function LaunchPage({ params }: PageProps<"/launch/[slug]">
         )}
       </div>
 
-      {owner && (
+      {owner && !l.looperId && (
         <section className="tile mt-8 p-5">
+          <h2 className="eyebrow">Only you see this</h2>
+          <p className="mt-1 text-[0.9375rem] text-ink-2">
+            No looper posts to this page yet. Hire Rally, pin this launch&apos;s Product Hunt link on its canvas, and it keeps the page live and drafts a reply to every comment.
+          </p>
+          <Link href="/hire?template=product-hunt-launch" className="mt-3 inline-flex h-9 items-center rounded-full bg-blue px-4 text-[0.875rem] font-medium text-page hover:bg-blue-hover">
+            Hire Rally
+          </Link>
+        </section>
+      )}
+
+      {owner && (
+        <section className="tile mt-2.5 p-5">
           <h2 className="eyebrow">Only you see this</h2>
           <p className="mt-1 text-[0.9375rem] text-ink-2">Put the live badge on your site or in your README. It links back to this page.</p>
           <pre className="mt-3 overflow-x-auto rounded-[12px] bg-well p-3 text-[0.75rem] text-ink-2">{`<a href="${appUrl()}/launch/${slug}"><img src="${badge}" alt="${l.name} on Product Hunt" height="40"></a>`}</pre>

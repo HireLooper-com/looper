@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { fmt } from "@/components/ui";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { setUpLaunch } from "@/app/launch-actions";
+import { Button, fmt } from "@/components/ui";
 
 /** Re-reads the scoreboard every minute while the tab is visible. */
 export function LiveRefresh() {
@@ -91,5 +92,82 @@ export function VotesChart({ points }: { points: { at: string; votes: number; ra
         </div>
       )}
     </div>
+  );
+}
+
+/** Days, hours and minutes until the launch goes live, ticking once a second. */
+export function Countdown({ to }: { to: string }) {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    // Starts after mount so server and client render the same first frame.
+    const tick = () => setNow(Date.now());
+    const first = setTimeout(tick, 0);
+    const t = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
+  }, []);
+  const left = now === null ? null : Math.max(0, Date.parse(to) - now);
+  const parts =
+    left === null
+      ? []
+      : [
+          [Math.floor(left / 86_400_000), "d"],
+          [Math.floor(left / 3_600_000) % 24, "h"],
+          [Math.floor(left / 60_000) % 60, "m"],
+          [Math.floor(left / 1000) % 60, "s"],
+        ];
+  return (
+    <div className="mt-1 text-[2.25rem] font-semibold tabular-nums tracking-[-0.03em] sm:text-[2.75rem]">
+      {left === 0 ? "Live now" : parts.length ? parts.map(([n, u]) => `${n}${u}`).join(" ") : "\u00a0"}
+    </div>
+  );
+}
+
+const field = "h-11 rounded-[12px] bg-ink/[0.05] px-4 text-[1rem] font-normal text-ink outline-none placeholder:text-faint focus:bg-ink/[0.08]";
+
+/** The owner sets up the page before launch: name, tagline and launch day (Pacific). */
+export function SetUpLaunch({ slug }: { slug: string }) {
+  const router = useRouter();
+  const [name, setName] = useState(slug.replace(/-\d+$/, "").replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()));
+  const [tagline, setTagline] = useState("");
+  const [day, setDay] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, start] = useTransition();
+  return (
+    <form
+      className="tile mt-6 flex flex-col gap-4 p-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setError(null);
+        start(async () => {
+          const r = await setUpLaunch(slug, { name, tagline, launchDay: day || undefined });
+          if (!r.ok) return setError(r.error);
+          router.refresh();
+        });
+      }}
+    >
+      <div className="text-[0.8125rem] text-mute">
+        For <span className="font-medium text-ink">producthunt.com/posts/{slug}</span>
+      </div>
+      <label className="flex flex-col gap-1.5 text-[0.8125rem] font-medium text-ink-2">
+        Product name
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={field} />
+      </label>
+      <label className="flex flex-col gap-1.5 text-[0.8125rem] font-medium text-ink-2">
+        Tagline
+        <input value={tagline} onChange={(e) => setTagline(e.target.value)} maxLength={140} placeholder="As it reads on Product Hunt" className={field} />
+      </label>
+      <label className="flex flex-col gap-1.5 text-[0.8125rem] font-medium text-ink-2">
+        Launch day
+        <input type="date" value={day} onChange={(e) => setDay(e.target.value)} className={field} />
+        <span className="font-normal text-faint">Product Hunt days start at 12:01 AM Pacific. The page counts down to it.</span>
+      </label>
+      {error && <p className="text-[0.875rem] text-red">{error}</p>}
+      <div className="flex justify-end">
+        <Button disabled={busy || !name.trim()}>{busy ? "Setting up…" : "Create the page"}</Button>
+      </div>
+    </form>
   );
 }
