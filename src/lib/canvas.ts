@@ -93,12 +93,31 @@ function summarize(i: CanvasItem, all: CanvasItem[] = []) {
   }
 }
 
+const PLAYBOOK_TITLE = "Source playbook";
+const PLAYBOOK_LINE = /^- \[(works|partly|fails)\] ([^:]+): (.*)$/;
+
+/** The playbook note's lines, keyed by source, so a new finding replaces the old one for that source. */
+function playbookLines(text = "") {
+  return new Map(
+    text
+      .split("\n")
+      .map((l) => l.match(PLAYBOOK_LINE))
+      .filter((m): m is RegExpMatchArray => !!m)
+      .map((m) => [m[2].trim().toLowerCase(), { status: m[1], source: m[2].trim(), how: m[3] }] as const),
+  );
+}
+
+export const playbookOf = (c: LooperCanvas) => c.items.find((i) => i.role === "playbook");
+
 /** The owner's canvas in the looper's brief: references and notes it should take into account. */
 export function describeCanvas(c: LooperCanvas) {
-  if (!c.items.length) return "";
+  const playbook = playbookOf(c)?.text?.trim();
+  const playbookText = playbook ? `Your source playbook (from earlier runs; follow it, and update it with playbook_save when you learn something):\n${playbook.slice(0, 4000)}` : "";
+  if (!c.items.length) return "Your canvas is empty. Use it for your plan, findings and source playbook; rows of data go in your database.";
   const mine = c.items.filter((i) => i.by === "you").slice(-25);
   return [
     `Your canvas has ${c.items.length} items (canvas_read lists them all).`,
+    playbookText,
     mine.length ? `What the owner put there, as references and context for your work:\n${mine.map((i) => `- ${summarize(i, c.items)}`).join("\n")}` : "",
     c.items.some((i) => i.kind === "image" && i.by === "you") ? "The owner pinned images; look at them with canvas_look when they matter." : "",
   ]
@@ -221,6 +240,33 @@ export function canvasTools(uid: string, looperId: string): ToolSet {
           }
           c.items.push(...added);
           return { added: added.map((a) => ({ id: a.id, kind: a.kind })) };
+        }),
+    }),
+    playbook_save: tool({
+      description:
+        "Record what you learned about a data source in your Source playbook (a note on your canvas you read at the start of every run): which source works for your data and exactly how (URL pattern, API, query, filters, paging), or why it fails (no filter, bot wall, login, paywall). Call it after you try a source, so the next run starts from what works.",
+      inputSchema: z.object({
+        source: z.string().max(80).describe("the source, e.g. 'kvk.nl search' or 'Product Hunt API'"),
+        status: z.enum(["works", "partly", "fails"]),
+        how: z.string().max(400).describe("works: exactly how to use it. fails: why, and what to use instead"),
+      }),
+      execute: ({ source, status, how }) =>
+        mutateCanvas(uid, looperId, (c) => {
+          let note = playbookOf(c);
+          if (!note) {
+            const size = { w: 340, h: 280 };
+            const spot = freeSpot(c.items, size.w, size.h);
+            note = { id: nanoid(8), kind: "note", ...spot, ...size, text: "", by: "looper", at: now(), role: "playbook" };
+            c.items.push(note);
+          }
+          const lines = playbookLines(note.text);
+          lines.set(source.trim().toLowerCase(), { status, source: source.trim().replace(/:/g, " "), how: how.replace(/\s+/g, " ").trim() });
+          const order = { works: 0, partly: 1, fails: 2 } as Record<string, number>;
+          // Keep whatever the owner wrote in the note around the lines.
+          const extra = (note.text ?? "").split("\n").filter((l) => l.trim() && l.trim() !== PLAYBOOK_TITLE && !PLAYBOOK_LINE.test(l));
+          note.text = [PLAYBOOK_TITLE, "", ...[...lines.values()].sort((a, b) => order[a.status] - order[b.status]).map((l) => `- [${l.status}] ${l.source}: ${l.how}`), ...(extra.length ? ["", ...extra] : [])].join("\n");
+          note.at = now();
+          return { saved: true, sources: lines.size };
         }),
     }),
     canvas_update: tool({

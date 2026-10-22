@@ -97,6 +97,11 @@ const JUST_A_MOMENT = /^just a moment/i;
 const SIGNALS_JS = `[...document.querySelectorAll('iframe')].map(e=>e.src).filter(s=>!/invisible/.test(s)).join(' ')+' '+(document.body?document.body.innerText:'').slice(0,3000)`;
 const BLOCKED_NOTE =
   "This site showed a bot check (CAPTCHA / 'verify you are human') and blocks automated browsing. Don't click it or retry, and never try to get around it. Instead: use the site's official API or a connected app if there is one, find the information from another public source (RSS feed, search results, other sites), or use ask_owner to ask whether they want to pass the check themselves.";
+// Cookie and consent banners: accepting one is what a person does on every first visit, and it's
+// what blocked whole runs before (the looper kept clicking around the dialog). Known consent
+// managers first, then any visible button whose whole label is an accept phrase (English and Dutch,
+// German, French, Spanish). Returns what it clicked, or "".
+const CONSENT_JS = `(()=>{const ids=['#onetrust-accept-btn-handler','#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll','#CybotCookiebotDialogBodyButtonAccept','#didomi-notice-agree-button','.fc-cta-consent','#truste-consent-button','[data-testid="uc-accept-all-button"]','#accept-all-cookies','.cc-allow','.cmplz-accept'];for(const q of ids){const e=document.querySelector(q);if(e&&e.offsetParent!==null){e.click();return q}}const re=/^(accept( all)?( cookies)?|allow( all)?( cookies)?|agree|i agree|got it|alles? accepteren|accepteren|akkoord|alle cookies accepteren|cookies accepteren|ik ga akkoord|alle akzeptieren|akzeptieren|tout accepter|accepter|aceptar( todo)?)$/i;const els=[...document.querySelectorAll('button,a[role=button],[role=button],input[type=button],input[type=submit]')];for(const e of els){const t=(e.innerText||e.value||'').trim().replace(/\\s+/g,' ');if(t.length<40&&re.test(t)&&e.offsetParent!==null){e.click();return t}}return ''})()`;
 const hostOf = (url: string) => {
   try {
     return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, "");
@@ -105,6 +110,7 @@ const hostOf = (url: string) => {
   }
 };
 
+const clipLabel = (s: string) => (s.length > 40 ? `${s.slice(0, 40)}…` : s);
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n… (cut at ${n} characters)` : s);
 // agent-browser notes its cookie restore on stderr; that's noise for the model.
 const quiet = (s: string) => s.split("\n").filter((l) => !l.startsWith("[agent-browser]")).join("\n").trim();
@@ -231,6 +237,15 @@ export function computerSession(uid: string, looperId: string, opts: { label: st
         const host = action === "open" ? hostOf(target!) : currentHost;
         if (host && blocked.has(host) && !["back", "forward"].includes(action)) return { blocked: true, site: host, note: BLOCKED_NOTE };
         const done = args ? await browser(args) : null;
+        // A fresh page often opens behind a cookie banner: accept it, as a person would, before reading.
+        if (action === "open" && done?.code === 0) {
+          const consent = await browser(["eval", CONSENT_JS]);
+          const clicked = consent.out.replace(/^"|"$/g, "").trim();
+          if (consent.code === 0 && clicked) {
+            await browser(["wait", "800"]);
+            await step({ label: `Accepted the cookie banner (${clipLabel(clicked)})` });
+          }
+        }
         const [now, shot] = await Promise.all([page(), shoot()]);
         const failed = !!done && done.code !== 0;
         if (now.botCheck) {

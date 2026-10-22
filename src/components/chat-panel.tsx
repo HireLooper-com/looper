@@ -243,12 +243,35 @@ function Bubble({ m }: { m: ChiefMessage }) {
           ))}
         </div>
       )}
+      {!mine && m.steps && m.steps.length > 0 && <StepsTrail steps={m.steps} />}
       {m.actions && m.actions.length > 0 && (
         <div className="flex flex-wrap justify-center gap-1.5 self-center text-[0.75rem] text-mute">
           {m.actions.map((a, i) => (
             <span key={i} className="inline-flex items-center gap-1">
               <span className="text-ink">✓</span> {a}
             </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** What the reply took, folded under it: so a short answer still shows the work behind it. */
+function StepsTrail({ steps }: { steps: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="max-w-[85%] px-1">
+      <button onClick={() => setOpen((o) => !o)} className="text-[0.75rem] text-faint transition-colors hover:text-mute">
+        {open ? "Hide steps" : `What I did · ${steps.length} step${steps.length === 1 ? "" : "s"}`}
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-col gap-0.5">
+          {steps.map((s, i) => (
+            <div key={i} className="flex gap-2 text-[0.8125rem] text-mute">
+              <span className="w-3 shrink-0 text-center">✓</span>
+              {s}
+            </div>
           ))}
         </div>
       )}
