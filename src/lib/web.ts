@@ -30,6 +30,12 @@ const decode = (s: string) =>
 
 const strip = (html: string) => decode(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 
+// Paid engines have a monthly quota. Once one says it's used up (or rate-limits us), skip it for a
+// while and let the next engine (DuckDuckGo in the end) answer, instead of asking it again every search.
+const resting = new Map<string, number>();
+const QUOTA_REST_MS = 60 * 60_000;
+const RATE_REST_MS = 60_000;
+
 async function tavily(query: string, limit: number): Promise<SearchHit[]> {
   const res = await fetch("https://api.tavily.com/search", {
     method: "POST",
@@ -37,6 +43,9 @@ async function tavily(query: string, limit: number): Promise<SearchHit[]> {
     body: JSON.stringify({ query, max_results: limit }),
     signal: AbortSignal.timeout(20_000),
   });
+  // 432: plan limit reached, 433: pay-as-you-go limit reached, 429: too many requests.
+  if (res.status === 432 || res.status === 433) resting.set("tavily", Date.now() + QUOTA_REST_MS);
+  if (res.status === 429) resting.set("tavily", Date.now() + RATE_REST_MS);
   if (!res.ok) throw new Error(`Tavily answered ${res.status}`);
   const j = (await res.json()) as { results?: { title: string; url: string; content: string }[] };
   return (j.results ?? []).map((r) => ({ title: r.title, url: r.url, snippet: r.content.slice(0, 400) }));
@@ -47,6 +56,7 @@ async function brave(query: string, limit: number): Promise<SearchHit[]> {
     headers: { accept: "application/json", "x-subscription-token": process.env.BRAVE_SEARCH_API_KEY! },
     signal: AbortSignal.timeout(20_000),
   });
+  if (res.status === 402 || res.status === 429) resting.set("brave", Date.now() + (res.status === 402 ? QUOTA_REST_MS : RATE_REST_MS));
   if (!res.ok) throw new Error(`Brave answered ${res.status}`);
   const j = (await res.json()) as { web?: { results?: { title: string; url: string; description: string }[] } };
   return (j.web?.results ?? []).map((r) => ({ title: strip(r.title), url: r.url, snippet: strip(r.description) }));
@@ -86,6 +96,10 @@ export async function webSearch(query: string, limit = 8) {
   ];
   const errors: string[] = [];
   for (const [name, run] of engines) {
+    if ((resting.get(name) ?? 0) > Date.now()) {
+      errors.push(`${name}: over its limit, skipped for now`);
+      continue;
+    }
     try {
       const hits = await run(query, limit);
       if (hits.length) return { engine: name, hits };
