@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 // Optimistic gate: send visitors without a session cookie to /login.
 // Invite links stay open so link previews (WhatsApp, Slack, iMessage) can read the invite.
 // Pages and server actions verify the signed session themselves.
-const PUBLIC = ["/login", "/auth/", "/invite/", "/api/tick", "/api/collect", "/api/stripe/webhook"];
+// MCP clients carry a bearer token instead of the cookie, and find how to get one under /.well-known.
+const PUBLIC = ["/login", "/auth/", "/invite/", "/api/tick", "/api/collect", "/api/stripe/webhook", "/mcp", "/api/oauth/", "/.well-known/"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

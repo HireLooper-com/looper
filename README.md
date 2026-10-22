@@ -51,6 +51,18 @@ The button copies this repository to your GitHub, creates a Vercel project and a
 2. In the project's **Storage** tab, create a Neon database and connect it. That sets `DATABASE_URL` for you.
 3. Redeploy. The app creates its table on first use and keeps its session secret in the database, so nothing else is required. Add `CRON_SECRET` so only Vercel Cron can run the scheduler, and the optional keys above as you need them.
 
+## Use it from Claude Code
+
+Looper is an MCP server, so Claude Code, Claude, Cursor and other MCP clients can hire and manage loopers:
+
+```bash
+claude mcp add --transport http looper https://hirelooper.com/mcp
+```
+
+The first call opens your browser to pick the workspace it may manage (OAuth with dynamic client registration, so there's no key to copy). Then ask things like "hire a looper that grows newsletter signups to 500 a week" or "what's waiting on me?". Self-hosted, use your own URL; Settings shows the exact command and lets you disconnect clients.
+
+Tools: `list_templates`, `hire_template`, `create_looper`, `list_loopers`, `get_looper`, `update_looper`, `run_skill`, `message_looper`, `assign_card`, `record_metric`, `read_database`, `fill_database`, `needs_you`, `answer_question`, `list_integrations`, `retire_looper`. They are Chief's own tools (`src/lib/agent.ts`) plus a few for outside clients (`src/lib/mcp/server.ts`).
+
 ## How it works
 
 - **Storage:** one key-value table (Postgres) or files. Users and workspaces live in `src/lib/workspace.ts`. A workspace's data is keyed by its id; your personal workspace has your user id.

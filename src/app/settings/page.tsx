@@ -3,6 +3,8 @@ import { getState } from "../actions";
 import { SettingsView, type ConnectedApp } from "@/components/settings-view";
 import { accountLabel, activeAccounts, getToolkit, hasComposio } from "@/lib/composio";
 import { read } from "@/lib/db";
+import { appUrl } from "@/lib/loops";
+import { grantsOf } from "@/lib/mcp/oauth";
 import { modelMenu } from "@/lib/llm";
 import { getCatalog, nameOf } from "@/lib/models";
 import { requireUser } from "@/lib/session";
@@ -48,5 +50,16 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       };
     }),
   );
-  return <SettingsView settings={settings} menu={menu} usage={usage} apps={apps} notice={typeof chatgpt === "string" ? NOTICES[chatgpt] : undefined} />;
+  // MCP clients this person connected to the open workspace.
+  const clients = (await grantsOf(user.id)).filter((g) => g.ws === uid).map((g) => ({ id: g.id, name: g.clientName, createdAt: g.createdAt, lastUsedAt: g.lastUsedAt }));
+  return (
+    <SettingsView
+      settings={settings}
+      menu={menu}
+      usage={usage}
+      apps={apps}
+      mcp={{ url: `${appUrl()}/mcp`, clients }}
+      notice={typeof chatgpt === "string" ? NOTICES[chatgpt] : undefined}
+    />
+  );
 }

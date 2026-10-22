@@ -246,7 +246,7 @@ const errorText = (e: unknown) => {
 
 // ——— Looper context and built-in tools ———
 
-function metricLine(l: Looper) {
+export function metricLine(l: Looper) {
   const last = l.metric.history.at(-1);
   return `${l.metric.name}: ${last ? `${last.value} ${l.metric.unit}` : "no reading yet"} (target ${l.metric.target} ${l.metric.unit}, ${l.metric.direction === "up" ? "higher is better" : "lower is better"})`;
 }
@@ -771,7 +771,7 @@ export async function tick() {
 
 // ——— Chief ———
 
-const skillInput = z.object({
+export const skillInput = z.object({
   name: z.string(),
   instructions: z.string().describe("what the looper does each time this skill runs, naming the apps it should use"),
   type: z.enum(["manual", "hourly", "daily", "weekly"]),
@@ -953,7 +953,8 @@ export async function reviseLooper(uid: string, spec: LooperSpec, chat: { by: "y
   return (await result.output) as z.infer<typeof revision>;
 }
 
-function chiefTools(uid: string, actions: string[], links: { label: string; href: string }[]): ToolSet {
+/** Chief's tools for managing the team; the MCP server (src/lib/mcp/server.ts) exposes them too. */
+export function chiefTools(uid: string, actions: string[], links: { label: string; href: string }[]): ToolSet {
   const findLooper = (db: DB, idOrName: string) => {
     const l = db.loopers.find((x) => x.id === idOrName || x.name.toLowerCase() === idOrName.toLowerCase());
     if (!l) throw new Error(`No looper "${idOrName}"`);

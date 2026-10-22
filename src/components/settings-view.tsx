@@ -14,12 +14,13 @@ import {
   setGrokRoute,
   toggleIntegration,
 } from "@/app/actions";
+import { disconnectMcpClient } from "@/app/mcp-actions";
 import type { UsageSummary, UsageTotals } from "@/lib/usage";
 import type { IntegrationKind, ModelMenu, Payer, Provider, PublicSettings } from "@/lib/types";
 import { PROVIDERS } from "@/lib/types";
 import { ModelOptions, optionValue, parseOption, price, usd } from "./model-picker";
 import { ChatGPTButton, CodexSignIn, GrokMark, GrokSignIn, OpenAIMark } from "./sign-in";
-import { Button, Field, Input, Panel, Pill, Select, cx } from "./ui";
+import { Button, Field, Input, Panel, Pill, Select, cx, timeAgo } from "./ui";
 
 const HUBS: { kind: IntegrationKind; name: string; apps: string; how: string; header?: string }[] = [
   {
@@ -67,7 +68,12 @@ export interface UsageProps {
   workspace: Labeled;
 }
 
-export function SettingsView({ settings, menu, usage, apps, notice }: { settings: PublicSettings; menu: ModelMenu; usage: UsageProps; apps: ConnectedApp[]; notice?: string }) {
+export interface McpProps {
+  url: string;
+  clients: { id: string; name: string; createdAt: string; lastUsedAt?: string }[];
+}
+
+export function SettingsView({ settings, menu, usage, apps, mcp, notice }: { settings: PublicSettings; menu: ModelMenu; usage: UsageProps; apps: ConnectedApp[]; mcp: McpProps; notice?: string }) {
   return (
     <div className="mx-auto max-w-5xl px-4 pb-16 pt-10 sm:px-6">
       <h1 className="display text-[2.5rem] sm:text-[3rem]">Settings</h1>
@@ -117,6 +123,14 @@ export function SettingsView({ settings, menu, usage, apps, notice }: { settings
         ) : (
           <p className="tile px-4 py-4 text-[0.875rem] text-mute">No apps connected yet. Each looper lists the apps it needs under Tools tab.</p>
         )}
+      </section>
+
+      <section id="mcp" className="mt-12 scroll-mt-6">
+        <h2 className="mb-1 text-[1.25rem] font-semibold tracking-[-0.01em]">Claude Code and other MCP clients</h2>
+        <p className="mb-4 max-w-[70ch] text-[0.875rem] text-mute">
+          Hire and manage loopers from Claude Code, Claude, Cursor or any MCP client. Add Looper once; the first time it&apos;s used, your browser asks which workspace it may manage.
+        </p>
+        <McpClients mcp={mcp} />
       </section>
 
       <details className="group mt-12" open={settings.integrations.length > 0}>
@@ -358,6 +372,62 @@ export function Usage({ usage, sources = true }: { usage: Labeled; sources?: boo
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function McpClients({ mcp }: { mcp: McpProps }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [copied, setCopied] = useState(false);
+  const command = `claude mcp add --transport http looper ${mcp.url}`;
+  const copy = () =>
+    navigator.clipboard.writeText(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  return (
+    <div className="grid gap-4">
+      <div className="tile p-4">
+        <div className="mb-2 text-[0.8125rem] font-medium text-mute">Claude Code</div>
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-[10px] bg-ink/[0.05] px-3 py-2 font-mono text-[0.8125rem]">{command}</code>
+          <Button size="sm" variant="soft" onClick={copy}>
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+        <p className="mt-3 text-[0.8125rem] text-mute">
+          Other clients: add a remote MCP server with the URL <code className="font-mono">{mcp.url}</code>. Then ask, for example, &quot;hire a looper that grows newsletter signups to 500 a week&quot;.
+        </p>
+      </div>
+      {mcp.clients.length > 0 && (
+        <div className="tile divide-y divide-line overflow-hidden">
+          {mcp.clients.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.9375rem] font-medium">{c.name}</div>
+                <div className="truncate text-[0.8125rem] text-mute">
+                  Connected {timeAgo(c.createdAt)}
+                  {c.lastUsedAt ? ` · last used ${timeAgo(c.lastUsedAt)}` : ""}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    await disconnectMcpClient(c.id);
+                    router.refresh();
+                  })
+                }
+              >
+                Disconnect
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -16,7 +16,7 @@ import { CommandPalette } from "./command-palette";
 import { Sidebar } from "./sidebar";
 import { fmt } from "./ui";
 
-const OPEN_WITHOUT_PLAN = ["/billing", "/invite/", "/workspace", "/login", "/auth/"];
+const OPEN_WITHOUT_PLAN = ["/billing", "/invite/", "/workspace", "/login", "/auth/", "/oauth/"];
 
 /** Signed-in frame: the looper rail on the left, the page on the right. Signed out: just the page. */
 export async function Shell({ children }: { children: React.ReactNode }) {
