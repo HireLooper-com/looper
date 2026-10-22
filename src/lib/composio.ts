@@ -30,6 +30,7 @@ interface Toolkit {
   name: string;
   meta?: { logo?: string; description?: string };
   auth_schemes?: string[];
+  auth_config_details?: { mode?: string }[];
   composio_managed_auth_schemes?: string[];
   no_auth?: boolean;
 }
@@ -61,6 +62,8 @@ export function getToolkit(slug: string) {
   return cached(`toolkit:${slug}`, 60 * 60_000, () => call<Toolkit>("GET", `/toolkits/${encodeURIComponent(slug)}`));
 }
 
+const PASTABLE = ["BEARER_TOKEN", "API_KEY", "BASIC", "BASIC_WITH_JWT"];
+
 /** The project's auth config for a toolkit, creating one when missing: Composio-managed OAuth when
  * available, otherwise a custom config with empty credentials so the Connect page asks the user. */
 async function authConfigFor(slug: string): Promise<string> {
@@ -71,7 +74,12 @@ async function authConfigFor(slug: string): Promise<string> {
   const tk = await getToolkit(slug);
   if (tk.no_auth) throw new Error(`${tk.name} needs no connection.`);
   const managed = (tk.composio_managed_auth_schemes ?? []).length > 0;
-  const scheme = tk.auth_schemes?.[0] ?? "API_KEY";
+  // The single-toolkit response lists schemes under auth_config_details, not auth_schemes. Without
+  // managed OAuth we'd need our own OAuth app, so pick a scheme the person can paste (Buffer:
+  // OAUTH2 + BEARER_TOKEN → BEARER_TOKEN, a key from publish.buffer.com/settings/api).
+  const schemes = [...(tk.auth_schemes ?? []), ...(tk.auth_config_details ?? []).map((d) => d.mode ?? "")].filter(Boolean);
+  const scheme = PASTABLE.find((s) => schemes.includes(s)) ?? schemes.find((s) => s !== "OAUTH2" && s !== "OAUTH1") ?? (schemes.length ? undefined : "API_KEY");
+  if (!managed && !scheme) throw new Error(`${tk.name} only connects through OAuth, which isn't set up for it yet. Add it through a hub in Settings.`);
   const body = managed
     ? { toolkit: { slug }, auth_config: { type: "use_composio_managed_auth", name: tk.name } }
     : { toolkit: { slug }, auth_config: { type: "use_custom_auth", authScheme: scheme, name: tk.name, credentials: {} } };
