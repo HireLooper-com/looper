@@ -20,7 +20,7 @@ import { Kanban } from "./kanban";
 import { MetricView } from "./metric-view";
 import { RetroBoard } from "./retro-board";
 import { SkillsPanel } from "./skills-panel";
-import { Bot, Button, Sparkline, cx, fmt, timeAgo } from "./ui";
+import { Bot, Button, Sparkline, accentHex, cx, fmt, timeAgo } from "./ui";
 import { useNow } from "./use-now";
 
 // Six places per looper: talk, what I do and when, what I keep, what I have, how it's going, who I am.
@@ -36,6 +36,19 @@ const GROUPS: { id: string; label: string; views: View[] }[] = [
 const VIEWS = new Set<string>(["chat", "board", "calendar", "computer", "database", "canvas", "retro", "skills", "apps", "metric"]);
 const VIEW_LABEL: Partial<Record<View, string>> = { metric: "Metric", retro: "Retros", board: "Kanban", calendar: "Calendar", computer: "Computer", database: "Database", canvas: "Canvas", skills: "Skills", apps: "Apps" };
 const FULL_HEIGHT = new Set<View>(["chat", "canvas"]);
+const GROUP_ICON: Record<string, React.ReactNode> = {
+  chat: <path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 2.8V14.5H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5z" />,
+  tasks: <path d="M3.5 5.5l1.5 1.5 2.5-3M3.5 12.5l1.5 1.5 2.5-3M10.5 5.5h6M10.5 12.5h6" />,
+  space: (
+    <>
+      <ellipse cx="10" cy="5" rx="6.5" ry="2.5" />
+      <path d="M3.5 5v10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V5M3.5 10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5" />
+    </>
+  ),
+  tools: <path d="M12.2 3.4a4 4 0 0 0-4.6 5.4l-4.4 4.4a1.6 1.6 0 0 0 2.3 2.3l4.4-4.4a4 4 0 0 0 5.4-4.6l-2.4 2.4-2.3-.6-.6-2.3z" />,
+  results: <path d="M3 15l4.5-5 3 3L17 5M13 5h4v4" />,
+  skills: <path d="M10 3l1.8 4.2L16 9l-4.2 1.8L10 15l-1.8-4.2L4 9l4.2-1.8z" />,
+};
 
 export function LooperView(props: {
   looper: Looper;
@@ -113,32 +126,53 @@ export function LooperView(props: {
     setMenu((m) => (m?.id === id ? null : { id, left: r.left, top: r.bottom, keyboard }));
   };
 
-  // Sliding underline under the active place.
+  // Sliding glow behind the active place, in the looper's colour.
   const nav = useRef<HTMLElement>(null);
   const [bar, setBar] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const el = nav.current?.querySelector<HTMLElement>('[data-active="true"]');
     setBar(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
   }, [group?.id, view]);
+  const glow = accentHex[looper.color];
 
   return (
     <div className={cx("flex flex-col", FULL_HEIGHT.has(view) && "h-[calc(100dvh-58px)] lg:h-dvh")}>
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-ink/[0.05] bg-page/85 px-4 backdrop-blur-xl sm:px-6">
-        <nav ref={nav} className="relative flex min-w-0 shrink-0 gap-1 overflow-x-auto" aria-label={`${looper.name} sections`}>
+      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-ink/[0.05] bg-page/85 px-4 py-2.5 backdrop-blur-xl sm:px-6 2xl:grid 2xl:grid-cols-[1fr_auto_1fr]">
+        <div className="hidden 2xl:block" />
+        <nav
+          ref={nav}
+          className="relative flex min-w-0 shrink-0 gap-0.5 overflow-x-auto rounded-full bg-panel/85 p-[5px] shadow-[0_8px_30px_rgba(0,0,0,0.12)] ring-[0.5px] ring-ink/[0.12] [scrollbar-width:none]"
+          aria-label={`${looper.name} sections`}
+        >
+          {bar && (
+            <span
+              aria-hidden
+              className="absolute inset-y-[5px] rounded-full transition-all duration-300 ease-out"
+              style={{
+                left: bar.left,
+                width: bar.width,
+                background: `radial-gradient(120% 140% at 50% 0%, ${glow}73, ${glow}2e)`,
+                boxShadow: `inset 0 0 0 0.5px ${glow}80, 0 0 18px ${glow}59`,
+              }}
+            />
+          )}
           {GROUPS.map((g) => {
             const active = g.id === group?.id;
             const n = counts[g.id];
             const multi = g.views.length > 1;
             const tab = cx(
-              "flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-3 pt-3.5 text-[0.875rem] transition-colors focus-visible:text-ink quiet-focus",
+              "relative flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[0.875rem] transition-colors focus-visible:text-ink quiet-focus",
               active ? "font-medium text-ink" : "text-mute hover:text-ink",
-              active && !bar ? "border-ink" : "border-transparent",
+              active && !bar && "bg-ink/[0.08]",
             );
             const inner = (
               <>
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" aria-hidden className="shrink-0">
+                  {GROUP_ICON[g.id]}
+                </svg>
                 {g.label}
-                {multi && active && <span className="font-normal text-mute">· {VIEW_LABEL[view]}</span>}
-                {n !== undefined && <span className="rounded-full bg-ink/[0.07] px-1.5 text-[0.6875rem] font-normal tabular-nums text-ink">{n}</span>}
+                {multi && active && <span className="font-normal text-ink/60">· {VIEW_LABEL[view]}</span>}
+                {n !== undefined && <span className="rounded-full bg-ink/[0.08] px-1.5 text-[0.6875rem] font-normal tabular-nums text-ink">{n}</span>}
               </>
             );
             if (!multi)
@@ -164,7 +198,7 @@ export function LooperView(props: {
                   aria-haspopup="menu"
                   aria-expanded={menu?.id === g.id}
                   onClick={(e) => openMenu(g.id, e)}
-                  className={cx("ml-0.5 mr-1.5 flex h-5 w-5 items-center justify-center rounded-full text-mute transition-colors hover:bg-ink/[0.06] hover:text-ink quiet-focus focus-visible:bg-ink/[0.08]", menu?.id === g.id && "bg-ink/[0.06] text-ink")}
+                  className={cx("ml-0.5 mr-1.5 flex h-5 w-5 items-center justify-center rounded-full text-mute transition-colors hover:bg-ink/[0.08] hover:text-ink quiet-focus focus-visible:bg-ink/[0.1]", menu?.id === g.id && "bg-ink/[0.08] text-ink")}
                 >
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={cx("transition-transform", menu?.id === g.id && "rotate-180")}>
                     <path d="m2.5 4 2.5 2.5L7.5 4" />
@@ -173,7 +207,6 @@ export function LooperView(props: {
               </div>
             );
           })}
-          {bar && <span className="absolute bottom-0 h-0.5 rounded-full bg-ink transition-all duration-300 ease-out" style={{ left: bar.left, width: bar.width }} />}
         </nav>
 
         {menu && (
@@ -186,7 +219,7 @@ export function LooperView(props: {
           />
         )}
 
-        <div className="ml-auto flex min-w-0 items-center gap-2 py-2">
+        <div className="ml-auto flex min-w-0 items-center gap-2 2xl:justify-self-end">
           {running && (
             <Link href={`/loopers/${looper.id}?tab=chat`} className="hidden items-center gap-1.5 rounded-full bg-ink/[0.05] px-3 py-1 text-[0.8125rem] text-mute hover:text-ink md:flex">
               <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-ink" />
