@@ -172,19 +172,36 @@ export function databaseTools(uid: string, looperId: string): ToolSet {
       },
     }),
     db_add_rows: tool({
-      description: "Add rows. Before adding, query to avoid duplicates (e.g. the same transaction or post).",
+      description:
+        "Add new rows. Never add a row that's already there: db_query first by its identifying values (date + amount + counterparty, URL, email…) and update the existing row with db_update_rows instead. Rows identical to an existing one are skipped.",
       inputSchema: z.object({ rows: z.array(values).min(1).max(100) }),
       execute: ({ rows }) =>
         mutateDatabase(uid, looperId, ({ db }) => {
           if (!db) return { error: "No database yet. Create one with db_create." };
           const unknown = new Set<string>();
-          const ids = rows.map((v) => {
+          // Same values in every column = the same row; catches re-adds the looper didn't query for.
+          const key = (r: DbRow) => JSON.stringify(db.columns.map((c) => r.cells[c.id] ?? null));
+          const seen = new Map(db.rows.map((r) => [key(r), r.id]));
+          const ids: string[] = [];
+          const duplicates: string[] = [];
+          for (const v of rows) {
             const row: DbRow = { id: nanoid(8), cells: {}, createdBy: "looper", createdAt: now(), updatedAt: now() };
             applyValues(db, row, v).forEach((u) => unknown.add(u));
+            const existing = seen.get(key(row));
+            if (existing) {
+              duplicates.push(existing);
+              continue;
+            }
+            seen.set(key(row), row.id);
             db.rows.push(row);
-            return row.id;
-          });
-          return { added: ids.length, ids, ignoredColumns: [...unknown] };
+            ids.push(row.id);
+          }
+          return {
+            added: ids.length,
+            ids,
+            ignoredColumns: [...unknown],
+            ...(duplicates.length ? { skippedDuplicates: duplicates.length, existingIds: duplicates } : {}),
+          };
         }),
     }),
     db_update_rows: tool({
