@@ -168,12 +168,13 @@ async function execute(uid: string, toolSlug: string, args: Record<string, unkno
  * AI SDK tools for the given toolkits, bound to the user's connected accounts. With several accounts
  * of one app (e.g. two Stripe accounts) each tool gets a required `account` argument listing them.
  */
-export async function composioTools(uid: string, slugs: string[]): Promise<{ tools: ToolSet; connected: string[]; missing: string[] }> {
-  if (!hasComposio() || slugs.length === 0) return { tools: {}, connected: [], missing: slugs };
+export async function composioTools(uid: string, slugs: string[]): Promise<{ tools: ToolSet; connected: string[]; missing: string[]; slugs: string[] }> {
+  if (!hasComposio() || slugs.length === 0) return { tools: {}, connected: [], missing: slugs, slugs: [] };
   const accounts = await activeAccounts(uid);
   const tools: ToolSet = {};
   const connected: string[] = [];
   const missing: string[] = [];
+  const live: string[] = [];
   await Promise.all(
     slugs.map(async (slug) => {
       const list = accounts.get(slug) ?? [];
@@ -210,9 +211,10 @@ export async function composioTools(uid: string, slugs: string[]): Promise<{ too
         });
       }
       connected.push(`${slug} (${defs.length} tools${multi ? `, accounts: ${labels.join(", ")}` : `, account: ${labels[0]}`})`);
+      live.push(slug);
     }),
   );
-  return { tools, connected, missing };
+  return { tools, connected, missing, slugs: live };
 }
 
 /** Replace guessed slugs with real catalog toolkits (keeps the guess when Composio has no match). */
