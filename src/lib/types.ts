@@ -240,6 +240,8 @@ export interface Run {
   steps?: string[];
   /** hidden from the inbox after the owner dismissed the failure */
   dismissed?: boolean;
+  /** a one-off job (collect, fill database, work cards): what it was asked, so a retry can run it again */
+  adhoc?: { instructions: string; maxSteps: number };
 }
 
 export interface RunStats {
@@ -255,8 +257,11 @@ export interface RunStats {
 export interface Ask {
   id: string;
   looperId: string;
-  kind: "choice" | "approval";
+  /** takeover: the owner takes over the looper's browser (to log in, or pass a bot check) */
+  kind: "choice" | "approval" | "takeover";
   question: string;
+  /** for takeover: the page to open */
+  url?: string;
   /** for choice: the options to tap */
   options?: string[];
   /** for approval: what exactly will happen when approved */
@@ -294,6 +299,8 @@ export interface ChiefMessage {
   askId?: string;
   /** who wrote it, in a shared workspace */
   by?: { id: string; name: string };
+  /** the steps taken to write this reply, as shown live */
+  steps?: string[];
 }
 
 /** One user's private workspace. */
@@ -416,6 +423,8 @@ export interface CanvasItem {
   to?: string;
   by: "you" | "looper";
   at: string;
+  /** the looper's source playbook note: which sources work for its data, kept by playbook_save */
+  role?: "playbook";
 }
 export interface LooperCanvas {
   items: CanvasItem[];

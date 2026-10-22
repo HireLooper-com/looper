@@ -77,7 +77,7 @@ export function progressWriter(uid: string, target: string, job?: { label: strin
       }
     },
     /** the trail so far, to keep on the run */
-    trail: () => state.steps.map((s) => s.text).filter((t) => t !== "Thinking…" && t !== "Writing the reply…").slice(-40),
+    trail: () => state.steps.map((s) => s.text).filter((t) => !["Thinking…", "Writing the reply…", "Connecting apps…", "Wrapping up…"].includes(t)).slice(-40),
     /** Mark finished; keep the trail briefly so the UI can catch the end, then let it expire. */
     done: (result?: { ok?: boolean; note?: string; error?: string }) => {
       state.done = true;
@@ -154,6 +154,8 @@ export function describeTool(name: string, input: unknown): string {
       return `Adding a column “${str(i.name)}”`;
     case "ask_owner":
       return i.kind === "approval" ? "Asking you to approve" : "Asking you a question";
+    case "ask_takeover":
+      return "Asking you to take over the browser";
     case "canvas_read":
       return "Looking at the canvas";
     case "canvas_look":
@@ -214,6 +216,14 @@ export function describeTool(name: string, input: unknown): string {
       return `Saving the skill “${str(i.name)}”`;
     case "start_skill":
       return `Starting ${str(i.skill)}`;
+    case "start_collect":
+      return `Starting a job: ${str(i.title)}`;
+    case "web_search":
+      return `Searching the web for “${str(i.query, 50)}”`;
+    case "web_fetch":
+      return `Reading ${str(i.url, 60).replace(/^https?:\/\//, "")}`;
+    case "playbook_save":
+      return `Noting in the playbook: ${str(i.source, 40)} ${i.status === "works" ? "works" : i.status === "fails" ? "doesn't work" : "partly works"}`;
     case "list_loopers":
       return "Checking on the team";
     case "list_integrations":

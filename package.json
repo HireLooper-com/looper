@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "node scripts/seed.mjs"
+    "seed": "node scripts/seed.mjs",
+    "eval:scrape": "node scripts/scrape-eval.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.84",

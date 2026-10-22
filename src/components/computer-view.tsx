@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { resetComputer } from "@/app/computer-actions";
 import type { ComputerSessionLog, ComputerStep } from "@/lib/computer";
 import type { Accent } from "@/lib/types";
+import { TakeoverView } from "./takeover-view";
 import { Bot, Button, cx, timeAgo } from "./ui";
 
-type Log = { available: boolean; now: number; sessions: ComputerSessionLog[] };
+type Log = { available: boolean; now: number; takeover?: boolean; sessions: ComputerSessionLog[] };
 
 const LIVE_MS = 8 * 60_000;
 const isLive = (s: ComputerSessionLog, now: number) => !s.endedAt && now - Date.parse(s.startedAt) < LIVE_MS;
@@ -23,6 +25,17 @@ const duration = (s: ComputerSessionLog) => {
 export function ComputerView({ looper }: { looper: { id: string; name: string; color: Accent } }) {
   const [log, setLog] = useState<Log | null>(null);
   const [pick, setPick] = useState<{ session: string | null; step: number | null }>({ session: null, step: null });
+  // Taking over the browser: opened from a looper's ask (?takeover=<ask id>) or the button here.
+  const params = useSearchParams();
+  const router = useRouter();
+  const [takeover, setTakeover] = useState<{ askId?: string } | null>(() => {
+    const t = params.get("takeover");
+    return t ? { askId: t === "1" ? undefined : t } : null;
+  });
+  const closeTakeover = () => {
+    setTakeover(null);
+    if (params.get("takeover")) router.replace(`/loopers/${looper.id}?tab=computer`, { scroll: false });
+  };
 
   // Poll quickly while a session is live, slowly otherwise (to notice a new one starting).
   const live = !!log && log.sessions.some((s) => isLive(s, log.now));
@@ -71,9 +84,15 @@ export function ComputerView({ looper }: { looper: { id: string; name: string; c
     return () => window.removeEventListener("keydown", key);
   }, [index]);
 
+  if (takeover)
+    return (
+      <div className="mx-auto max-w-[1200px]">
+        <TakeoverView looper={looper} askId={takeover.askId} onClose={closeTakeover} />
+      </div>
+    );
   if (!log) return <div className="py-16 text-center text-[0.875rem] text-mute">Loading the computer…</div>;
   if (!log.available) return <Empty looper={looper} text="The computer needs Vercel Sandbox, which isn't set up on this server." />;
-  if (!sessions.length) return <Empty looper={looper} />;
+  if (!sessions.length) return <Empty looper={looper} onTakeover={() => setTakeover({})} />;
 
   const current = steps[index];
   // The screen shows the latest screenshot up to this step (reading or typing a command keeps the last view).
@@ -98,6 +117,17 @@ export function ComputerView({ looper }: { looper: { id: string; name: string; c
             <span className="truncate">{at?.url ? host(at.url) : "about:blank"}</span>
             {at?.title && <span className="hidden truncate text-mute md:inline">· {at.title}</span>}
           </div>
+          {log.takeover ? (
+            <Button size="sm" onClick={() => setTakeover({})}>
+              Resume take-over
+            </Button>
+          ) : (
+            !sessionLive && (
+              <Button size="sm" variant="soft" onClick={() => setTakeover({})} title={`Use ${looper.name}'s browser yourself: log in to a site, or pass a check`}>
+                Take over
+              </Button>
+            )
+          )}
           {sessionLive ? (
             <span className="flex shrink-0 items-center gap-1.5 text-[0.75rem] font-medium">
               <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-ink" />
@@ -241,7 +271,7 @@ function Terminal({ step }: { step: ComputerStep }) {
   );
 }
 
-function Empty({ looper, text }: { looper: { id: string; name: string; color: Accent }; text?: string }) {
+function Empty({ looper, text, onTakeover }: { looper: { id: string; name: string; color: Accent }; text?: string; onTakeover?: () => void }) {
   return (
     <div className="mx-auto flex max-w-[480px] flex-col items-center gap-4 py-16 text-center">
       <Bot size={72} color={looper.color} seed={looper.id} />
@@ -252,9 +282,16 @@ function Empty({ looper, text }: { looper: { id: string; name: string; color: Ac
       {!text && (
         <>
           <p className="text-[0.875rem] text-mute">Try asking in chat: &ldquo;Open our competitor&apos;s pricing page and summarise their plans&rdquo;.</p>
-          <Link href={`/loopers/${looper.id}?tab=chat`} className="rounded-full bg-ink/[0.06] px-4 py-2 text-[0.875rem] font-medium hover:bg-ink/[0.1]">
-            Open chat
-          </Link>
+          <div className="flex gap-2">
+            <Link href={`/loopers/${looper.id}?tab=chat`} className="rounded-full bg-ink/[0.06] px-4 py-2 text-[0.875rem] font-medium hover:bg-ink/[0.1]">
+              Open chat
+            </Link>
+            {onTakeover && (
+              <button onClick={onTakeover} className="rounded-full bg-ink/[0.06] px-4 py-2 text-[0.875rem] font-medium hover:bg-ink/[0.1]">
+                Log in to a site for {looper.name}
+              </button>
+            )}
+          </div>
         </>
       )}
     </div>

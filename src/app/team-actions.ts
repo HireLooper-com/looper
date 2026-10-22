@@ -75,14 +75,23 @@ export async function startSkill(looperId: string, skillId: string) {
 export async function retryFailed(looperId: string, runId?: string) {
   return attempt(async () => {
     const uid = await requireUid();
-    const skills = await mutate(uid, (db) => {
+    const { skills, jobs } = await mutate(uid, (db) => {
       const failed = db.runs.filter((r) => r.looperId === looperId && r.status === "error" && !r.dismissed && (!runId || r.id === runId));
       for (const r of failed) r.dismissed = true;
       const live = new Set(db.loopers.find((l) => l.id === looperId)?.skills.map((s) => s.id) ?? []);
-      return [...new Set(failed.map((r) => r.skillId))].filter((id) => live.has(id));
+      // One-off jobs (collect, fill database, work cards) carry what they were asked, so they run again as they were.
+      const jobs = failed.filter((r) => !live.has(r.skillId) && r.adhoc).filter((r, i, all) => all.findIndex((x) => x.skillId === r.skillId) === i);
+      return { skills: [...new Set(failed.map((r) => r.skillId))].filter((id) => live.has(id)), jobs };
     });
-    after(() => Promise.all(skills.map((id) => runSkill(uid, looperId, id, "manual").catch(() => undefined))).then(() => undefined));
-    return skills.length;
+    after(() =>
+      Promise.all([
+        ...skills.map((id) => runSkill(uid, looperId, id, "manual").catch(() => undefined)),
+        ...jobs.map((r) =>
+          runSkill(uid, looperId, r.skillId, "manual", { id: r.skillId, name: r.skillName, kind: "work", schedule: { type: "manual", time: "09:00", days: [] }, instructions: r.adhoc!.instructions }, r.adhoc!.maxSteps).catch(() => undefined),
+        ),
+      ]).then(() => undefined),
+    );
+    return skills.length + jobs.length;
   });
 }
 
