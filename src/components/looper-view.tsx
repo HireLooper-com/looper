@@ -484,7 +484,7 @@ function LooperChat({ looper, messages, runs, asks, ready, menu }: { looper: Loo
       emptyTitle={`Hi, I'm ${looper.name}`}
       emptyText={`I own one business metric: ${looper.metric.name}. Ask me anything, give me a task, or change how I work. My runs report here too.`}
       placeholder={`Message ${looper.name}`}
-      send={(t) => askLooper(looper.id, t)}
+      send={(t, files) => askLooper(looper.id, t, files)}
       progressTarget={`chat:${looper.id}`}
       clear={() => clearLooperChat(looper.id)}
       model={<ChatModelPicker target={looper.id} menu={menu} />}

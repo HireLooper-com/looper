@@ -301,6 +301,17 @@ export interface ChiefMessage {
   by?: { id: string; name: string };
   /** the steps taken to write this reply, as shown live */
   steps?: string[];
+  /** images and files the owner attached */
+  files?: Attachment[];
+}
+
+/** A file attached to a chat message; the bytes live at /api/files/<id>. */
+export interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  kind: "image" | "pdf" | "text";
 }
 
 /** One user's private workspace. */
