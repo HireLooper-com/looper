@@ -152,6 +152,16 @@ export function describeTool(name: string, input: unknown): string {
       return `Updating ${Array.isArray(i.updates) ? i.updates.length : ""} rows in the database`;
     case "db_add_column":
       return `Adding a column “${str(i.name)}”`;
+    case "db_delete_rows":
+      return `Deleting ${Array.isArray(i.ids) && i.ids.length ? `${i.ids.length} rows` : "rows"} from the database`;
+    case "db_dedupe":
+      return i.dryRun ? "Looking for duplicate rows" : "Removing duplicate rows";
+    case "db_update_column":
+      return `Editing the column “${str(i.column)}”`;
+    case "db_delete_column":
+      return `Deleting the column “${str(i.column)}”`;
+    case "db_rename":
+      return "Renaming the database";
     case "ask_owner":
       return i.kind === "approval" ? "Asking you to approve" : "Asking you a question";
     case "ask_takeover":

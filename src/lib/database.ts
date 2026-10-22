@@ -155,9 +155,9 @@ export function databaseTools(uid: string, looperId: string): ToolSet {
         }),
     }),
     db_query: tool({
-      description: "Find rows. Filter by exact column values and/or a text search across all columns. Returns up to `limit` rows with their ids.",
-      inputSchema: z.object({ where: values.optional(), search: z.string().optional(), limit: z.number().int().min(1).max(200).default(50) }),
-      execute: async ({ where, search, limit }) => {
+      description: "Find rows. Filter by exact column values (\"\" matches an empty cell) and/or a text search across all columns. Returns up to `limit` rows from `offset`, with their ids.",
+      inputSchema: z.object({ where: values.optional(), search: z.string().optional(), limit: z.number().int().min(1).max(200).default(50), offset: z.number().int().min(0).default(0) }),
+      execute: async ({ where, search, limit, offset }) => {
         const db = await readDatabase(uid, looperId);
         if (!db) return { rows: [], note: "No database yet." };
         const q = search?.toLowerCase();
@@ -168,7 +168,7 @@ export function databaseTools(uid: string, looperId: string): ToolSet {
           }
           return !q || Object.values(r.cells).some((v) => String(v ?? "").toLowerCase().includes(q));
         });
-        return { total: rows.length, rows: rows.slice(0, limit).map((r) => rowToNamed(db, r)) };
+        return { total: rows.length, rows: rows.slice(offset, offset + limit).map((r) => rowToNamed(db, r)) };
       },
     }),
     db_add_rows: tool({
@@ -223,6 +223,52 @@ export function databaseTools(uid: string, looperId: string): ToolSet {
           return { updated, missing };
         }),
     }),
+    db_delete_rows: tool({
+      description:
+        "Delete rows you own: by id, or every row matching `where` (exact column values; \"\" matches an empty cell). Use it to remove duplicates, junk or rows the owner asks to drop. Deleting is permanent, so db_query first and pass exact ids when you can.",
+      inputSchema: z.object({ ids: z.array(z.string()).max(500).optional(), where: values.optional() }),
+      execute: ({ ids, where }) =>
+        mutateDatabase(uid, looperId, ({ db }) => {
+          if (!db) return { error: "No database yet." };
+          if (!ids?.length && !where) return { error: "Pass ids or where." };
+          const unknown = Object.keys(where ?? {}).filter((n) => !byName(db, n));
+          if (unknown.length) return { error: `Unknown columns: ${unknown.join(", ")}` };
+          const wanted = new Set(ids ?? []);
+          const matches = (r: DbRow) =>
+            (ids?.length ? wanted.has(r.id) : true) &&
+            Object.entries(where ?? {}).every(([n, v]) => String(r.cells[byName(db, n)!.id] ?? "").toLowerCase() === String(v ?? "").toLowerCase());
+          const missing = (ids ?? []).filter((id) => !db.rows.some((r) => r.id === id));
+          const before = db.rows.length;
+          db.rows = db.rows.filter((r) => !matches(r));
+          return { deleted: before - db.rows.length, rows: db.rows.length, ...(missing.length ? { missing } : {}) };
+        }),
+    }),
+    db_dedupe: tool({
+      description:
+        "Remove duplicate rows. Rows with the same values in `keys` (e.g. Date + Amount + Counterparty) count as one; the row with the most filled cells is kept and the rest deleted. Run with dryRun first to see what would go.",
+      inputSchema: z.object({ keys: z.array(z.string()).min(1), dryRun: z.boolean().default(false) }),
+      execute: ({ keys, dryRun }) =>
+        mutateDatabase(uid, looperId, ({ db }) => {
+          if (!db) return { error: "No database yet." };
+          const cols = keys.map((k) => byName(db, k));
+          const unknown = keys.filter((_, i) => !cols[i]);
+          if (unknown.length) return { error: `Unknown columns: ${unknown.join(", ")}` };
+          const filled = (r: DbRow) => Object.values(r.cells).filter((v) => v !== null && v !== "" && v !== false).length;
+          const groups = new Map<string, DbRow[]>();
+          for (const r of db.rows) {
+            const k = JSON.stringify(cols.map((c) => String(r.cells[c!.id] ?? "").trim().toLowerCase()));
+            groups.set(k, [...(groups.get(k) ?? []), r]);
+          }
+          const drop = new Set<string>();
+          for (const rows of groups.values()) {
+            if (rows.length < 2) continue;
+            const keep = rows.reduce((a, b) => (filled(b) > filled(a) ? b : a));
+            rows.forEach((r) => r !== keep && drop.add(r.id));
+          }
+          if (!dryRun) db.rows = db.rows.filter((r) => !drop.has(r.id));
+          return { [dryRun ? "wouldDelete" : "deleted"]: drop.size, rows: db.rows.length, sample: [...drop].slice(0, 20) };
+        }),
+    }),
     db_add_column: tool({
       description: "Add a column when you need to track something new.",
       inputSchema: columnSpec,
@@ -232,6 +278,47 @@ export function databaseTools(uid: string, looperId: string): ToolSet {
           if (byName(db, spec.name)) return { error: `Column ${spec.name} exists` };
           db.columns.push({ id: nanoid(6), name: spec.name, type: spec.type as DbColumnType, options: spec.type === "select" ? (spec.options ?? []) : undefined });
           return { added: spec.name };
+        }),
+    }),
+    db_update_column: tool({
+      description: "Rename a column, change its type, or replace its select options. Existing values are converted to the new type.",
+      inputSchema: z.object({ column: z.string(), name: z.string().optional(), type: columnSpec.shape.type.optional(), options: z.array(z.string()).optional() }),
+      execute: ({ column, name, type, options }) =>
+        mutateDatabase(uid, looperId, ({ db }) => {
+          if (!db) return { error: "No database yet." };
+          const col = byName(db, column);
+          if (!col) return { error: `No column ${column}` };
+          if (name?.trim() && name.trim().toLowerCase() !== col.name.toLowerCase() && byName(db, name.trim())) return { error: `Column ${name} exists` };
+          if (name?.trim()) col.name = name.trim();
+          if (type) col.type = type;
+          if (col.type === "select") col.options = options ?? col.options ?? [];
+          else col.options = undefined;
+          if (type) for (const r of db.rows) r.cells[col.id] = coerce(col, r.cells[col.id]);
+          return { updated: col.name, type: col.type, options: col.options };
+        }),
+    }),
+    db_delete_column: tool({
+      description: "Delete a column and its values from every row. Permanent.",
+      inputSchema: z.object({ column: z.string() }),
+      execute: ({ column }) =>
+        mutateDatabase(uid, looperId, ({ db }) => {
+          if (!db) return { error: "No database yet." };
+          const col = byName(db, column);
+          if (!col) return { error: `No column ${column}` };
+          db.columns = db.columns.filter((c) => c !== col);
+          for (const r of db.rows) delete r.cells[col.id];
+          return { deleted: col.name };
+        }),
+    }),
+    db_rename: tool({
+      description: "Rename your database or change what one row is.",
+      inputSchema: z.object({ name: z.string().optional(), rowNoun: z.string().optional() }),
+      execute: ({ name, rowNoun }) =>
+        mutateDatabase(uid, looperId, ({ db }) => {
+          if (!db) return { error: "No database yet." };
+          if (name?.trim()) db.name = name.trim();
+          if (rowNoun?.trim()) db.rowNoun = rowNoun.trim();
+          return { name: db.name, row: db.rowNoun };
         }),
     }),
   };
