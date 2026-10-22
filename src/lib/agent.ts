@@ -1136,7 +1136,7 @@ Connections: the user connects each app once (Gmail, Stripe, Google Sheets…) a
 
 When the user asks to see a looper's data (transactions, posts, leads), call read_database and show the rows as a short list; if it's empty, offer fill_database.
 
-Be brief and concrete. Use plain text with short lists.`;
+Be brief and concrete. Write short paragraphs separated by blank lines, "- " lists, **bold** for labels and `code` for ids; no tables or headings. Never use em dashes.`;
 
 /**
  * Save the owner's message and mark Chief as working, then hand back the slow part to run in the
