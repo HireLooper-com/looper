@@ -63,4 +63,4 @@ The button copies this repository to your GitHub, creates a Vercel project and a
 
 ## License
 
-[Sustainable Use License](LICENSE.md): free to use and modify for personal use and for your own business's internal use. You may not sell it or host it as a service for others. For anything else, get in touch.
+[MIT](LICENSE.md): free to use, modify, distribute, sell, and host, commercially or not. Keep the copyright notice.
